@@ -5,12 +5,13 @@ import type { Database, GenerationTask } from '../types';
 import { generateId, now } from './index';
 
 export const GenerationTaskDAO = {
-  create(db: Database, data: { user_id: string; project_id: string; task_type: string; model_used?: string; input_params?: string }): GenerationTask {
+  // 注意：input_params 在表结构中为 NOT NULL，缺省时写入 '{}' 而不是 NULL
+  create(db: Database, data: { user_id: string; project_id: string; task_type: string; provider?: string; model_name?: string; input_params?: string }): GenerationTask {
     const id = generateId('task');
     db.prepare(`
-      INSERT INTO generation_tasks (id, user_id, project_id, task_type, status, model_used, input_params, progress, created_at)
-      VALUES (?, ?, ?, ?, 'pending', ?, ?, 0, ?)
-    `).run(id, data.user_id, data.project_id, data.task_type, data.model_used || null, data.input_params || null, now());
+      INSERT INTO generation_tasks (id, user_id, project_id, task_type, status, provider, model_name, input_params, progress, created_at)
+      VALUES (?, ?, ?, ?, 'pending', ?, ?, ?, 0, ?)
+    `).run(id, data.user_id, data.project_id, data.task_type, data.provider || null, data.model_name || null, data.input_params || '{}', now());
     return this.getById(db, id)!;
   },
 

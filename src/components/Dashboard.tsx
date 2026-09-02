@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Plus, Film, MoreVertical, Pencil, Trash2, FolderOpen, Search, Clock, Sun, Moon, HelpCircle, BookOpen, Wand2, FileUp, ChevronRight, Zap, Settings, Users } from 'lucide-react';
+import { Plus, Film, MoreVertical, Pencil, Trash2, FolderOpen, Search, Clock, Sun, Moon, HelpCircle, BookOpen, Wand2, FileUp, ChevronRight, Zap, Settings, Users, Archive, ArchiveRestore, AlertTriangle } from 'lucide-react';
 import { Button, Card, EmptyState, Modal, Input, Badge } from './ui';
 import { projectService } from '../services/projectService';
 import { exportService } from '../services/exportService';
@@ -9,9 +9,12 @@ import { StylePresetSelector } from './StylePreset/StylePresetSelector';
 import type { Project, PipelineMode } from '../types';
 import { formatRelativeTime } from '../utils';
 
+type DashboardTab = 'active' | 'archived';
+
 export function Dashboard() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [tab, setTab] = useState<DashboardTab>('active');
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [newTitle, setNewTitle] = useState('');
   const [newDesc, setNewDesc] = useState('');
@@ -20,14 +23,18 @@ export function Dashboard() {
   const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [isCreatingFromNovel] = useState(false);
+  // 重命名与彻底删除走正式弹窗，不再用 window.prompt/confirm
+  const [renameTarget, setRenameTarget] = useState<Project | null>(null);
+  const [renameTitle, setRenameTitle] = useState('');
+  const [permanentTarget, setPermanentTarget] = useState<Project | null>(null);
   const importFileRef = useRef<HTMLInputElement>(null);
   const navigate = useNavigate();
   const { showToast, theme, toggleTheme } = useUIStore();
 
-  const loadProjects = async () => {
+  const loadProjects = async (status: DashboardTab = tab) => {
     setIsLoading(true);
     try {
-      const res = await projectService.list({ status: 'active' });
+      const res = await projectService.list({ status });
       if (res.success && res.data) {
         setProjects(res.data.items || []);
       }
@@ -40,7 +47,15 @@ export function Dashboard() {
 
   useEffect(() => {
     loadProjects();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  const switchTab = (next: DashboardTab) => {
+    if (next === tab) return;
+    setTab(next);
+    setMenuOpenId(null);
+    loadProjects(next);
+  };
 
   // 从小说开始：打开创建弹窗（包含风格选择），创建后跳转到小说管理页
   const handleStartFromNovel = () => {
@@ -70,28 +85,61 @@ export function Dashboard() {
     }
   };
 
-  const handleDelete = async (id: string) => {
+  // 移入回收站（可恢复）
+  const handleArchive = async (id: string) => {
+    setMenuOpenId(null);
     try {
       await projectService.delete(id);
-      showToast('项目已删除', 'success');
+      showToast('项目已移入回收站', 'success');
+      loadProjects();
+    } catch {
+      showToast('操作失败', 'error');
+    }
+  };
+
+  const handleRestore = async (id: string) => {
+    setMenuOpenId(null);
+    try {
+      await projectService.restore(id);
+      showToast('项目已恢复', 'success');
+      loadProjects();
+    } catch {
+      showToast('恢复失败', 'error');
+    }
+  };
+
+  // 彻底删除（在确认弹窗中二次确认后调用）
+  const handlePermanentDelete = async () => {
+    if (!permanentTarget) return;
+    try {
+      await projectService.deletePermanent(permanentTarget.id);
+      showToast('项目已彻底删除', 'success');
+      setPermanentTarget(null);
       loadProjects();
     } catch {
       showToast('删除失败', 'error');
     }
-    setMenuOpenId(null);
   };
 
-  const handleRename = (project: Project) => {
-    const newTitle = window.prompt('输入新的项目名称', project.title);
-    if (newTitle && newTitle.trim() && newTitle !== project.title) {
-      projectService.update(project.id, { title: newTitle.trim() })
-        .then(() => {
-          showToast('项目已重命名', 'success');
-          loadProjects();
-        })
-        .catch(() => showToast('重命名失败', 'error'));
-    }
+  const openRename = (project: Project) => {
     setMenuOpenId(null);
+    setRenameTarget(project);
+    setRenameTitle(project.title);
+  };
+
+  const handleRenameSubmit = async () => {
+    if (!renameTarget || !renameTitle.trim() || renameTitle.trim() === renameTarget.title) {
+      setRenameTarget(null);
+      return;
+    }
+    try {
+      await projectService.update(renameTarget.id, { title: renameTitle.trim() });
+      showToast('项目已重命名', 'success');
+      setRenameTarget(null);
+      loadProjects();
+    } catch {
+      showToast('重命名失败', 'error');
+    }
   };
 
   const handleImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -181,7 +229,7 @@ export function Dashboard() {
                 <p className="text-sm text-[var(--ink-3)]">AI 驱动的全流程漫剧/短剧生产流水线 · 从小说到成片，一键搞定</p>
               </div>
             </div>
-            
+
             {/* 核心优势 */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-6">
               <div className="p-4 rounded-xl bg-[var(--bg)]/60 border border-[var(--border)]">
@@ -328,12 +376,34 @@ export function Dashboard() {
           </Card>
         </div>
 
-        {/* 项目列表 */}
+        {/* 项目列表：进行中 / 回收站 */}
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-semibold text-[var(--ink-1)] font-[var(--font-display)]">
-            最近项目
-            <Badge variant="default" className="ml-2">{projects.length}</Badge>
-          </h2>
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={() => switchTab('active')}
+              className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                tab === 'active'
+                  ? 'bg-[var(--accent-soft)] text-[var(--accent)]'
+                  : 'text-[var(--ink-3)] hover:text-[var(--ink-1)]'
+              }`}
+            >
+              进行中
+            </button>
+            <button
+              type="button"
+              onClick={() => switchTab('archived')}
+              className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors flex items-center gap-1.5 ${
+                tab === 'archived'
+                  ? 'bg-[var(--accent-soft)] text-[var(--accent)]'
+                  : 'text-[var(--ink-3)] hover:text-[var(--ink-1)]'
+              }`}
+            >
+              <Archive className="w-4 h-4" />
+              回收站
+            </button>
+            <Badge variant="default" className="ml-2">{filteredProjects.length}</Badge>
+          </div>
         </div>
 
         {isLoading ? (
@@ -349,27 +419,45 @@ export function Dashboard() {
         ) : filteredProjects.length === 0 ? (
           <Card>
             <EmptyState
-              icon={<FolderOpen className="w-10 h-10" />}
-              title={searchQuery ? '没有找到匹配的项目' : '还没有项目'}
-              description={searchQuery ? '试试其他关键词' : '点击上方入口开始创作你的第一个 AI 漫剧/短剧'}
+              icon={tab === 'archived' ? <Archive className="w-10 h-10" /> : <FolderOpen className="w-10 h-10" />}
+              title={tab === 'archived' ? '回收站是空的' : searchQuery ? '没有找到匹配的项目' : '还没有项目'}
+              description={
+                tab === 'archived'
+                  ? '删除的项目会保留在这里，可随时恢复'
+                  : searchQuery
+                    ? '试试其他关键词'
+                    : '点击上方入口开始创作你的第一个 AI 漫剧/短剧'
+              }
             />
           </Card>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 relative">
+            {/* 菜单打开时的透明遮罩：点击任意处关闭菜单 */}
+            {menuOpenId && (
+              <div
+                className="fixed inset-0 z-5"
+                onClick={() => setMenuOpenId(null)}
+              />
+            )}
             {filteredProjects.map((project) => {
               const progress = getProjectProgress(project);
+              const isArchived = tab === 'archived';
               return (
                 <Card
                   key={project.id}
-                  hover
-                  className="p-0 overflow-hidden cursor-pointer group"
-                  onClick={() => navigate(`/projects/${project.id}`)}
+                  hover={!isArchived}
+                  className={`p-0 overflow-hidden group ${isArchived ? 'opacity-80' : 'cursor-pointer'}`}
+                  onClick={isArchived ? undefined : () => navigate(`/projects/${project.id}`)}
                 >
                   {/* 封面区域 */}
                   <div className="h-32 bg-gradient-to-br from-[var(--panel-2)] to-[var(--bg)] relative flex items-center justify-center">
                     <Film className="w-12 h-12 text-[var(--ink-3)]/30" />
                     <div className="absolute top-3 left-3">
-                      <Badge variant="accent">{getStepLabel(project.pipeline_step)}</Badge>
+                      {isArchived ? (
+                        <Badge variant="default"><Archive className="w-3 h-3 mr-1 inline" />已归档</Badge>
+                      ) : (
+                        <Badge variant="accent">{getStepLabel(project.pipeline_step)}</Badge>
+                      )}
                     </div>
                     <div className="absolute top-3 right-3">
                       <Button
@@ -384,19 +472,38 @@ export function Dashboard() {
                         <MoreVertical className="w-4 h-4" />
                       </Button>
                       {menuOpenId === project.id && (
-                        <div className="absolute right-0 top-10 w-36 bg-[var(--bg)] border border-[var(--border)] rounded-lg shadow-xl py-1 z-10">
-                          <button
-                            className="w-full px-3 py-2 text-left text-sm text-[var(--ink-1)] hover:bg-[var(--panel-2)] flex items-center gap-2"
-                            onClick={(e) => { e.stopPropagation(); handleRename(project); }}
-                          >
-                            <Pencil className="w-4 h-4" /> 重命名
-                          </button>
-                          <button
-                            className="w-full px-3 py-2 text-left text-sm text-red-500 hover:bg-red-500/10 flex items-center gap-2"
-                            onClick={(e) => { e.stopPropagation(); handleDelete(project.id); }}
-                          >
-                            <Trash2 className="w-4 h-4" /> 删除
-                          </button>
+                        <div className="absolute right-0 top-10 w-40 bg-[var(--bg)] border border-[var(--border)] rounded-lg shadow-xl py-1 z-10">
+                          {!isArchived ? (
+                            <>
+                              <button
+                                className="w-full px-3 py-2 text-left text-sm text-[var(--ink-1)] hover:bg-[var(--panel-2)] flex items-center gap-2"
+                                onClick={(e) => { e.stopPropagation(); openRename(project); }}
+                              >
+                                <Pencil className="w-4 h-4" /> 重命名
+                              </button>
+                              <button
+                                className="w-full px-3 py-2 text-left text-sm text-[var(--ink-1)] hover:bg-[var(--panel-2)] flex items-center gap-2"
+                                onClick={(e) => { e.stopPropagation(); handleArchive(project.id); }}
+                              >
+                                <Archive className="w-4 h-4" /> 移入回收站
+                              </button>
+                            </>
+                          ) : (
+                            <>
+                              <button
+                                className="w-full px-3 py-2 text-left text-sm text-[var(--ink-1)] hover:bg-[var(--panel-2)] flex items-center gap-2"
+                                onClick={(e) => { e.stopPropagation(); handleRestore(project.id); }}
+                              >
+                                <ArchiveRestore className="w-4 h-4" /> 恢复项目
+                              </button>
+                              <button
+                                className="w-full px-3 py-2 text-left text-sm text-red-500 hover:bg-red-500/10 flex items-center gap-2"
+                                onClick={(e) => { e.stopPropagation(); setPermanentTarget(project); }}
+                              >
+                                <Trash2 className="w-4 h-4" /> 彻底删除
+                              </button>
+                            </>
+                          )}
                         </div>
                       )}
                     </div>
@@ -412,28 +519,32 @@ export function Dashboard() {
                     )}
 
                     {/* 进度条 */}
-                    <div className="mb-2">
-                      <div className="flex items-center justify-between text-xs text-[var(--ink-3)] mb-1">
-                        <span>制作进度</span>
-                        <span>{progress}%</span>
+                    {!isArchived && (
+                      <div className="mb-2">
+                        <div className="flex items-center justify-between text-xs text-[var(--ink-3)] mb-1">
+                          <span>制作进度</span>
+                          <span>{progress}%</span>
+                        </div>
+                        <div className="h-1.5 bg-[var(--panel-2)] rounded-full overflow-hidden">
+                          <div
+                            className="h-full bg-gradient-to-r from-[var(--accent)] to-[var(--accent-2)] rounded-full transition-all"
+                            style={{ width: `${progress}%` }}
+                          />
+                        </div>
                       </div>
-                      <div className="h-1.5 bg-[var(--panel-2)] rounded-full overflow-hidden">
-                        <div
-                          className="h-full bg-gradient-to-r from-[var(--accent)] to-[var(--accent-2)] rounded-full transition-all"
-                          style={{ width: `${progress}%` }}
-                        />
-                      </div>
-                    </div>
+                    )}
 
                     <div className="flex items-center justify-between text-xs text-[var(--ink-3)]">
                       <span className="flex items-center gap-1">
                         <Clock className="w-3 h-3" />
                         {formatRelativeTime(project.updated_at)}
                       </span>
-                      <span className="flex items-center gap-1 text-[var(--accent)] group-hover:gap-2 transition-all">
-                        继续制作
-                        <ChevronRight className="w-3 h-3" />
-                      </span>
+                      {!isArchived && (
+                        <span className="flex items-center gap-1 text-[var(--accent)] group-hover:gap-2 transition-all">
+                          继续制作
+                          <ChevronRight className="w-3 h-3" />
+                        </span>
+                      )}
                     </div>
                   </div>
                 </Card>
@@ -521,6 +632,59 @@ export function Dashboard() {
             onChange={(id) => setNewStylePresetId(id)}
             showDetails={false}
           />
+        </div>
+      </Modal>
+
+      {/* 重命名弹窗 */}
+      <Modal
+        open={!!renameTarget}
+        onOpenChange={(open) => !open && setRenameTarget(null)}
+        title="重命名项目"
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setRenameTarget(null)}>取消</Button>
+            <Button onClick={handleRenameSubmit}>保存</Button>
+          </>
+        }
+      >
+        <div>
+          <label className="block text-sm font-medium text-[var(--ink-2)] mb-1.5">项目名称</label>
+          <Input
+            value={renameTitle}
+            onChange={(e) => setRenameTitle(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && handleRenameSubmit()}
+            autoFocus
+          />
+        </div>
+      </Modal>
+
+      {/* 彻底删除确认弹窗 */}
+      <Modal
+        open={!!permanentTarget}
+        onOpenChange={(open) => !open && setPermanentTarget(null)}
+        title="彻底删除项目"
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setPermanentTarget(null)}>取消</Button>
+            <Button variant="danger" onClick={handlePermanentDelete} leftIcon={<Trash2 className="w-4 h-4" />}>
+              彻底删除
+            </Button>
+          </>
+        }
+      >
+        <div className="flex items-start gap-3">
+          <div className="w-10 h-10 rounded-full bg-red-500/10 flex items-center justify-center flex-shrink-0">
+            <AlertTriangle className="w-5 h-5 text-red-500" />
+          </div>
+          <div>
+            <p className="text-sm text-[var(--ink-1)] mb-2">
+              确定要彻底删除项目 <span className="font-semibold">「{permanentTarget?.title}」</span> 吗？
+            </p>
+            <p className="text-xs text-[var(--ink-3)]">
+              该操作不可恢复：剧本、角色、场景、分镜、关键帧、视频等全部数据及生成的文件都会被永久清除。
+              若只是想暂时隐藏项目，请使用「移入回收站」。
+            </p>
+          </div>
         </div>
       </Modal>
     </div>

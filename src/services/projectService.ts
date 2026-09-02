@@ -19,6 +19,12 @@ export const projectService = {
   delete: (id: string) =>
     apiClient.delete<unknown, ApiResponse<void>>(`/projects/${id}`),
 
+  restore: (id: string) =>
+    apiClient.post<unknown, ApiResponse<void>>(`/projects/${id}/restore`),
+
+  deletePermanent: (id: string) =>
+    apiClient.delete<unknown, ApiResponse<void>>(`/projects/${id}/permanent`),
+
   // ---------- 小说 ----------
 
   uploadNovel: (projectId: string, file: File) => {

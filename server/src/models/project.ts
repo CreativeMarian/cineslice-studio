@@ -68,6 +68,31 @@ export const ProjectDAO = {
     db.prepare("UPDATE projects SET status = 'archived', updated_at = ? WHERE id = ?").run(now(), id);
   },
 
+  restore(db: Database, id: string): void {
+    db.prepare("UPDATE projects SET status = 'active', updated_at = ? WHERE id = ?").run(now(), id);
+  },
+
+  // 彻底删除：按依赖顺序清理项目所有子资源（不含用户级共享资产与成本记录）
+  deleteCascade(db: Database, id: string): void {
+    const episodeIdsSub = 'SELECT id FROM novel_episodes WHERE project_id = ?';
+    const shotIdsSub = 'SELECT id FROM shots WHERE episode_id IN (' + episodeIdsSub + ')';
+    db.prepare(`DELETE FROM character_variations WHERE character_id IN (SELECT id FROM script_characters WHERE episode_id IN (${episodeIdsSub}))`).run(id);
+    db.prepare(`DELETE FROM shot_keyframes WHERE shot_id IN (${shotIdsSub})`).run(id);
+    db.prepare(`DELETE FROM shot_video_intervals WHERE shot_id IN (${shotIdsSub})`).run(id);
+    db.prepare('DELETE FROM render_logs WHERE project_id = ?').run(id);
+    db.prepare('DELETE FROM generation_tasks WHERE project_id = ?').run(id);
+    db.prepare(`DELETE FROM story_paragraphs WHERE episode_id IN (${episodeIdsSub})`).run(id);
+    db.prepare(`DELETE FROM subtitles WHERE episode_id IN (${episodeIdsSub})`).run(id);
+    db.prepare(`DELETE FROM shots WHERE episode_id IN (${episodeIdsSub})`).run(id);
+    db.prepare(`DELETE FROM script_characters WHERE episode_id IN (${episodeIdsSub})`).run(id);
+    db.prepare(`DELETE FROM script_scenes WHERE episode_id IN (${episodeIdsSub})`).run(id);
+    db.prepare(`DELETE FROM script_props WHERE episode_id IN (${episodeIdsSub})`).run(id);
+    db.prepare('DELETE FROM novel_episodes WHERE project_id = ?').run(id);
+    db.prepare('DELETE FROM novel_chapters WHERE project_id = ?').run(id);
+    db.prepare('DELETE FROM auto_pipeline_tasks WHERE project_id = ?').run(id);
+    this.hardDelete(db, id);
+  },
+
   hardDelete(db: Database, id: string): void {
     db.prepare('DELETE FROM projects WHERE id = ?').run(id);
   },

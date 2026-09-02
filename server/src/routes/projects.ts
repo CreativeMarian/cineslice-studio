@@ -14,6 +14,7 @@ import { validateBody } from '../middleware/validate';
 import { novelUpload } from '../middleware/upload';
 import { parseNovel } from '../services/novelParser';
 import { aiProxy } from '../services/aiProxy';
+import { projectStorage } from '../services/projectStorage';
 import { novelToScriptPrompt } from '../services/prompts/novelToScript';
 import { parseAiJson } from '../utils/aiJsonParser';
 import { decodeFilename } from '../utils/filename';
@@ -86,13 +87,41 @@ router.put('/:id', validateBody(updateProjectSchema), asyncHandler(async (req: R
   res.json({ success: true, data: updated });
 }));
 
-// 删除项目（软删除）
+// 删除项目（移入回收站）
 router.delete('/:id', asyncHandler(async (req: Request, res: Response) => {
   const db = getDb(req);
   const project = ProjectDAO.getByIdAndUser(db, req.params.id, req.user.id);
   if (!project) throw createError(404, 'NOT_FOUND', '项目不存在');
   ProjectDAO.softDelete(db, req.params.id);
-  res.json({ success: true, data: { message: '项目已删除' } });
+  res.json({ success: true, data: { message: '项目已移入回收站' } });
+}));
+
+// 从回收站恢复项目
+router.post('/:id/restore', asyncHandler(async (req: Request, res: Response) => {
+  const db = getDb(req);
+  const project = ProjectDAO.getByIdAndUser(db, req.params.id, req.user.id);
+  if (!project) throw createError(404, 'NOT_FOUND', '项目不存在');
+  ProjectDAO.restore(db, req.params.id);
+  res.json({ success: true, data: { message: '项目已恢复' } });
+}));
+
+// 彻底删除项目（清理全部子资源与磁盘文件，不可恢复）
+router.delete('/:id/permanent', asyncHandler(async (req: Request, res: Response) => {
+  const db = getDb(req);
+  const project = ProjectDAO.getByIdAndUser(db, req.params.id, req.user.id);
+  if (!project) throw createError(404, 'NOT_FOUND', '项目不存在');
+  ProjectDAO.deleteCascade(db, req.params.id);
+
+  // 清理磁盘上的项目资产目录（data/{projectId} 与 uploads/{projectId}）
+  for (const dir of [projectStorage.getDataDir(req.params.id), projectStorage.getUploadsDir(req.params.id)]) {
+    try {
+      if (fs.existsSync(dir)) fs.rmSync(dir, { recursive: true, force: true });
+    } catch (err) {
+      console.error(`[ProjectPermanentDelete] 清理目录失败: ${dir}`, err);
+    }
+  }
+
+  res.json({ success: true, data: { message: '项目已彻底删除' } });
 }));
 
 // ============ 小说上传与章节 ============
