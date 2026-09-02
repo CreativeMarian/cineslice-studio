@@ -77,6 +77,27 @@ async function main() {
   app.use(express.json({ limit: '10mb' }));
   app.use(express.urlencoded({ extended: true }));
 
+  // 安全响应头（不引入 helmet 依赖，只设置与本项目兼容的头部）
+  app.use((req, res, next) => {
+    res.set('X-Content-Type-Options', 'nosniff');
+    res.set('X-Frame-Options', 'SAMEORIGIN');
+    res.set('Referrer-Policy', 'strict-origin-when-cross-origin');
+    res.set('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+    next();
+  });
+
+  // 请求日志：记录慢请求（>=1s）与完成状态，避免控制台噪音
+  app.use((req, res, next) => {
+    const start = Date.now();
+    res.on('finish', () => {
+      const duration = Date.now() - start;
+      if (duration >= 1000) {
+        console.warn(`[HTTP] ${req.method} ${req.originalUrl} -> ${res.statusCode} (${duration}ms) [SLOW]`);
+      }
+    });
+    next();
+  });
+
   // 静态文件托管（/data 含项目图片等资源，但绝不能暴露 SQLite 数据库文件）
   const blockSensitiveFiles: express.RequestHandler = (req, res, next) => {
     if (/\.(db|db-wal|db-shm|sqlite|sqlite3|wal|shm)$/i.test(req.path)) {
@@ -126,6 +147,14 @@ async function main() {
   app.use('/api/project-patch', projectPatchRoutes);
   app.use('/api', videoComposeRoutes); // /api/episodes/:id/compose, /api/compose/:taskId, /api/ffmpeg/status
   app.use('/api', audioRoutes); // /api/episodes/:id/tts, /api/episodes/:id/audio-compose, etc.
+
+  // 8.1 未知 API 路径返回 JSON 404（避免落入 SPA 兜底返回 HTML）
+  app.use('/api', (req, res) => {
+    res.status(404).json({
+      success: false,
+      error: { code: 'NOT_FOUND', message: `接口不存在: ${req.method} ${req.originalUrl}` },
+    });
+  });
 
   // 9. 全局错误处理
   app.use(errorHandler);
