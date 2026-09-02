@@ -64,7 +64,7 @@ describe('NovelEpisodeDAO', () => {
   describe('getByIds', () => {
     it('批量查询返回正确结果', () => {
       const ep1 = NovelEpisodeDAO.create(db, { user_id: 'local_user', project_id: projectId, episode_number: 1, title: 'A' });
-      const ep2 = NovelEpisodeDAO.create(db, { user_id: 'local_user', project_id: projectId, episode_number: 2, title: 'B' });
+      const _ep2 = NovelEpisodeDAO.create(db, { user_id: 'local_user', project_id: projectId, episode_number: 2, title: 'B' });
       const ep3 = NovelEpisodeDAO.create(db, { user_id: 'local_user', project_id: projectId, episode_number: 3, title: 'C' });
       const result = NovelEpisodeDAO.getByIds(db, [ep1.id, ep3.id]);
       expect(result).toHaveLength(2);

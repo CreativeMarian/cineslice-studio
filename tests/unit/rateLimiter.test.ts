@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import type { Request, Response, NextFunction } from 'express';
+import type { Request, Response } from 'express';
 import { rateLimit } from '../../server/src/middleware/rateLimiter';
 
 function makeReq(ip: string): Request {

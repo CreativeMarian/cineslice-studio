@@ -66,7 +66,7 @@ describe('ShotKeyframeDAO', () => {
   describe('getByIds', () => {
     it('批量查询返回正确结果', () => {
       const k1 = ShotKeyframeDAO.create(db, { user_id: 'local_user', shot_id: shotId, prompt: 'A' });
-      const k2 = ShotKeyframeDAO.create(db, { user_id: 'local_user', shot_id: shotId, prompt: 'B' });
+      const _k2 = ShotKeyframeDAO.create(db, { user_id: 'local_user', shot_id: shotId, prompt: 'B' });
       const k3 = ShotKeyframeDAO.create(db, { user_id: 'local_user', shot_id: shotId, prompt: 'C' });
       const result = ShotKeyframeDAO.getByIds(db, [k1.id, k3.id]);
       expect(result).toHaveLength(2);

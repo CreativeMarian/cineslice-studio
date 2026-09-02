@@ -62,7 +62,7 @@ describe('ScriptCharacterDAO', () => {
   describe('getByIds', () => {
     it('批量查询返回正确结果', () => {
       const c1 = ScriptCharacterDAO.create(db, { user_id: 'local_user', episode_id: episodeId, name: 'A' });
-      const c2 = ScriptCharacterDAO.create(db, { user_id: 'local_user', episode_id: episodeId, name: 'B' });
+      const _c2 = ScriptCharacterDAO.create(db, { user_id: 'local_user', episode_id: episodeId, name: 'B' });
       const c3 = ScriptCharacterDAO.create(db, { user_id: 'local_user', episode_id: episodeId, name: 'C' });
       const result = ScriptCharacterDAO.getByIds(db, [c1.id, c3.id]);
       expect(result).toHaveLength(2);

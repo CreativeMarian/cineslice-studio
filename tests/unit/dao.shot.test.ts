@@ -72,7 +72,7 @@ describe('ShotDAO', () => {
   describe('getByIds', () => {
     it('批量查询返回正确结果', () => {
       const s1 = ShotDAO.create(db, { user_id: 'local_user', episode_id: episodeId, shot_number: 1 });
-      const s2 = ShotDAO.create(db, { user_id: 'local_user', episode_id: episodeId, shot_number: 2 });
+      const _s2 = ShotDAO.create(db, { user_id: 'local_user', episode_id: episodeId, shot_number: 2 });
       const s3 = ShotDAO.create(db, { user_id: 'local_user', episode_id: episodeId, shot_number: 3 });
       const result = ShotDAO.getByIds(db, [s1.id, s3.id]);
       expect(result).toHaveLength(2);

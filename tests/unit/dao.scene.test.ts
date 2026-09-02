@@ -61,7 +61,7 @@ describe('ScriptSceneDAO', () => {
   describe('getByIds', () => {
     it('批量查询返回正确结果', () => {
       const s1 = ScriptSceneDAO.create(db, { user_id: 'local_user', episode_id: episodeId, name: 'A' });
-      const s2 = ScriptSceneDAO.create(db, { user_id: 'local_user', episode_id: episodeId, name: 'B' });
+      const _s2 = ScriptSceneDAO.create(db, { user_id: 'local_user', episode_id: episodeId, name: 'B' });
       const s3 = ScriptSceneDAO.create(db, { user_id: 'local_user', episode_id: episodeId, name: 'C' });
       const result = ScriptSceneDAO.getByIds(db, [s1.id, s3.id]);
       expect(result).toHaveLength(2);
