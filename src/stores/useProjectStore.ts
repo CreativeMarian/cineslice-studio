@@ -48,6 +48,9 @@ interface ProjectState {
   clear: () => void;
 }
 
+// 过期响应守卫：模块级请求序号。快速切换项目时，旧项目的慢响应不得覆盖新项目数据
+let _loadProjectSeq = 0;
+
 export const useProjectStore = create<ProjectState>((set, get) => ({
   currentProject: null,
   episodes: [],
@@ -83,6 +86,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   },
 
   loadProjectData: async (projectId) => {
+    const reqId = ++_loadProjectSeq;
     set({ isLoading: true, error: null });
     try {
       const [projectRes, episodesRes, chaptersRes] = await Promise.all([
@@ -90,6 +94,8 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         projectService.getEpisodes(projectId),
         projectService.getChapters(projectId),
       ]);
+      // 响应到达前若已发起更新的加载（切换项目），丢弃本次结果
+      if (reqId !== _loadProjectSeq) return;
       const project = projectRes.data || null;
       const chapters = chaptersRes.data || [];
       set({

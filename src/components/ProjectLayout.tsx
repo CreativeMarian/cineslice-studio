@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { Outlet, useParams } from 'react-router-dom';
 import { Sidebar } from './Sidebar';
 import { Topbar } from './Topbar';
@@ -33,8 +33,11 @@ export function ProjectLayout() {
   const [autoTaskId, setAutoTaskId] = useState<string | null>(null);
   const [autoTaskStatus, setAutoTaskStatus] = useState<{ currentStage: string; stageProgress: Record<string, string>; status: string; error?: string } | null>(null);
 
+  // in-flight 守卫：轮询 + 手动刷新共用 loadPipeline，慢响应乱序覆盖会被此挡住
+  const loadPipelineInFlight = useRef(false);
   const loadPipeline = useCallback(async () => {
-    if (!projectId) return;
+    if (!projectId || loadPipelineInFlight.current) return;
+    loadPipelineInFlight.current = true;
     try {
       const res = await pipelineService.getStatus(projectId);
       if (res.success && res.data) {
@@ -48,6 +51,8 @@ export function ProjectLayout() {
       }
     } catch {
       // 静默处理
+    } finally {
+      loadPipelineInFlight.current = false;
     }
   }, [projectId]);
 
@@ -143,23 +148,31 @@ export function ProjectLayout() {
     }
   };
 
-  const handleNext = async () => {
+  // 流水线状态机操作的 in-flight 锁：双击"确认并进入下一阶段"会连跳两个阶段（付费 AI 操作）
+  const [pipelineActionBusy, setPipelineActionBusy] = useState(false);
+  const guardedAction = (fn: () => Promise<void>) => {
+    if (pipelineActionBusy) return;
+    setPipelineActionBusy(true);
+    fn().finally(() => setPipelineActionBusy(false));
+  };
+
+  const handleNext = () => guardedAction(async () => {
     if (!projectId) return;
     const res = await pipelineService.next(projectId);
     if (res.success && res.data) setPipelineStatus(res.data);
-  };
+  });
 
-  const handleRetry = async () => {
+  const handleRetry = () => guardedAction(async () => {
     if (!projectId) return;
     const res = await pipelineService.retry(projectId);
     if (res.success && res.data) setPipelineStatus(res.data);
-  };
+  });
 
-  const handleRollback = async () => {
+  const handleRollback = () => guardedAction(async () => {
     if (!projectId) return;
     const res = await pipelineService.rollback(projectId);
     if (res.success && res.data) setPipelineStatus(res.data);
-  };
+  });
 
   const handleResetPipeline = async () => {
     if (!projectId) return;
@@ -192,7 +205,9 @@ export function ProjectLayout() {
   };
 
   const handleStartAuto = async () => {
-    if (!projectId) return;
+    if (!projectId || pipelineActionBusy) return;
+    setPipelineActionBusy(true);
+    try {
     // 如果流水线已完成或失败，先重置再启动
     if (pipelineStatus && (pipelineStatus.overall_status === 'done' || pipelineStatus.overall_status === 'failed')) {
       try {
@@ -201,7 +216,6 @@ export function ProjectLayout() {
         // 重置失败不影响启动
       }
     }
-    try {
       const res = await pipelineService.autoRun(projectId);
       if (res.success && res.data) {
         setAutoTaskId(res.data.taskId);
@@ -211,6 +225,8 @@ export function ProjectLayout() {
       }
     } catch {
       useUIStore.getState().showToast('启动全自动流水线失败', 'error');
+    } finally {
+      setPipelineActionBusy(false);
     }
   };
 
@@ -218,10 +234,15 @@ export function ProjectLayout() {
   useEffect(() => {
     if (!autoTaskId || !projectId) return;
     let cancelled = false;
+    let inFlight = false; // 上一个请求未返回时跳过本轮，防止慢响应乱序覆盖
+    let failures = 0;     // 连续失败熔断
     const poll = async () => {
+      if (inFlight || cancelled) return;
+      inFlight = true;
       try {
         const res = await pipelineService.getAutoRunStatus(projectId, autoTaskId);
         if (cancelled || !res.success || !res.data) return;
+        failures = 0;
         setAutoTaskStatus({
           currentStage: res.data.currentStage,
           stageProgress: res.data.stageProgress,
@@ -239,9 +260,19 @@ export function ProjectLayout() {
         } else if (res.data.status === 'cancelled') {
           useUIStore.getState().showToast('全自动流水线已取消', 'info');
           setAutoTaskId(null);
+        } else if (res.data.status === 'interrupted') {
+          // interrupted 是待用户确认的稳态，继续 3s 轮询毫无意义
+          setAutoTaskId(null);
         }
       } catch {
-        // 静默处理轮询错误
+        failures += 1;
+        if (failures >= 10) {
+          // 约 30 秒持续失败（后端下线/网络中断），停止轮询
+          setAutoTaskId(null);
+          useUIStore.getState().showToast('无法获取全自动任务进度，已停止跟踪', 'warning');
+        }
+      } finally {
+        inFlight = false;
       }
     };
     const timer = setInterval(poll, 3000);

@@ -45,6 +45,8 @@ export function useGenerationProgress(defaultStages?: Array<{ label: string; sta
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const start = useCallback((initialStage?: string) => {
+    // 先清掉上一次的计时器：连续两次 start 会泄漏旧 interval（每 500ms 白写状态）
+    if (timerRef.current) clearInterval(timerRef.current);
     setIsGenerating(true);
     setError(null);
     setSuccess(null);

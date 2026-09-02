@@ -52,24 +52,39 @@ export function TaskCenter() {
 
   const activeCount = tasks.filter((t) => t.status === 'running' || t.status === 'pending').length;
 
+  // in-flight 守卫：上一个请求未返回时跳过本轮，防止慢响应乱序覆盖新数据
+  const pollingRef = useRef(false);
+  const pollOnce = useCallback(async () => {
+    if (pollingRef.current) return;
+    pollingRef.current = true;
+    try {
+      await loadTasks();
+    } finally {
+      pollingRef.current = false;
+    }
+  }, [loadTasks]);
+
   // 挂载后拉取一次，用于角标展示
   useEffect(() => {
-    loadTasks();
-    // 定期刷新角标（轻量接口，20s 一次）
-    const timer = setInterval(() => { loadTasks(); }, 20_000);
+    pollOnce();
+    // 定期刷新角标（轻量接口，20s 一次）；没有进行中的任务时跳过，避免长期空转
+    const timer = setInterval(() => {
+      const hasActive = useTaskStore.getState().tasks.some((t) => t.status === 'running' || t.status === 'pending');
+      if (hasActive) pollOnce();
+    }, 20_000);
     return () => clearInterval(timer);
-  }, [loadTasks]);
+  }, [pollOnce]);
 
   // 抽屉打开时加速轮询；关闭时停止
   useEffect(() => {
     if (open) {
       refresh();
-      pollTimerRef.current = setInterval(() => { loadTasks(); }, 3_000);
+      pollTimerRef.current = setInterval(() => { pollOnce(); }, 3_000);
       return () => {
         if (pollTimerRef.current) clearInterval(pollTimerRef.current);
       };
     }
-  }, [open, refresh, loadTasks]);
+  }, [open, refresh, pollOnce]);
 
   const handleCancel = async (task: GenerationTask) => {
     try {

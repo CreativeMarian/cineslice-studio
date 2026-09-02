@@ -1,5 +1,5 @@
-// 基于标准 fetch �?API 客户�?
-// 替代 axios，确保所有请求在 DevTools Network �?Fetch/XHR 中可�?
+// 基于标准 fetch 的 API 客户端
+// 替代 axios，确保所有请求在 DevTools Network → Fetch/XHR 中可见
 
 import { useUIStore } from '../stores/useUIStore';
 
@@ -8,11 +8,11 @@ interface RequestConfig {
   headers?: Record<string, string>;
   responseType?: 'json' | 'blob' | 'text';
   timeout?: number;
-  /** 是否静默错误（不显示 Toast），默认 false */
+  /** 是否静默错误（不显示 Toast），默认 false。轮询等高频请求应传 true */
   silent?: boolean;
 }
 
-// 兼容 axios 错误结构，便于现有代�?err?.response?.data?.message 访问
+// 兼容 axios 错误结构，便于现有代码 err?.response?.data?.message 访问
 export class ApiError extends Error {
   response?: {
     status: number;
@@ -28,7 +28,22 @@ export class ApiError extends Error {
 }
 
 const BASE_URL = (import.meta.env.VITE_API_BASE_URL || '/api').replace(/\/$/, '');
-const DEFAULT_TIMEOUT = 600000; // AI 生成可能较慢，设 2 分钟
+const DEFAULT_TIMEOUT = 600000; // AI 生成可能极慢（视频/长文），设 10 分钟；普通请求可在 config.timeout 覆盖
+
+// 连续相同的错误 Toast 去重（3 秒窗口）：
+// 轮询请求在后端短暂不可用时会以 2~20s 间隔失败，不去重就是无休止的 toast 轰炸
+let _lastToastKey = '';
+let _lastToastAt = 0;
+function showDedupedToast(message: string, critical: boolean): void {
+  const now = Date.now();
+  const key = `${critical ? 'c' : 'n'}:${message}`;
+  if (key === _lastToastKey && now - _lastToastAt < 3000) return;
+  _lastToastKey = key;
+  _lastToastAt = now;
+  try {
+    useUIStore.getState().showToast(message, 'error', { severity: critical ? 'critical' : 'normal' });
+  } catch { /* UI store 不可用时静默 */ }
+}
 
 function buildUrl(url: string, params?: Record<string, unknown>): string {
   const fullUrl = url.startsWith('http') ? url : `${BASE_URL}${url}`;
@@ -57,12 +72,12 @@ async function request(
     finalHeaders['Authorization'] = `Bearer ${token}`;
   }
 
-  // FormData 时不手动设置 Content-Type，让浏览器自动设�?boundary
+  // FormData 时不手动设置 Content-Type，让浏览器自动设置 boundary
   let body: BodyInit | undefined;
   if (data !== undefined && data !== null) {
     if (data instanceof FormData) {
       body = data;
-      // 关键：删除调用方可能传入�?Content-Type，让浏览器自动添加带 boundary 的正确头
+      // 关键：删除调用方可能传入的 Content-Type，让浏览器自动添加带 boundary 的正确头
       delete finalHeaders['Content-Type'];
       delete finalHeaders['content-type'];
     } else {
@@ -85,9 +100,21 @@ async function request(
       credentials: 'include',
     });
 
-    // 401 �?跳登录（服务端模式）
-    if (response.status === 401 && import.meta.env.VITE_RUN_MODE === 'server') {
+    // 401 → 跳登录（服务端模式）。
+    // 登录/注册接口自身的 401（密码错误）不能触发跳转，否则整页刷新会吞掉错误提示；
+    // 已在 /login 页时也不重复跳转；清理必须走 auth store，
+    // 否则 raw token key 与持久化的 zustand store 状态分叉，RequireAuth 误判为已登录
+    if (
+      response.status === 401 &&
+      import.meta.env.VITE_RUN_MODE === 'server' &&
+      !url.startsWith('/auth/') &&
+      !window.location.pathname.startsWith('/login')
+    ) {
       localStorage.removeItem('token');
+      try {
+        const { useAuthStore } = await import('../stores/useAuthStore');
+        useAuthStore.getState().logout();
+      } catch { /* store 不可用时仍执行跳转 */ }
       window.location.href = '/login';
     }
 
@@ -108,19 +135,9 @@ async function request(
     if (!response.ok) {
       const errorData = (result as any)?.error || result;
       const errorMsg = (errorData as any)?.message || `HTTP ${response.status}`;
-      // 统一错误提示事件
-      if ((errorData as any)?.message) {
-        window.dispatchEvent(
-          new CustomEvent('api-error', { detail: errorData })
-        );
-      }
-      // 自动显示 Toast�?01 除外，会跳转登录�?
+      // 自动显示 Toast（401 除外：会跳转登录）。轮询等高频请求应传 silent:true
       if (!silent && response.status !== 401) {
-        try {
-          const store = useUIStore.getState();
-          const isCritical = response.status >= 500;
-          store.showToast(errorMsg, 'error', { severity: isCritical ? 'critical' : 'normal' });
-        } catch {}
+        showDedupedToast(errorMsg, response.status >= 500);
       }
       throw new ApiError(errorMsg, response.status, result);
     }
@@ -130,15 +147,11 @@ async function request(
     if (err instanceof ApiError) throw err;
     if ((err as Error).name === 'AbortError') {
       const timeoutErr = new ApiError('请求超时，请稍后重试');
-      if (!silent) {
-        try { useUIStore.getState().showToast('请求超时，请稍后重试', 'error', { severity: 'normal' }); } catch {}
-      }
+      if (!silent) showDedupedToast('请求超时，请稍后重试', false);
       throw timeoutErr;
     }
     const netErr = new ApiError((err as Error).message || '网络请求失败');
-    if (!silent) {
-      try { useUIStore.getState().showToast((err as Error).message || '网络请求失败', 'error', { severity: 'critical' }); } catch {}
-    }
+    if (!silent) showDedupedToast((err as Error).message || '网络请求失败', true);
     throw netErr;
   } finally {
     clearTimeout(timer);

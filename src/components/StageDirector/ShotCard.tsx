@@ -123,7 +123,17 @@ export function ShotCard({ shot, index, isExpanded, onToggle, showToast }: ShotC
       try {
         const res = await videoService.getStatus(pollingVideoId);
         if (res.success && res.data) {
-          setVideos(prev => prev.map(v => v.id === pollingVideoId ? res.data! : v));
+          // 仅在内容有变化时更新：新对象引用会让"已等待 X 秒"计时器 effect 每 5s 重建重置
+          setVideos(prev => {
+            const exists = prev.find(v => v.id === pollingVideoId);
+            if (!exists) return prev;
+            if (exists.status === res.data!.status &&
+                exists.external_task_id === res.data!.external_task_id &&
+                exists.video_url === res.data!.video_url) {
+              return prev;
+            }
+            return prev.map(v => v.id === pollingVideoId ? res.data! : v);
+          });
           if (res.data.status === 'completed' || res.data.status === 'failed') {
             setPollingVideoId(null);
             showToast(res.data.status === 'completed' ? '视频生成完成' : '视频生成失败', res.data.status === 'completed' ? 'success' : 'error');

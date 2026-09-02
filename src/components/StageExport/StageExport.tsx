@@ -163,24 +163,37 @@ export function StageExport() {
       if (res.success && res.data) {
         setComposeResult(res.data);
         if (res.data.status === 'processing') {
-          // 开始轮询
+          // 开始轮询：任意非 processing 终态、连续 5 次请求失败、或任务丢失都停止，
+          // 否则按钮会因 status==='processing' 永久禁用，用户只能整页刷新
+          let failures = 0;
+          const stopPolling = () => {
+            clearInterval(timer);
+            pollTimerRef.current = null;
+          };
           const timer = setInterval(async () => {
             try {
               const statusRes = await videoComposeService.getStatus(res.data.taskId);
+              failures = 0;
               if (statusRes.success && statusRes.data) {
                 setComposeResult(statusRes.data);
                 if (statusRes.data.status === 'completed') {
-                  clearInterval(timer);
-                  pollTimerRef.current = null;
+                  stopPolling();
                   showToast('视频合成完成！', 'success');
                 } else if (statusRes.data.status === 'failed') {
-                  clearInterval(timer);
-                  pollTimerRef.current = null;
+                  stopPolling();
                   showToast(`合成失败：${statusRes.data.error || '未知错误'}`, 'error');
+                } else if (statusRes.data.status !== 'processing') {
+                  // 未知状态（如服务器重启后任务丢失）也停止，避免无限轮询
+                  stopPolling();
+                  showToast('合成任务已结束（状态未知），请重新发起', 'warning');
                 }
               }
             } catch {
-              // 静默轮询错误
+              failures += 1;
+              if (failures >= 5) {
+                stopPolling();
+                showToast('无法获取合成进度，请稍后在任务中心查看', 'warning');
+              }
             }
           }, 2000);
           pollTimerRef.current = timer;

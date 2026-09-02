@@ -36,8 +36,8 @@ export function AudioPanel({ episodeId, shots, showToast }: AudioPanelProps) {
 
   useEffect(() => {
     apiClient.get<any, any>(`/episodes/${episodeId}/audio`).then((res: any) => {
-      if (res.data?.success && res.data.data) {
-        setAudioFiles(res.data.data);
+      if (res.success && res.data) {
+        setAudioFiles(res.data);
       }
     }).catch(() => {});
   }, [episodeId]);
@@ -51,9 +51,9 @@ export function AudioPanel({ episodeId, shots, showToast }: AudioPanelProps) {
     try {
       const [provider, modelName] = ttsModel.split(':');
       const res = await apiClient.post<any, any>(`/episodes/${episodeId}/tts`, { provider, modelName });
-      if (res.data?.success && res.data.data) {
-        setTtsResults(res.data.data);
-        const successCount = res.data.data.filter((r: TtsResult) => r.audioUrl).length;
+      if (res.success && res.data) {
+        setTtsResults(res.data);
+        const successCount = res.data.filter((r: TtsResult) => r.audioUrl).length;
         showToast(`配音生成完成：${successCount} 个镜头`, 'success');
       }
     } catch {
@@ -76,7 +76,7 @@ export function AudioPanel({ episodeId, shots, showToast }: AudioPanelProps) {
         bgmPreset,
         bgmVolume,
       });
-      if (res.data?.success && res.data.data) {
+      if (res.success && res.data) {
         setComposedAudio({ url: res.data.data.audioUrl, duration: res.data.data.totalDuration });
         showToast('音频合成完成', 'success');
       }

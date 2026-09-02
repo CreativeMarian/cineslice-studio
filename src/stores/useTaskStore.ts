@@ -32,7 +32,7 @@ export const useTaskStore = create<TaskState>((set, get) => ({
         set({ tasks: items });
       }
     } catch {
-      set({ tasks: [] });
+      // 轮询场景下一次瞬时网络错误不应清空列表/角标；保留现有数据
     } finally {
       set({ isLoading: false });
     }

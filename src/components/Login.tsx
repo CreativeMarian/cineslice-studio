@@ -131,8 +131,8 @@ export function Login() {
 
           <div className="mt-6 text-center text-sm text-[var(--ink-2)]">
             还没有账号？{' '}
-            <Link to="/register" className="text-[var(--accent)] hover:underline font-medium">
-              去注册
+            <Link to="/landing" className="text-[var(--accent)] hover:underline font-medium">
+              了解更多
             </Link>
           </div>
 

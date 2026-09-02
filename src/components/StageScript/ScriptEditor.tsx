@@ -39,12 +39,16 @@ export function ScriptEditor() {
 
   const currentEpisode = episodes.find((e) => e.id === currentEpisodeId);
 
+  // 只在切换剧集时同步内容。依赖里不能放 currentEpisode 对象：
+  // 自动保存完成会更新 episodes 数组、生成新的 currentEpisode 引用，
+  // effect 随之重跑会把编辑期间用户继续键入的内容回滚成保存时刻的快照（丢字）
   useEffect(() => {
-    if (currentEpisode) {
-      setContent(currentEpisode.script_content || '');
+    const episode = useProjectStore.getState().episodes.find((e) => e.id === currentEpisodeId);
+    if (episode) {
+      setContent(episode.script_content || '');
       setIsSaved(true);
     }
-  }, [currentEpisodeId, currentEpisode]);
+  }, [currentEpisodeId]);
 
   const handleSave = useCallback(async () => {
     if (!currentEpisode) return;

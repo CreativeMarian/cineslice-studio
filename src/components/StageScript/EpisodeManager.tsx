@@ -23,6 +23,7 @@ export function EpisodeManager() {
   const [pendingGenerateParams, setPendingGenerateParams] = useState<{ modelKey: string } | null>(null);
   const [noChaptersDialogOpen, setNoChaptersDialogOpen] = useState(false);
   const progressTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const resetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // 批量选择
   const [selectedEpisodeIds, setSelectedEpisodeIds] = useState<Set<string>>(new Set());
@@ -119,7 +120,10 @@ export function EpisodeManager() {
       showToast(`生成失败: ${errorMsg}`, 'error');
     } finally {
       if (progressTimerRef.current) clearInterval(progressTimerRef.current);
-      setTimeout(() => {
+      // 延时重置存入 ref：新一轮生成开始或组件卸载时必须取消，
+      // 否则旧回调会打断新任务的 isGenerating/进度 UI
+      if (resetTimerRef.current) clearTimeout(resetTimerRef.current);
+      resetTimerRef.current = setTimeout(() => {
         setIsGenerating(false);
         setGeneratingModel('');
         setGenerateProgress(0);
