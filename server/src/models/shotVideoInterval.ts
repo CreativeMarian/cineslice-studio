@@ -1,0 +1,45 @@
+// 视频片段 DAO（P1）
+// v1.0
+
+import type { Database, ShotVideoInterval } from '../types';
+import { generateId, now } from './index';
+
+export const ShotVideoIntervalDAO = {
+  create(db: Database, data: { user_id: string; shot_id: string; start_frame_id?: string; end_frame_id?: string; duration_seconds?: number; motion_prompt?: string; video_model_used?: string }): ShotVideoInterval {
+    const id = generateId('vid');
+    db.prepare(`
+      INSERT INTO shot_video_intervals (id, user_id, shot_id, start_frame_id, end_frame_id, duration_seconds, video_model_used, motion_prompt, status, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)
+    `).run(id, data.user_id, data.shot_id, data.start_frame_id || null, data.end_frame_id || null, data.duration_seconds || 5.0, data.video_model_used || null, data.motion_prompt || null, now());
+    return this.getById(db, id)!;
+  },
+
+  listByShot(db: Database, shotId: string): ShotVideoInterval[] {
+    return db.prepare('SELECT * FROM shot_video_intervals WHERE shot_id = ? ORDER BY created_at ASC').all(shotId) as ShotVideoInterval[];
+  },
+
+  getById(db: Database, id: string): ShotVideoInterval | null {
+    return (db.prepare('SELECT * FROM shot_video_intervals WHERE id = ?').get(id) as ShotVideoInterval) || null;
+  },
+
+  update(db: Database, id: string, data: Partial<ShotVideoInterval>): ShotVideoInterval | null {
+    const fields = Object.keys(data).filter(k => k !== 'id');
+    if (fields.length === 0) return this.getById(db, id);
+    const sets = fields.map(f => `${f} = ?`).join(', ');
+    db.prepare(`UPDATE shot_video_intervals SET ${sets} WHERE id = ?`)
+      .run(...fields.map(f => (data as any)[f]), id);
+    return this.getById(db, id);
+  },
+
+  updateStatus(db: Database, id: string, status: string, errorMessage?: string): void {
+    if (status === 'completed') {
+      db.prepare('UPDATE shot_video_intervals SET status = ?, completed_at = ? WHERE id = ?').run(status, now(), id);
+    } else {
+      db.prepare('UPDATE shot_video_intervals SET status = ?, error_message = ? WHERE id = ?').run(status, errorMessage || null, id);
+    }
+  },
+
+  delete(db: Database, id: string): void {
+    db.prepare('DELETE FROM shot_video_intervals WHERE id = ?').run(id);
+  },
+};

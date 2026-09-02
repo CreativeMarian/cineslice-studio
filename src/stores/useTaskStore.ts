@@ -1,0 +1,53 @@
+import { create } from 'zustand';
+import type { GenerationTask } from '../types';
+import { taskService } from '../services/taskService';
+
+interface TaskState {
+  tasks: GenerationTask[];
+  isLoading: boolean;
+
+  loadTasks: (params?: { status?: string; project_id?: string }) => Promise<void>;
+  addTask: (task: GenerationTask) => void;
+  updateTask: (id: string, data: Partial<GenerationTask>) => void;
+  cancelTask: (id: string) => Promise<void>;
+  getActiveTasks: () => GenerationTask[];
+}
+
+export const useTaskStore = create<TaskState>((set, get) => ({
+  tasks: [],
+  isLoading: false,
+
+  loadTasks: async (params) => {
+    set({ isLoading: true });
+    try {
+      const res = await taskService.list(params);
+      if (res.success && res.data) {
+        set({ tasks: res.data });
+      }
+    } catch {
+      set({ tasks: [] });
+    } finally {
+      set({ isLoading: false });
+    }
+  },
+
+  addTask: (task) =>
+    set((state) => ({ tasks: [...state.tasks, task] })),
+
+  updateTask: (id, data) =>
+    set((state) => ({
+      tasks: state.tasks.map((t) => (t.id === id ? { ...t, ...data } : t)),
+    })),
+
+  cancelTask: async (id) => {
+    try {
+      await taskService.cancel(id);
+      get().updateTask(id, { status: 'cancelled' });
+    } catch {
+      // 错误已由拦截器处理
+    }
+  },
+
+  getActiveTasks: () =>
+    get().tasks.filter((t) => t.status === 'pending' || t.status === 'running'),
+}));
