@@ -6,6 +6,7 @@ import { useAuthStore } from '../stores/useAuthStore';
 import { useUIStore } from '../stores/useUIStore';
 import { useCommandPaletteStore } from '../stores/useCommandPaletteStore';
 import { ProfileModal } from './ProfileModal';
+import { TaskCenter } from './ui/TaskCenter';
 import { Badge } from './ui';
 
 const STAGE_ORDER = ['script', 'assets', 'director', 'export'];
@@ -74,6 +75,8 @@ export function Topbar() {
         </div>
 
         <div className="flex items-center gap-2">
+          {/* 任务中心 */}
+          <TaskCenter />
           {/* 命令面板入口 */}
           <button
             onClick={() => useCommandPaletteStore.getState().openPalette()}

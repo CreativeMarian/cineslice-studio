@@ -6,6 +6,7 @@ import { projectService } from '../services/projectService';
 import { exportService } from '../services/exportService';
 import { useUIStore } from '../stores/useUIStore';
 import { StylePresetSelector } from './StylePreset/StylePresetSelector';
+import { TaskCenter } from './ui/TaskCenter';
 import type { Project, PipelineMode } from '../types';
 import { formatRelativeTime } from '../utils';
 
@@ -201,6 +202,7 @@ export function Dashboard() {
             </div>
           </div>
           <div className="flex items-center gap-2">
+            <TaskCenter />
             <div className="relative hidden md:block">
               <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-[var(--ink-3)]" />
               <Input
