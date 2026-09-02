@@ -270,6 +270,31 @@ export interface GenerationTask extends BaseEntity {
   completed_at?: string;
 }
 
+// ---------- 成本统计 ----------
+
+export interface CostSummary {
+  total_tokens: number;
+  total_cost: number;
+  call_count: number;
+  by_type: Array<{ model_type: string; tokens: number; cost: number; count: number }>;
+  by_model: Array<{ provider: string; model_name: string; tokens: number; cost: number; count: number }>;
+  daily: Array<{ date: string; tokens: number; cost: number }>;
+}
+
+export interface CostRecord {
+  id: string;
+  user_id: string;
+  provider: string;
+  model_name: string;
+  model_type: string;
+  tokens: number;
+  cost: number;
+  image_count?: number;
+  video_seconds?: number;
+  audio_chars?: number;
+  created_at: string;
+}
+
 // ---------- 视觉风格 ----------
 
 export interface VisualStyle extends BaseEntity {

@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { Plus, Film, MoreVertical, Pencil, Trash2, FolderOpen, Search, Clock, Sun, Moon, HelpCircle, BookOpen, Wand2, FileUp, ChevronRight, Zap, Settings, Users, Archive, ArchiveRestore, AlertTriangle } from 'lucide-react';
+import { Plus, Film, MoreVertical, Pencil, Trash2, FolderOpen, Search, Clock, Sun, Moon, HelpCircle, BookOpen, Wand2, FileUp, ChevronRight, Zap, Settings, Users, Archive, ArchiveRestore, AlertTriangle, Coins } from 'lucide-react';
 import { Button, Card, EmptyState, Modal, Input, Badge } from './ui';
 import { projectService } from '../services/projectService';
 import { exportService } from '../services/exportService';
@@ -294,6 +294,9 @@ export function Dashboard() {
                 </div>
               </div>
               <div className="ml-auto flex items-center gap-2">
+                <Button variant="ghost" size="sm" onClick={() => navigate('/costs')}>
+                  <Coins className="w-4 h-4 mr-1" /> 成本统计
+                </Button>
                 <Button variant="ghost" size="sm" onClick={() => navigate('/models')}>
                   <Settings className="w-4 h-4 mr-1" /> 配置模型
                 </Button>

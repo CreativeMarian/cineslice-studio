@@ -5,7 +5,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import {
-  Search, FolderOpen, Wand2, Sun, Moon, BookOpen,
+  Search, FolderOpen, Wand2, Sun, Moon, BookOpen, Coins,
   Keyboard, ArrowRight, LayoutDashboard, Cpu, SlidersHorizontal,
   FileText, Users, Clapperboard, Send, KeyboardIcon, Plus,
 } from 'lucide-react';
@@ -149,6 +149,14 @@ export function CommandPalette() {
         keywords: 'mindmap flow 流程 图',
         group: '操作',
         action: () => navigate('/mindmap'),
+      },
+      {
+        id: 'action-costs',
+        label: '成本统计',
+        icon: <Coins className="w-4 h-4" />,
+        keywords: 'cost money 成本 费用 统计 token',
+        group: '操作',
+        action: () => navigate('/costs'),
       },
       {
         id: 'action-settings',

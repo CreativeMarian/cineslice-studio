@@ -24,6 +24,7 @@ const StageAssets = lazy(() => import('./components/StageAssets/StageAssets').th
 const StageDirector = lazy(() => import('./components/StageDirector/StageDirector').then(m => ({ default: m.StageDirector })));
 const StageExport = lazy(() => import('./components/StageExport/StageExport').then(m => ({ default: m.StageExport })));
 const MindMapPage = lazy(() => import('./components/MindMap/MindMapPage').then(m => ({ default: m.MindMapPage })));
+const CostAnalyticsPage = lazy(() => import('./components/CostAnalytics/CostAnalyticsPage').then(m => ({ default: m.CostAnalyticsPage })));
 
 function LazyRoute({ children }: { children: React.ReactNode }) {
   return <Suspense fallback={<div className="flex items-center justify-center h-screen"><Spinner size="lg" /></div>}>{children}</Suspense>;
@@ -71,6 +72,7 @@ export default function App() {
               <Route path="/models" element={<LazyRoute><ModelConfigPage /></LazyRoute>} />
               <Route path="/mindmap" element={<LazyRoute><MindMapPage /></LazyRoute>} />
               <Route path="/settings" element={<LazyRoute><SettingsPage /></LazyRoute>} />
+              <Route path="/costs" element={<LazyRoute><CostAnalyticsPage /></LazyRoute>} />
 
               {/* 项目工作台 */}
               <Route path="/projects/:projectId" element={<ProjectLayout />}>

@@ -28,6 +28,7 @@ import projectRoutes from './routes/projects';
 import assetRoutes from './routes/assets';
 import episodeRoutes from './routes/episodes';
 import modelRoutes from './routes/models';
+import costRoutes from './routes/costs';
 import dataTransferRoutes from './routes/dataTransfer';
 import preferenceRoutes from './routes/preferences';
 import visualStyleRoutes from './routes/visualStyles';
@@ -114,6 +115,7 @@ async function main() {
   app.use('/api', assetRoutes);       // /api/episodes/:id/characters, /api/characters/:id 等
   app.use('/api', episodeRoutes);     // /api/episodes/:id, /api/shots/:id, /api/keyframes/:id 等
   app.use('/api/models', modelRoutes);
+  app.use('/api/costs', costRoutes);
   app.use('/api', dataTransferRoutes); // /api/projects/:id/export, /api/projects/import
   app.use('/api/preferences', preferenceRoutes);
   app.use('/api/visual-styles', visualStyleRoutes);

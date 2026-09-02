@@ -10,6 +10,7 @@ import {
   Cpu,
   Home,
   Network,
+  Coins,
 } from 'lucide-react';
 import { cn } from '../utils';
 import { useUIStore } from '../stores/useUIStore';
@@ -134,6 +135,22 @@ export function Sidebar() {
         >
           <Network className="w-5 h-5 flex-shrink-0" />
           {!sidebarCollapsed && <span>项目思维导图</span>}
+        </NavLink>
+        <NavLink
+          to="/costs"
+          className={({ isActive }) =>
+            cn(
+              'flex items-center gap-3 px-3 py-2.5 rounded-[var(--radius-control)] text-sm font-medium transition-all duration-200',
+              isActive
+                ? 'bg-[var(--panel-2)] text-[var(--ink-1)]'
+                : 'text-[var(--ink-2)] hover:bg-[var(--panel-2)] hover:text-[var(--ink-1)]',
+              sidebarCollapsed && 'justify-center px-0'
+            )
+          }
+          title={sidebarCollapsed ? '成本统计' : undefined}
+        >
+          <Coins className="w-5 h-5 flex-shrink-0" />
+          {!sidebarCollapsed && <span>成本统计</span>}
         </NavLink>
         <NavLink
           to="/settings"
