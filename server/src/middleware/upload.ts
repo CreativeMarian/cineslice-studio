@@ -6,15 +6,20 @@ import path from 'path';
 import fs from 'fs';
 import { createError } from './errorHandler';
 import { getConfig } from '../config/env';
-import { decodeFilename } from '../utils/filename';
+import { decodeFilename, isValidResourceId } from '../utils/filename';
 
 const config = getConfig();
 
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
     // 路由参数为 :id（如 /api/projects/:id/novel/upload），兼容 projectId
-    const projectId = req.params.id || req.params.projectId || 'general';
-    const dir = path.resolve(config.uploadDir, projectId);
+    // ID 会拼进磁盘路径，必须校验格式，阻断 %2e%2e%2f 等 URL 编码穿越
+    const rawId = req.params.id || req.params.projectId || '';
+    if (!isValidResourceId(rawId)) {
+      cb(createError(400, 'VALIDATION_ERROR', '项目 ID 不合法') as any, '');
+      return;
+    }
+    const dir = path.resolve(config.uploadDir, rawId);
     if (!fs.existsSync(dir)) {
       fs.mkdirSync(dir, { recursive: true });
     }

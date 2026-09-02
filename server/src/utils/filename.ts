@@ -30,3 +30,34 @@ export function decodeFilename(originalName: string): string {
     return originalName;
   }
 }
+
+/**
+ * 净化用户提供的文件名：只保留基础文件名，杜绝路径穿越。
+ * 传入 "../x" / "..\x" / "a/b.mp3" 一律折叠为基础名；空名或纯 ".." 返回 null。
+ */
+export function sanitizeFileName(input: string): string | null {
+  if (typeof input !== 'string' || input.trim() === '') return null;
+  const base = input.replace(/[\\/]/g, '/').split('/').pop() || '';
+  const trimmed = base.trim();
+  if (!trimmed || trimmed === '.' || trimmed === '..') return null;
+  if (trimmed.includes('\0')) return null;
+  return trimmed;
+}
+
+/**
+ * 校验解析后的路径确实位于 baseDir 内（防止 resolve 后逃逸）。
+ */
+export function isPathInside(baseDir: string, targetPath: string): boolean {
+  const sep = process.platform === 'win32' ? '\\' : '/';
+  const resolvedBase = baseDir.endsWith(sep) ? baseDir : baseDir + sep;
+  const normBase = baseDir.normalize();
+  const normTarget = targetPath.normalize();
+  return normTarget === normBase || normTarget.startsWith(resolvedBase);
+}
+
+/**
+ * 校验项目/资源 ID 格式（路由 :id 用于拼文件路径时必须通过）。
+ */
+export function isValidResourceId(id: string): boolean {
+  return typeof id === 'string' && /^[\w][\w-]{0,63}$/.test(id);
+}

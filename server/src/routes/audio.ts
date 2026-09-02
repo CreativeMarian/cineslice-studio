@@ -10,6 +10,7 @@ import { createError, asyncHandler } from '../middleware/errorHandler';
 import { validateBody } from '../middleware/validate';
 import { aiProxy } from '../services/aiProxy';
 import { projectStorage } from '../services/projectStorage';
+import { sanitizeFileName } from '../utils/filename';
 import { composeAudio, mergeVideoAudio, recommendSfx, BGM_PRESETS, type BgmPreset } from '../services/audioComposer';
 import { NovelEpisodeDAO, ShotDAO } from '../models';
 import type { Database } from '../types';
@@ -134,8 +135,9 @@ router.post('/episodes/:id/audio-compose', validateBody(composeSchema), asyncHan
   // 配音轨
   if (req.body.voiceTracks && req.body.voiceTracks.length > 0) {
     for (const vt of req.body.voiceTracks) {
-      const filePath = path.resolve(audioDir, vt.fileName);
-      if (fs.existsSync(filePath)) {
+      const safeName = sanitizeFileName(vt.fileName);
+      const filePath = safeName ? path.resolve(audioDir, safeName) : '';
+      if (filePath && fs.existsSync(filePath)) {
         tracks.push({
           path: filePath,
           type: 'voice' as const,
@@ -151,8 +153,9 @@ router.post('/episodes/:id/audio-compose', validateBody(composeSchema), asyncHan
   // 音效轨
   if (req.body.sfxTracks && req.body.sfxTracks.length > 0) {
     for (const st of req.body.sfxTracks) {
-      const filePath = path.resolve(audioDir, st.fileName);
-      if (fs.existsSync(filePath)) {
+      const safeName = sanitizeFileName(st.fileName);
+      const filePath = safeName ? path.resolve(audioDir, safeName) : '';
+      if (filePath && fs.existsSync(filePath)) {
         tracks.push({
           path: filePath,
           type: 'sfx' as const,
@@ -165,8 +168,9 @@ router.post('/episodes/:id/audio-compose', validateBody(composeSchema), asyncHan
 
   // BGM 轨
   if (req.body.bgmFileName) {
-    const bgmPath = path.resolve(audioDir, req.body.bgmFileName);
-    if (fs.existsSync(bgmPath)) {
+    const safeBgm = sanitizeFileName(req.body.bgmFileName);
+    const bgmPath = safeBgm ? path.resolve(audioDir, safeBgm) : '';
+    if (bgmPath && fs.existsSync(bgmPath)) {
       const preset = req.body.bgmPreset ? BGM_PRESETS[req.body.bgmPreset as BgmPreset] : null;
       tracks.push({
         path: bgmPath,
@@ -182,7 +186,8 @@ router.post('/episodes/:id/audio-compose', validateBody(composeSchema), asyncHan
     throw createError(400, 'NO_TRACKS', '没有可合成的音轨，请先生成配音或上传 BGM/音效');
   }
 
-  const result = await composeAudio(episode.project_id, tracks, req.body.outputFileName);
+  const safeOutput = (req.body.outputFileName ? sanitizeFileName(req.body.outputFileName) : null) ?? undefined;
+  const result = await composeAudio(episode.project_id, tracks, safeOutput);
   if (!result.success) {
     throw createError(500, 'COMPOSE_FAILED', result.error || '音频合成失败');
   }
@@ -256,13 +261,17 @@ router.post('/episodes/:id/merge-audio-video', validateBody(mergeSchema), asyncH
   if (!episode) throw createError(404, 'NOT_FOUND', '剧集不存在');
 
   const dataDir = projectStorage.getDataDir(episode.project_id);
-  const videoPath = path.resolve(dataDir, 'videos', req.body.videoFileName);
-  const audioPath = path.resolve(dataDir, 'audio', req.body.audioFileName);
+  const safeVideo = sanitizeFileName(req.body.videoFileName);
+  const safeAudio = sanitizeFileName(req.body.audioFileName);
+  if (!safeVideo || !safeAudio) throw createError(400, 'VALIDATION_ERROR', '文件名不合法');
+
+  const videoPath = path.resolve(dataDir, 'videos', safeVideo);
+  const audioPath = path.resolve(dataDir, 'audio', safeAudio);
 
   if (!fs.existsSync(videoPath)) throw createError(404, 'VIDEO_NOT_FOUND', '视频文件不存在');
   if (!fs.existsSync(audioPath)) throw createError(404, 'AUDIO_NOT_FOUND', '音频文件不存在');
 
-  const outName = req.body.outputFileName || `final_${Date.now()}.mp4`;
+  const outName = (req.body.outputFileName ? sanitizeFileName(req.body.outputFileName) : null) || `final_${Date.now()}.mp4`;
   const outputPath = path.resolve(dataDir, 'videos', outName);
 
   const result = await mergeVideoAudio(videoPath, audioPath, outputPath);

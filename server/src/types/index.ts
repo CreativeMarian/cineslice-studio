@@ -455,7 +455,7 @@ export interface DatabaseStatement {
 export interface Database {
   prepare(sql: string): DatabaseStatement;
   exec(sql: string): void;
-  transaction(fn: () => void): () => void;
+  transaction<T>(fn: () => T): () => T;
   close?(): void;
 }
 

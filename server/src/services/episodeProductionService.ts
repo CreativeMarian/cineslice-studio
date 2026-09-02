@@ -215,28 +215,41 @@ export async function generateShotsForEpisode(
     throw createError(502, 'AI_CALL_FAILED', (err as Error).message);
   }
 
-  // 删除旧镜头
-  const old = ShotDAO.listByEpisode(db, episode.id);
-  for (const s of old) ShotDAO.delete(db, s.id);
+  // 删除旧镜头 + 创建新镜头须在同一事务内：分镜子表（关键帧/视频区间）是
+  // ON DELETE CASCADE，插入中途失败（如镜头号重复触发唯一索引）会丢失全部旧分镜
+  return db.transaction(() => {
+    const old = ShotDAO.listByEpisode(db, episode.id);
+    for (const s of old) ShotDAO.delete(db, s.id);
 
-  return ShotDAO.batchCreate(db, shots.map((s: any) => ({
-    user_id: userId,
-    episode_id: episode.id,
-    shot_number: s.shotNumber || 0,
-    shot_size: s.shotSize || 'medium',
-    action_description: s.actionDescription || '',
-    dialogue: s.dialogue || '',
-    camera_movement: s.cameraMovement || 'static',
-    grid_position: s.gridPosition || '5',
-    duration_seconds: s.durationSeconds || 5,
-    characters_in_shot: s.charactersInShot ? JSON.stringify(s.charactersInShot) : null,
-    notes: s.notes || null,
-    subject: s.subject || null,
-    lighting: s.lighting || null,
-    mood: s.mood || null,
-    transition: s.transition || 'cut',
-    pace: s.pace || 'normal',
-  })));
+    // AI 可能返回重复镜头号（uq_shots_episode_num 唯一约束），先顺序去重
+    const seen = new Set<number>();
+    let nextNum = 1;
+    const finalShots = shots.map((s: any) => {
+      let num = s.shotNumber || 0;
+      while (seen.has(num)) num = 10000 + nextNum++;
+      seen.add(num);
+      return { ...s, shotNumber: num };
+    });
+
+    return ShotDAO.batchCreate(db, finalShots.map((s: any) => ({
+      user_id: userId,
+      episode_id: episode.id,
+      shot_number: s.shotNumber,
+      shot_size: s.shotSize || 'medium',
+      action_description: s.actionDescription || '',
+      dialogue: s.dialogue || '',
+      camera_movement: s.cameraMovement || 'static',
+      grid_position: s.gridPosition || '5',
+      duration_seconds: s.durationSeconds || 5,
+      characters_in_shot: s.charactersInShot ? JSON.stringify(s.charactersInShot) : null,
+      notes: s.notes || null,
+      subject: s.subject || null,
+      lighting: s.lighting || null,
+      mood: s.mood || null,
+      transition: s.transition || 'cut',
+      pace: s.pace || 'normal',
+    })));
+  });
 }
 
 // ============ 关键帧 ============

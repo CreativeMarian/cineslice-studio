@@ -5,6 +5,7 @@ import { Router, Request, Response } from 'express';
 import { z } from 'zod';
 import {
   NovelEpisodeDAO,
+  ProjectDAO,
   ScriptCharacterDAO,
   ScriptSceneDAO,
   ScriptPropDAO,
@@ -23,6 +24,19 @@ const router = Router();
 
 function getDb(req: Request): Database {
   return req.app.locals.db as Database;
+}
+
+/**
+ * 校验道具归属：道具 → 剧集 → 项目 → 用户，任一环断裂即 404。
+ * 防止跨用户读写他人道具（IDOR）。
+ */
+function requirePropOwnership(db: Database, req: Request, propId: string): void {
+  const prop = ScriptPropDAO.getById(db, propId);
+  if (!prop) throw createError(404, 'NOT_FOUND', '道具不存在');
+  const episode = NovelEpisodeDAO.getById(db, prop.episode_id);
+  if (!episode) throw createError(404, 'NOT_FOUND', '剧集不存在');
+  const project = ProjectDAO.getByIdAndUser(db, episode.project_id, req.user.id);
+  if (!project) throw createError(404, 'NOT_FOUND', '道具不存在');
 }
 
 const extractSchema = z.object({
@@ -497,12 +511,14 @@ router.post('/episodes/:id/props', asyncHandler(async (req: Request, res: Respon
 
 router.put('/props/:id', asyncHandler(async (req: Request, res: Response) => {
   const db = getDb(req);
+  requirePropOwnership(db, req, req.params.id);
   const prop = ScriptPropDAO.update(db, req.params.id, req.body);
   res.json({ success: true, data: prop });
 }));
 
 router.delete('/props/:id', asyncHandler(async (req: Request, res: Response) => {
   const db = getDb(req);
+  requirePropOwnership(db, req, req.params.id);
   ScriptPropDAO.delete(db, req.params.id);
   res.json({ success: true, data: { message: '道具已删除' } });
 }));

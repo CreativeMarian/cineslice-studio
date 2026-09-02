@@ -44,8 +44,8 @@ export function initSQLite(dbPath: string): SQLiteDatabase {
     exec(sql: string): void {
       db.exec(sql);
     },
-    transaction(fn: () => void): () => void {
-      return db.transaction(fn);
+    transaction<T>(fn: () => T): () => T {
+      return db.transaction(fn) as unknown as () => T;
     },
     close(): void {
       db.close();

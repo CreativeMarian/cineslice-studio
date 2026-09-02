@@ -4,7 +4,8 @@
 import { Router, Request, Response } from 'express';
 import { z } from 'zod';
 import { aiProxy } from '../services/aiProxy';
-import { asyncHandler } from '../middleware/errorHandler';
+import { ProjectDAO } from '../models';
+import { createError, asyncHandler } from '../middleware/errorHandler';
 import { validateBody } from '../middleware/validate';
 import type { Database } from '../types';
 
@@ -26,7 +27,7 @@ const textSchema = z.object({
 });
 
 const imageSchema = z.object({
-  projectId: z.string(),
+  projectId: z.string().regex(/^[\w][\w-]{0,63}$/, 'projectId 不合法'),
   provider: z.string(),
   modelName: z.string(),
   prompt: z.string(),
@@ -56,9 +57,11 @@ router.post('/text', validateBody(textSchema), asyncHandler(async (req: Request,
   res.json({ success: true, data: result });
 }));
 
-// 通用图像生成
+// 通用图像生成（projectId 必须属于当前用户，防止向他人目录写文件）
 router.post('/image', validateBody(imageSchema), asyncHandler(async (req: Request, res: Response) => {
   const db = getDb(req);
+  const project = ProjectDAO.getByIdAndUser(db, req.body.projectId, req.user.id);
+  if (!project) throw createError(404, 'NOT_FOUND', '项目不存在');
   const result = await aiProxy.generateImage({
     db,
     userId: req.user.id,

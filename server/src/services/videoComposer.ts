@@ -14,6 +14,8 @@ import {
 } from '../models';
 import { projectStorage } from './projectStorage';
 import { getConfig } from '../config/env';
+import { createError as createHttpError } from '../middleware/errorHandler';
+import { sanitizeFileName } from '../utils/filename';
 
 const execFileAsync = promisify(execFile);
 
@@ -263,7 +265,16 @@ export async function composeEpisode(
   const taskId = `compose_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
   const episode = NovelEpisodeDAO.getByIdAndUser(db, episodeId, userId);
   if (!episode) {
-    throw new Error('剧集不存在');
+    throw createHttpError(404, 'NOT_FOUND', '剧集不存在');
+  }
+
+  // bgmPath 只允许项目音频目录内的基础文件名，阻断任意本地文件读取
+  if (options.bgmPath) {
+    const safeBgm = sanitizeFileName(options.bgmPath);
+    if (!safeBgm) {
+      throw createHttpError(400, 'VALIDATION_ERROR', 'BGM 文件名不合法');
+    }
+    options.bgmPath = path.resolve(projectStorage.getAudioDir(episode.project_id), safeBgm);
   }
 
   const ffmpegAvailable = await checkFfmpegAvailable();

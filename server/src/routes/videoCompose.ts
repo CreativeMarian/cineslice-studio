@@ -19,7 +19,7 @@ const composeSchema = z.object({
   transitionDuration: z.number().min(0.1).max(3).optional(),
   outputResolution: z.string().optional(),
   fps: z.number().int().min(12).max(60).optional(),
-  bgmPath: z.string().optional(),
+  bgmPath: z.string().max(255).optional(), // BGM 文件名（仅限项目音频目录内的基础文件名）
   bgmVolume: z.number().min(0).max(1).optional(),
 });
 

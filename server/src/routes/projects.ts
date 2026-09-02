@@ -167,19 +167,20 @@ router.post('/:id/novel/upload', novelUpload.single('file'), asyncHandler(async 
   // 修复中文文件名乱码：使用解码后的文件名
   const decodedFileName = decodeFilename(req.file.originalname);
 
-  // 删除旧章节
-  NovelChapterDAO.deleteByProject(db, req.params.id);
+  // 删除旧章节 + 插入新章节必须在同一事务内，避免解析/插入失败后旧章节已被清空
+  const created = db.transaction(() => {
+    NovelChapterDAO.deleteByProject(db, req.params.id);
 
-  // 批量插入新章节
-  const chapterData = chapters.map((ch, idx) => ({
-    user_id: req.user.id,
-    project_id: req.params.id,
-    chapter_number: idx + 1,
-    title: ch.title,
-    content: ch.content,
-    source_file: decodedFileName,
-  }));
-  const created = NovelChapterDAO.batchCreate(db, chapterData);
+    const chapterData = chapters.map((ch, idx) => ({
+      user_id: req.user.id,
+      project_id: req.params.id,
+      chapter_number: idx + 1,
+      title: ch.title,
+      content: ch.content,
+      source_file: decodedFileName,
+    }));
+    return NovelChapterDAO.batchCreate(db, chapterData);
+  })();
 
   // 小说上传成功后，自动推进到剧集生成阶段
   ProjectDAO.update(db, req.params.id, { pipeline_step: 'episodes' });
@@ -198,6 +199,8 @@ router.get('/:id/chapters', asyncHandler(async (req: Request, res: Response) => 
 // 更新章节
 router.put('/:id/chapters/:cid', asyncHandler(async (req: Request, res: Response) => {
   const db = getDb(req);
+  const project = ProjectDAO.getByIdAndUser(db, req.params.id, req.user.id);
+  if (!project) throw createError(404, 'NOT_FOUND', '项目不存在');
   const chapter = NovelChapterDAO.getById(db, req.params.cid);
   if (!chapter || chapter.project_id !== req.params.id) throw createError(404, 'NOT_FOUND', '章节不存在');
   const updated = NovelChapterDAO.update(db, req.params.cid, req.body);
@@ -207,6 +210,8 @@ router.put('/:id/chapters/:cid', asyncHandler(async (req: Request, res: Response
 // 合并章节
 router.post('/:id/chapters/merge', asyncHandler(async (req: Request, res: Response) => {
   const db = getDb(req);
+  const project = ProjectDAO.getByIdAndUser(db, req.params.id, req.user.id);
+  if (!project) throw createError(404, 'NOT_FOUND', '项目不存在');
   const { chapterIds } = req.body;
   if (!Array.isArray(chapterIds) || chapterIds.length < 2) {
     throw createError(400, 'VALIDATION_ERROR', '至少选择2个章节');
@@ -232,8 +237,10 @@ router.post('/:id/chapters/merge', asyncHandler(async (req: Request, res: Respon
 // 拆分章节
 router.post('/:id/chapters/:cid/split', asyncHandler(async (req: Request, res: Response) => {
   const db = getDb(req);
+  const project = ProjectDAO.getByIdAndUser(db, req.params.id, req.user.id);
+  if (!project) throw createError(404, 'NOT_FOUND', '项目不存在');
   const chapter = NovelChapterDAO.getById(db, req.params.cid);
-  if (!chapter) throw createError(404, 'NOT_FOUND', '章节不存在');
+  if (!chapter || chapter.project_id !== req.params.id) throw createError(404, 'NOT_FOUND', '章节不存在');
 
   const { splitPosition } = req.body;
   if (typeof splitPosition !== 'number' || splitPosition <= 0 || splitPosition >= chapter.content.length) {
@@ -387,24 +394,32 @@ router.post('/:id/episodes/generate', validateBody(generateEpisodesSchema), asyn
 
   console.log(`[GenerateEpisodes] 共解析出 ${allEpisodesData.length} 集数据`);
 
-  // 删除旧剧集
-  const oldEpisodes = NovelEpisodeDAO.listByProject(db, req.params.id);
-  for (const ep of oldEpisodes) NovelEpisodeDAO.delete(db, ep.id);
+  // 删除旧剧集 + 插入新剧集必须在同一事务内：
+  // novel_episodes 的子表（shots/keyframes/角色等）是 ON DELETE CASCADE，
+  // 若先删后插中途失败（如 AI 返回重复集号触发唯一索引），旧分镜将永久丢失
+  const created = db.transaction(() => {
+    const oldEpisodes = NovelEpisodeDAO.listByProject(db, req.params.id);
+    for (const ep of oldEpisodes) NovelEpisodeDAO.delete(db, ep.id);
 
-  // 插入新剧集（含 chapter_range 兜底修复）
-  const created = allEpisodesData.map((ep: any, idx: number) => {
-    const episodeNum = ep.episodeNumber || idx + 1;
-    const chapterRangeVal = normalizeChapterRange(ep.chapterRange, episodeNum);
-    return NovelEpisodeDAO.create(db, {
-      user_id: req.user.id,
-      project_id: req.params.id,
-      episode_number: episodeNum,
-      title: ep.title || `第${episodeNum}集`,
-      chapter_range: chapterRangeVal,
-      script_content: ep.scriptContent || '',
-      text_model_used: `${provider}/${modelName}`,
+    // AI 可能返回重复集号（uq_novel_episodes_proj_num 唯一约束），先顺序去重
+    const seen = new Set<number>();
+    let nextNum = 1;
+    return allEpisodesData.map((ep: any, idx: number) => {
+      let episodeNum = ep.episodeNumber || idx + 1;
+      while (seen.has(episodeNum)) episodeNum = allEpisodesData.length + nextNum++;
+      seen.add(episodeNum);
+      const chapterRangeVal = normalizeChapterRange(ep.chapterRange, episodeNum);
+      return NovelEpisodeDAO.create(db, {
+        user_id: req.user.id,
+        project_id: req.params.id,
+        episode_number: episodeNum,
+        title: ep.title || `第${episodeNum}集`,
+        chapter_range: chapterRangeVal,
+        script_content: ep.scriptContent || '',
+        text_model_used: `${provider}/${modelName}`,
+      });
     });
-  });
+  })();
 
   // 按 episode_number 排序
   created.sort((a, b) => a.episode_number - b.episode_number);

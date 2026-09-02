@@ -8,6 +8,7 @@ import path from 'path';
 import fs from 'fs';
 import { promisify } from 'util';
 import { projectStorage } from './projectStorage';
+import { sanitizeFileName } from '../utils/filename';
 
 const execFileAsync = promisify(execFile);
 
@@ -90,7 +91,9 @@ export async function composeAudio(
   const ffmpeg = getFfmpegPath();
   const audioDir = projectStorage.getAudioDir(projectId);
   projectStorage.ensureDir(audioDir);
-  const outName = outputFileName || `mixed_${Date.now()}.mp3`;
+  // 输出文件名来自请求体，必须净化为纯基础文件名，防止写出 audioDir 之外
+  const safeOut = sanitizeFileName(outputFileName || '') || `mixed_${Date.now()}.mp3`;
+  const outName = safeOut;
   const outputPath = path.resolve(audioDir, outName);
 
   // 预探测有 fadeOut 的音轨时长（用于计算淡出起始时间）

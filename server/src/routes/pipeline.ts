@@ -172,17 +172,21 @@ router.get('/auto-run/current', asyncHandler(async (req: Request, res: Response)
   res.json({ success: true, data: task });
 }));
 
-// 取消全自动流水线任务
+// 取消全自动流水线任务（校验任务归属，防止跨用户取消/续跑）
 router.post('/auto-run/:taskId/cancel', asyncHandler(async (req: Request, res: Response) => {
   const db = getDb(req);
+  const task = AutoPipelineService.getTask(db, req.params.taskId);
+  if (!task || task.userId !== req.user.id) throw createError(404, 'NOT_FOUND', '任务不存在或已结束');
   const cancelled = AutoPipelineService.cancel(db, req.params.taskId);
   if (!cancelled) throw createError(404, 'NOT_FOUND', '任务不存在或已结束');
   res.json({ success: true, data: { message: '任务已取消' } });
 }));
 
-// 恢复中断的全自动流水线任务（服务器重启后可恢复）
+// 恢复中断的全自动流水线任务（校验任务归属，防止替他人触发付费调用）
 router.post('/auto-run/:taskId/resume', asyncHandler(async (req: Request, res: Response) => {
   const db = getDb(req);
+  const existing = AutoPipelineService.getTask(db, req.params.taskId);
+  if (!existing || existing.userId !== req.user.id) throw createError(404, 'NOT_FOUND', '任务不存在');
   const task = AutoPipelineService.resume(db, req.params.taskId);
   if (!task) throw createError(404, 'NOT_FOUND', '任务不存在');
   res.json({
@@ -196,11 +200,11 @@ router.post('/auto-run/:taskId/resume', asyncHandler(async (req: Request, res: R
   });
 }));
 
-// 查询全自动流水线任务状态
+// 查询全自动流水线任务状态（仅任务归属人可见）
 router.get('/auto-run/:taskId', asyncHandler(async (req: Request, res: Response) => {
   const db = getDb(req);
   const task = AutoPipelineService.getTask(db, req.params.taskId);
-  if (!task) throw createError(404, 'NOT_FOUND', '任务不存在或已过期');
+  if (!task || task.userId !== req.user.id) throw createError(404, 'NOT_FOUND', '任务不存在或已过期');
   res.json({ success: true, data: task });
 }));
 
