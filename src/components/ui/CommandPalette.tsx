@@ -31,10 +31,10 @@ function isTypingTarget(target: EventTarget | null): boolean {
 }
 
 const STAGE_PATHS = [
-  { path: 'script', label: '剧本工作台', icon: <FileText className="w-4 h-4" /> },
-  { path: 'assets', label: '资产工坊', icon: <Users className="w-4 h-4" /> },
-  { path: 'director', label: '导演工作台', icon: <Clapperboard className="w-4 h-4" /> },
-  { path: 'export', label: '成片出口', icon: <Send className="w-4 h-4" /> },
+  { path: 'script', label: '剧本工作台', icon: <FileText className="w-4 h-4" />, keywords: 'script 剧本 小说 编辑' },
+  { path: 'assets', label: '资产工坊', icon: <Users className="w-4 h-4" />, keywords: 'assets 资产 角色 场景 道具' },
+  { path: 'director', label: '导演工作台', icon: <Clapperboard className="w-4 h-4" />, keywords: 'director 导演 分镜 视频' },
+  { path: 'export', label: '成片出口', icon: <Send className="w-4 h-4" />, keywords: 'export 导出 成片 下载' },
 ];
 
 export function CommandPalette() {
@@ -94,7 +94,7 @@ export function CommandPalette() {
           label: stage.label,
           hint: '阶段导航',
           icon: stage.icon,
-          keywords: 'stage 剧本 资产 导演 成片',
+          keywords: stage.keywords,
           group: '阶段导航',
           action: () => navigate(`/projects/${currentProjectId}/${stage.path}`),
         });

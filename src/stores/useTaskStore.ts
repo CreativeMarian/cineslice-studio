@@ -22,7 +22,14 @@ export const useTaskStore = create<TaskState>((set, get) => ({
     try {
       const res = await taskService.list(params);
       if (res.success && res.data) {
-        set({ tasks: res.data });
+        // 兼容两种返回结构：数组 或 分页对象 { items, total }
+        const data = res.data as unknown;
+        const items = Array.isArray(data)
+          ? data
+          : Array.isArray((data as { items?: GenerationTask[] })?.items)
+            ? (data as { items: GenerationTask[] }).items
+            : [];
+        set({ tasks: items });
       }
     } catch {
       set({ tasks: [] });
