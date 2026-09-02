@@ -6,6 +6,7 @@ import { Toast, Spinner } from './components/ui';
 import { RequireAuth } from './components/RequireAuth';
 import { ProjectLayout } from './components/ProjectLayout';
 import { ErrorBoundary } from './components/ErrorBoundary';
+import { CommandPalette } from './components/ui/CommandPalette';
 import { Login } from './components/Login';
 import { Dashboard } from './components/Dashboard';
 import { NotFound } from './components/NotFound';
@@ -83,6 +84,7 @@ export default function App() {
 
             <Route path="*" element={<NotFound />} />
           </Routes>
+          <CommandPalette />
           <Toast />
           </ErrorBoundary>
         </AuthProvider>

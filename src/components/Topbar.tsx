@@ -1,9 +1,10 @@
 import { useState } from 'react';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
-import { ArrowLeft, User, Sun, Moon, ChevronDown, ChevronRight, Home, Sparkles } from 'lucide-react';
+import { ArrowLeft, User, Sun, Moon, ChevronDown, ChevronRight, Home, Sparkles, Search } from 'lucide-react';
 import { useProjectStore } from '../stores/useProjectStore';
 import { useAuthStore } from '../stores/useAuthStore';
 import { useUIStore } from '../stores/useUIStore';
+import { useCommandPaletteStore } from '../stores/useCommandPaletteStore';
 import { ProfileModal } from './ProfileModal';
 import { Badge } from './ui';
 
@@ -73,6 +74,16 @@ export function Topbar() {
         </div>
 
         <div className="flex items-center gap-2">
+          {/* 命令面板入口 */}
+          <button
+            onClick={() => useCommandPaletteStore.getState().openPalette()}
+            className="hidden md:flex items-center gap-2 px-3 py-1.5 rounded-lg border border-[var(--border)] text-[var(--ink-3)] text-xs hover:border-[var(--border-hover)] hover:text-[var(--ink-1)] transition-colors"
+            title="搜索与快捷操作 (Ctrl+K)"
+          >
+            <Search className="w-3.5 h-3.5" />
+            搜索 / 快捷操作
+            <kbd className="px-1 py-0.5 text-[10px] rounded border border-[var(--border)] bg-[var(--panel-2)] font-mono">Ctrl K</kbd>
+          </button>
           {/* 下一步引导 */}
           {nextStage && (
             <button

@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Plus, Film, MoreVertical, Pencil, Trash2, FolderOpen, Search, Clock, Sun, Moon, HelpCircle, BookOpen, Wand2, FileUp, ChevronRight, Zap, Settings, Users, Archive, ArchiveRestore, AlertTriangle } from 'lucide-react';
 import { Button, Card, EmptyState, Modal, Input, Badge } from './ui';
 import { projectService } from '../services/projectService';
@@ -29,6 +29,7 @@ export function Dashboard() {
   const [permanentTarget, setPermanentTarget] = useState<Project | null>(null);
   const importFileRef = useRef<HTMLInputElement>(null);
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { showToast, theme, toggleTheme } = useUIStore();
 
   const loadProjects = async (status: DashboardTab = tab) => {
@@ -47,6 +48,11 @@ export function Dashboard() {
 
   useEffect(() => {
     loadProjects();
+    // 支持命令面板跳转 ?action=new 直接打开创建弹窗
+    if (searchParams.get('action') === 'new') {
+      setCreateModalOpen(true);
+      setSearchParams({}, { replace: true });
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
