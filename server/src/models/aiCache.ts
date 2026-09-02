@@ -13,11 +13,24 @@ export interface AiCacheEntry {
 }
 
 export const AiCacheDAO = {
+  // 过期清理的节流：至少间隔 10 分钟才执行一次全表清理（原来每次读都 DELETE，
+  // 读路径变成写路径，与流水线的高频写产生 WAL 锁竞争）
+  _lastPurgeAt: 0,
+
   get(db: Database, cacheKey: string): string | null {
-    // 先清理过期缓存
-    db.prepare('DELETE FROM ai_cache WHERE expires_at < ?').run(now());
-    const entry = db.prepare('SELECT result FROM ai_cache WHERE cache_key = ?').get(cacheKey) as { result: string } | undefined;
-    return entry?.result || null;
+    const entry = db.prepare(
+      'SELECT result FROM ai_cache WHERE cache_key = ? AND expires_at >= ?'
+    ).get(cacheKey, now()) as { result: string } | undefined;
+    if (!entry) return null;
+
+    const nowMs = Date.now();
+    if (nowMs - AiCacheDAO._lastPurgeAt > 10 * 60 * 1000) {
+      AiCacheDAO._lastPurgeAt = nowMs;
+      try {
+        db.prepare('DELETE FROM ai_cache WHERE expires_at < ?').run(now());
+      } catch { /* 清理失败不影响读取 */ }
+    }
+    return entry.result;
   },
 
   set(db: Database, cacheKey: string, result: string, modelType: string, ttlSeconds = 3600): void {

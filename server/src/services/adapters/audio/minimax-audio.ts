@@ -50,6 +50,8 @@ export class MiniMaxAudioAdapter implements AudioAdapter {
             channel: 1,
           },
         }),
+        // 挂起的 TTS 连接会把流水线 audio 阶段永久卡住
+        signal: AbortSignal.timeout(60_000),
       });
 
       if (!response.ok) {

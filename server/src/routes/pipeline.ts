@@ -148,7 +148,16 @@ router.post('/auto-run', asyncHandler(async (req: Request, res: Response) => {
   const project = ProjectDAO.getByIdAndUser(db, req.params.id, req.user.id);
   if (!project) throw createError(404, 'NOT_FOUND', '项目不存在');
 
-  const task = AutoPipelineService.start(db, req.params.id, req.user.id);
+  let task;
+  try {
+    task = AutoPipelineService.start(db, req.params.id, req.user.id);
+  } catch (err: any) {
+    // start() 在已有运行中任务时抛错 —— 这是并发冲突，应返回 409 而不是 500
+    if ((err as Error).message?.includes('已有进行中的全自动任务')) {
+      throw createError(409, 'PIPELINE_ALREADY_RUNNING', (err as Error).message);
+    }
+    throw err;
+  }
   res.json({
     success: true,
     data: {

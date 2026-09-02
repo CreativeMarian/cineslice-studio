@@ -48,7 +48,7 @@ function getFfmpegPath(): string {
 /** 检查 ffmpeg 是否可用 */
 export async function checkFfmpegAvailable(): Promise<boolean> {
   try {
-    await execFileAsync(getFfmpegPath(), ['-version']);
+    await execFileAsync(getFfmpegPath(), ['-version'], { timeout: 5000 });
     return true;
   } catch {
     return false;

@@ -10,7 +10,7 @@ import {
 } from '../../models';
 import { scriptAnalysisService, type ScriptAnalysisResult } from '../scriptAnalysisService';
 import type { DirectorShotContext, CharacterDetail } from '../directorPromptService';
-import { scriptAnalysisCache } from './state';
+import { scriptAnalysisCache , cacheScriptAnalysis } from './state';
 
 /**
  * 获取第一个已配置的指定类型模型
@@ -81,7 +81,7 @@ export async function getOrCreateScriptAnalysis(
   try {
     console.log('[AutoPipeline] 开始剧本分析...');
     const analysis = await scriptAnalysisService.analyzeScript(db, episodeId, userId);
-    scriptAnalysisCache.set(episodeId, analysis);
+    cacheScriptAnalysis(episodeId, analysis);
     console.log(`[AutoPipeline] 剧本分析完成: ${scriptAnalysisService.getAnalysisSummary(analysis)}`);
     return analysis;
   } catch (err) {
@@ -175,7 +175,11 @@ export function buildDirectorShotContext(
     mood,
     previousShotAction: previousShot?.action_description,
     nextShotAction: nextShot?.action_description,
-    previousShotCharacters: previousShot?.characters_in_shot ? (Array.isArray(previousShot.characters_in_shot) ? previousShot.characters_in_shot : JSON.parse(previousShot.characters_in_shot)) : undefined,
+    previousShotCharacters: previousShot?.characters_in_shot
+      ? (Array.isArray(previousShot.characters_in_shot)
+          ? previousShot.characters_in_shot
+          : parseCharactersInShot(previousShot.characters_in_shot))
+      : undefined,
     characterDetails: Object.keys(characterDetails).length > 0 ? characterDetails : undefined,
   };
 }

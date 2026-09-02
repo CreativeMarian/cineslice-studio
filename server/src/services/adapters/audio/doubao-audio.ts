@@ -90,6 +90,8 @@ export class DoubaoAudioAdapter implements AudioAdapter {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify(body),
+        // 挂起的 TTS 连接会把自动流水线的 audio 阶段永久卡住
+        signal: AbortSignal.timeout(60_000),
       });
 
       const text = await response.text();

@@ -31,6 +31,8 @@ export interface ComposeOptions {
 export interface ComposeResult {
   taskId: string;
   status: 'processing' | 'completed' | 'failed';
+  /** 到达终态的时间（用于内存任务表的 TTL 清理） */
+  completedAt?: string;
   outputUrl?: string;
   outputPath?: string;
   progress?: number;
@@ -317,6 +319,8 @@ export async function composeEpisode(
 
   // 异步执行合成
   (async () => {
+    // tempDir 提升到 try 外：失败清理路径需要引用它
+    let tempDir: string | null = null;
     try {
       const projectId = episode.project_id;
       const videosDir = projectStorage.getVideosDir(projectId);
@@ -332,7 +336,7 @@ export async function composeEpisode(
       const transitionDur = options.transitionDuration || 0.5;
 
       // 为没有视频的镜头生成占位
-      const tempDir = path.resolve(videosDir, `temp_${taskId}`);
+      tempDir = path.resolve(videosDir, `temp_${taskId}`);
       projectStorage.ensureDir(tempDir);
 
       const finalClips: string[] = [];
@@ -399,20 +403,40 @@ export async function composeEpisode(
 
       taskResult.progress = 100;
       taskResult.status = 'completed';
+      taskResult.completedAt = new Date().toISOString();
       taskResult.outputPath = outputPath;
       taskResult.outputUrl = outputUrl;
 
       // 清理临时文件
       try {
-        fs.rmSync(tempDir, { recursive: true, force: true });
+        if (tempDir) fs.rmSync(tempDir, { recursive: true, force: true });
       } catch {
         // ignore cleanup errors
       }
     } catch (err) {
       taskResult.status = 'failed';
+      taskResult.completedAt = new Date().toISOString();
       taskResult.error = (err as Error).message;
+      // 失败路径同样清理临时目录：归一化片段是全分辨率重编码产物，一次失败可能泄漏数百 MB
+      try {
+        if (tempDir) fs.rmSync(tempDir, { recursive: true, force: true });
+      } catch {
+        // ignore cleanup errors
+      }
     }
   })();
+
+  // composeTasks 只增不删会随进程生命周期无限膨胀，且状态查询接口会把
+  // 任意历史任务的绝对路径暴露出去 —— 终态任务保留 30 分钟后移除
+  const TERMINAL_TTL_MS = 30 * 60 * 1000;
+  const nowMs = Date.now();
+  for (const [id, t] of composeTasks) {
+    if ((t.status === 'completed' || t.status === 'failed') && t.completedAt) {
+      if (nowMs - new Date(t.completedAt).getTime() > TERMINAL_TTL_MS) {
+        composeTasks.delete(id);
+      }
+    }
+  }
 
   return taskResult;
 }

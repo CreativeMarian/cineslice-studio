@@ -32,6 +32,8 @@ export class OpenAIAudioAdapter implements AudioAdapter {
           voice: params.voice || 'alloy',
           speed: params.speed || 1.0,
         }),
+        // 挂起的 TTS 连接会把流水线 audio 阶段永久卡住
+        signal: AbortSignal.timeout(60_000),
       });
 
       if (!response.ok) {

@@ -19,7 +19,7 @@
 // 更多音色: edge-tts --list-voices
 
 import type { AudioAdapter, AudioGenerateParams, AudioGenerateResult } from '../base';
-import { AIError, httpRequest } from '../base';
+import { AIError, httpBinaryRequest } from '../base';
 import { registerAudioFactory } from '../registry';
 
 export class EdgeTTSAdapter implements AudioAdapter {
@@ -62,8 +62,8 @@ export class EdgeTTSAdapter implements AudioAdapter {
     }
 
     try {
-      // 调用本地 Edge TTS Python 服务
-      const response = await httpRequest<Buffer>(`${this.baseUrl}/tts`, {
+      // 调用本地 Edge TTS Python 服务（二进制接口：mp3 字节流不能走 text 解码）
+      const response = await httpBinaryRequest(`${this.baseUrl}/tts`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: {

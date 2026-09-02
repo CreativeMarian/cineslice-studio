@@ -4,6 +4,7 @@ import path from 'path';
 import type { Database } from '../../../types';
 import { NovelEpisodeDAO, ShotDAO, ScriptCharacterDAO } from '../../../models';
 import { aiProxy } from '../../aiProxy';
+import { downloadToFile } from '../../../utils/download';
 import { projectStorage } from '../../projectStorage';
 import type { AutoPipelineTask } from '../types';
 import { getFirstModel } from '../helpers';
@@ -181,8 +182,18 @@ export async function stageAudio(db: Database, task: AutoPipelineTask): Promise<
 
       const fileName = `tts_shot_${shot.shot_number}_${Date.now()}.mp3`;
       const localPath = path.resolve(audioDir, fileName);
-      const base64Data = result.audioUrl.includes(',') ? result.audioUrl.split(',')[1] : result.audioUrl;
-      fs.writeFileSync(localPath, Buffer.from(base64Data, 'base64'));
+      if (/^https?:\/\//.test(result.audioUrl)) {
+        // 适配器可能返回音频文件 URL（如 MiniMax audio_file），直接下载为二进制；
+        // 旧逻辑把 URL 文本当 base64 解码，产出损坏的 mp3
+        await downloadToFile(result.audioUrl, localPath, { timeoutMs: 60_000, maxBytes: 50 * 1024 * 1024 });
+      } else {
+        const base64Data = result.audioUrl.includes(',') ? result.audioUrl.split(',')[1] : result.audioUrl;
+        fs.writeFileSync(localPath, Buffer.from(base64Data, 'base64'));
+      }
+      // 落盘校验：0 字节文件会让后续合成阶段莫名失败
+      if (fs.existsSync(localPath) && fs.statSync(localPath).size === 0) {
+        throw new Error('TTS 写入了空音频文件');
+      }
       generated++;
       task.stageProgress['audio'] = `生成中 ${generated}/${targetShots.length}（${speaker || '未知'}: ${baseVoice}）`;
     } catch (err: any) {

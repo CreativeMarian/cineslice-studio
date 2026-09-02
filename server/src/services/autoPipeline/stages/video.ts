@@ -9,6 +9,7 @@ import {
   ShotVideoIntervalDAO,
 } from '../../../models';
 import { aiProxy } from '../../aiProxy';
+import { downloadToFile } from '../../../utils/download';
 import { projectStorage } from '../../projectStorage';
 import { directorPromptService } from '../../directorPromptService';
 import { aiPromptOptimizerService, type ScriptContextForAI } from '../../aiPromptOptimizerService';
@@ -180,6 +181,8 @@ export async function stageVideo(db: Database, task: AutoPipelineTask): Promise<
           await new Promise(r => setTimeout(r, waitTime));
         }
 
+        // 提升作用域：catch 中需要把该行标记为 failed
+        let videoIntervalId: string | null = null;
         try {
           // 创建视频片段记录（每次重试创建新记录）
           const videoInterval = ShotVideoIntervalDAO.create(db, {
@@ -202,6 +205,7 @@ export async function stageVideo(db: Database, task: AutoPipelineTask): Promise<
             resolution: '1080p',
           });
 
+          videoIntervalId = videoInterval.id;
           ShotVideoIntervalDAO.update(db, videoInterval.id, {
             external_task_id: result.taskId,
             status: 'processing',
@@ -228,9 +232,8 @@ export async function stageVideo(db: Database, task: AutoPipelineTask): Promise<
                 projectStorage.ensureDir(saveDir);
                 const fileName = `video_shot_${shot.shot_number}_${Date.now()}.mp4`;
                 const localPath = path.resolve(saveDir, fileName);
-                const response = await fetch(taskResult.videoUrl);
-                const arrayBuffer = await response.arrayBuffer();
-                fs.writeFileSync(localPath, Buffer.from(arrayBuffer));
+                // 流式下载：带超时与状态校验，避免把错误响应体当视频落盘
+                await downloadToFile(taskResult.videoUrl, localPath, { timeoutMs: 180_000 });
                 const localUrl = projectStorage.toUrlPath(localPath);
 
                 ShotVideoIntervalDAO.update(db, videoInterval.id, {
@@ -262,6 +265,12 @@ export async function stageVideo(db: Database, task: AutoPipelineTask): Promise<
           }
         } catch (err: any) {
           lastError = err.message || '未知错误';
+          // 尝试失败时同步把 interval 行标记为 failed，避免残留 pending/processing 孤儿行
+          if (videoIntervalId) {
+            try {
+              ShotVideoIntervalDAO.updateStatus(db, videoIntervalId, 'failed', lastError);
+            } catch { /* 状态更新失败不影响主流程 */ }
+          }
           console.error(`[AutoPipeline] video shot=${shot.id} 第${attempt}次失败:`, err.message);
         }
       }

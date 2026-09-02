@@ -13,6 +13,7 @@ import { costTracker } from './costTracker';
 import { resolveModelName } from './modelUtils';
 import { projectStorage } from './projectStorage';
 import { createError } from '../middleware/errorHandler';
+import { downloadToFile } from '../utils/download';
 import { parseAIError, formatAIErrorForLog } from '../utils/aiErrorHandler';
 
 function sleep(ms: number): Promise<void> {
@@ -56,12 +57,8 @@ async function downloadImage(url: string, saveDir: string): Promise<string> {
     return localPath;
   }
 
-  const response = await fetch(url);
-  if (!response.ok) {
-    throw new Error(`图片下载失败: HTTP ${response.status}`);
-  }
-  const arrayBuffer = await response.arrayBuffer();
-  fs.writeFileSync(localPath, Buffer.from(arrayBuffer));
+  // 带超时的流式下载：远程 CDN 挂起会阻塞整条关键帧/场景生成链
+  await downloadToFile(url, localPath, { timeoutMs: 30_000, maxBytes: 20 * 1024 * 1024 });
   return localPath;
 }
 
@@ -170,7 +167,7 @@ export const aiProxy = {
     let cached = null;
     try {
       const refHash = params.referenceImages ? sha256(params.referenceImages.join(',')) : '';
-      const cacheKey = sha256(`img:${userId}:${params.provider}:${params.modelName}:${params.prompt}:${params.negativePrompt || ''}:${params.size || ''}:${refHash}`);
+      const cacheKey = sha256(`img:${userId}:${projectId}:${params.saveSubDir || ''}:${params.provider}:${params.modelName}:${params.prompt}:${params.negativePrompt || ''}:${params.size || ''}:${refHash}`);
       cached = AiCacheDAO.get(db, cacheKey);
     } catch (cacheErr) {
       console.error('[AI Proxy] 图片缓存读取失败（跳过）:', (cacheErr as Error).message);
@@ -228,9 +225,13 @@ export const aiProxy = {
 
     // 8. 写入缓存
     try {
-      const refHash2 = params.referenceImages ? sha256(params.referenceImages.join(',')) : '';
-      const cacheKey2 = sha256(`img:${userId}:${params.provider}:${params.modelName}:${params.prompt}:${params.negativePrompt || ''}:${params.size || ''}:${refHash2}`);
-      AiCacheDAO.set(db, cacheKey2, JSON.stringify(finalResult), 'image', 86400);
+      // 任一图片仍是远程回退 URL（下载失败）时不要缓存——24h 内会复用死链
+      const allLocal = finalResult.images.every((img) => img.url.startsWith('/data/'));
+      if (allLocal) {
+        const refHash2 = params.referenceImages ? sha256(params.referenceImages.join(',')) : '';
+        const cacheKey2 = sha256(`img:${userId}:${projectId}:${params.saveSubDir || ''}:${params.provider}:${params.modelName}:${params.prompt}:${params.negativePrompt || ''}:${params.size || ''}:${refHash2}`);
+        AiCacheDAO.set(db, cacheKey2, JSON.stringify(finalResult), 'image', 86400);
+      }
     } catch (cacheErr) {
       console.error('[AI Proxy] 缓存写入失败（跳过）:', (cacheErr as Error).message);
     }
@@ -325,7 +326,9 @@ export const aiProxy = {
     const adapter = getVideoAdapter(params.provider, actualModelName, modelConfig.api_key, modelConfig.endpoint_url || undefined);
 
     // 3. 调用生成（异步任务）
-    const result = await withRetry(() => adapter.generate({
+    // 注意：视频任务是计费任务，超时/5xx 重试会重复扣费且丢失首个 taskId，
+    // 因此视频创建不做自动重试（查询类 getVideoTask 不受影响）
+    const result = await adapter.generate({
       prompt: params.prompt,
       firstFrameImageUrl: params.firstFrameImageUrl,
       lastFrameImageUrl: params.lastFrameImageUrl,
@@ -334,7 +337,7 @@ export const aiProxy = {
       resolution: params.resolution,
       motion: params.motion,
       subtitles: params.subtitles,
-    }), { maxRetries: 2, baseDelay: 2000 });
+    });
 
     // 4. 记录日志
     RenderLogDAO.create(db, {

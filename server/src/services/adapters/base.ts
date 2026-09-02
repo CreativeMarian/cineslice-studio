@@ -100,6 +100,44 @@ export class AIError extends Error {
   }
 }
 
+// 二进制安全请求：audio 等返回原始字节（mp3/wav）的接口必须使用，
+// 走 text() 会把二进制按 UTF-8 解码损坏（历史 bug：Edge TTS 输出损坏的 mp3）
+export async function httpBinaryRequest(
+  url: string,
+  options: { method: string; headers?: Record<string, string>; body?: unknown; timeout?: number }
+): Promise<Buffer> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), options.timeout || 120000);
+
+  try {
+    const response = await fetch(url, {
+      method: options.method,
+      headers: { 'Content-Type': 'application/json', ...options.headers },
+      body: options.body ? JSON.stringify(options.body) : undefined,
+      signal: controller.signal,
+    });
+
+    if (!response.ok) {
+      const text = await response.text().catch(() => '');
+      const msg = `HTTP ${response.status}: ${text.substring(0, 500)}`;
+      if (response.status === 429) throw new AIError('AI_RATE_LIMITED', `请求被限流 ${msg}`, true);
+      if (response.status >= 500) throw new AIError('AI_CALL_FAILED', `服务端错误 ${msg}`, true);
+      throw new AIError('AI_CALL_FAILED', msg, false);
+    }
+
+    const arrayBuffer = await response.arrayBuffer();
+    return Buffer.from(arrayBuffer);
+  } catch (err) {
+    if (err instanceof AIError) throw err;
+    if (err instanceof Error && err.name === 'AbortError') {
+      throw new AIError('AI_CALL_FAILED', '请求超时', true);
+    }
+    throw new AIError('AI_CALL_FAILED', `网络错误: ${(err as Error).message}`, true);
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 // 通用 HTTP 请求辅助
 export async function httpRequest<T>(
   url: string,

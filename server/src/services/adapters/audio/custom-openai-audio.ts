@@ -36,6 +36,8 @@ export class CustomOpenAIAudioAdapter implements AudioAdapter {
           voice: params.voice || 'alloy',
           speed: params.speed || 1.0,
         }),
+        // 挂起的 TTS 连接会永久阻塞请求
+        signal: AbortSignal.timeout(60_000),
       });
 
       if (!response.ok) {

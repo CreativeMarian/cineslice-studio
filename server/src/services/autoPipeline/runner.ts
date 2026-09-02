@@ -3,7 +3,7 @@ import type { Database } from '../../types';
 import { PipelineService, PIPELINE_STAGES } from '../pipelineService';
 import type { AutoPipelineTask } from './types';
 import { tasks } from './state';
-import { saveTask, getTask } from './taskStore';
+import { saveTask, getTask , getCurrentRunningTask } from './taskStore';
 import { stageNovel } from './stages/novel';
 import { stageEpisodes } from './stages/episodes';
 import { stageScript } from './stages/script';
@@ -88,6 +88,16 @@ export async function runPipeline(db: Database, task: AutoPipelineTask): Promise
     }
   }
 
+  // 最后一个阶段执行期间用户取消时，不能把任务覆盖为 completed
+  if (task.cancelled) {
+    task.status = 'cancelled';
+    task.error = '用户取消';
+    task.completedAt = new Date().toISOString();
+    saveTask(db, task);
+    console.log(`[AutoPipeline] task=${task.taskId} cancelled during final stage`);
+    return;
+  }
+
   task.status = 'completed';
   task.completedAt = new Date().toISOString();
   saveTask(db, task);
@@ -98,6 +108,12 @@ export async function runPipeline(db: Database, task: AutoPipelineTask): Promise
  * 启动全自动流水线（异步执行，立即返回 taskId）
  */
 export function start(db: Database, projectId: string, userId: string): AutoPipelineTask {
+  // 并发守卫：同一项目已有 running/interrupted 任务时拒绝重复启动，
+  // 防止双击/重复请求造成双份 AI 花费与状态互相覆盖
+  const existing = getCurrentRunningTask(db, projectId);
+  if (existing) {
+    throw new Error(`该项目已有进行中的全自动任务（${existing.status}），请先等待完成或取消后再启动`);
+  }
   const taskId = `auto_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
   const task: AutoPipelineTask = {
     taskId,

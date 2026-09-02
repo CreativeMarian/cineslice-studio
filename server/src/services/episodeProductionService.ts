@@ -17,6 +17,7 @@ import { novelToScriptPrompt, polishScriptPrompt } from './prompts/novelToScript
 import { shotGenerationPrompt } from './prompts/shotGeneration';
 import { keyframePrompt } from './prompts/keyframePrompt';
 import { projectStorage } from './projectStorage';
+import { downloadToFile } from '../utils/download';
 import { parseAiJsonOrThrow, parseAiJson } from '../utils/aiJsonParser';
 import { scriptAnalysisService } from './scriptAnalysisService';
 import { promptOptimizationService } from './promptOptimizationService';
@@ -670,12 +671,13 @@ export async function getVideoStatus(db: Database, userId: string, videoId: stri
     throw createError(404, 'NOT_FOUND', '视频不存在');
   }
 
-  // 超时清理：超过2分钟还在处理中，自动标记为失败
+  // 超时清理：供应商侧视频任务通常 1-10 分钟出片（适配器预估 60-120s），
+  // 旧值 2 分钟会把健康任务误判失败、诱导用户重复付费；放宽到 10 分钟
   if ((video.status === 'pending' || video.status === 'processing') && video.created_at) {
     const createdTime = new Date(video.created_at).getTime();
-    if (Date.now() - createdTime > 2 * 60 * 1000) {
-      ShotVideoIntervalDAO.update(db, video.id, { status: 'failed', error_message: '任务超时（超过2分钟）' });
-      return { ...video, status: 'failed', error_message: '任务超时（超过2分钟）' };
+    if (Date.now() - createdTime > 10 * 60 * 1000) {
+      ShotVideoIntervalDAO.update(db, video.id, { status: 'failed', error_message: '任务超时（超过10分钟）' });
+      return { ...video, status: 'failed', error_message: '任务超时（超过10分钟）' };
     }
   }
 
@@ -701,9 +703,8 @@ export async function getVideoStatus(db: Database, userId: string, videoId: stri
           projectStorage.ensureDir(saveDir);
           const fileName = projectStorage.generateFileName('mp4');
           const localPath = path.resolve(saveDir, fileName);
-          const response = await fetch(taskResult.videoUrl);
-          const arrayBuffer = await response.arrayBuffer();
-          fs.writeFileSync(localPath, Buffer.from(arrayBuffer));
+          // 流式下载：带超时与状态校验
+          await downloadToFile(taskResult.videoUrl, localPath, { timeoutMs: 180_000 });
           const localUrl = projectStorage.toUrlPath(localPath);
 
           ShotVideoIntervalDAO.update(db, video.id, {
@@ -766,13 +767,9 @@ export async function batchGenerateKeyframes(
   const errors: Array<{ shotId: string; error: string }> = [];
 
   for (const shot of shots) {
-    // 删除已有的首帧关键帧（重新生成）
-    const existing = ShotKeyframeDAO.listByShot(db, shot.id);
-    const existingFirst = existing.find(k => k.frame_type === 'first' && k.image_url);
-    if (existingFirst) {
-      ShotKeyframeDAO.delete(db, existingFirst.id);
-    }
-
+    // 重新生成首帧：必须先生成成功、再删除旧帧。
+    // 旧逻辑先删后生成，一旦生成失败（限流/Key 失效），镜头唯一的首帧永久丢失，
+    // 下游视频生成会因"无首帧关键帧"跳过该镜头
     try {
       const { prompt, negativePrompt } = keyframePrompt({
         shotDescription: shot.action_description,
@@ -785,6 +782,13 @@ export async function batchGenerateKeyframes(
         count: 1, size: '2560x1440',
         saveSubDir: 'keyframes',
       });
+
+      // 新帧落库成功后再移除旧帧
+      const existing = ShotKeyframeDAO.listByShot(db, shot.id);
+      const existingFirst = existing.find(k => k.frame_type === 'first' && k.image_url);
+      if (existingFirst) {
+        ShotKeyframeDAO.delete(db, existingFirst.id);
+      }
 
       const keyframe = ShotKeyframeDAO.create(db, {
         user_id: userId,
