@@ -337,12 +337,13 @@ h1, h2, h3, h4, h5, h6 {
 }
 
 /* 渐变描边：content-box 挖空，仅留 1px 环；transform 旋转让光点绕圈 */
+/* 环位于 div 内壁（inset 正值向内包裹），沿内边缘环绕 */
 .marquee-border::before {
   content: '';
   position: absolute;
-  inset: -1px;
+  inset: 2px;
   border-radius: inherit;
-  padding: 1px;
+  padding: 2px;
   background: conic-gradient(
     from 0deg,
     transparent 0deg,
