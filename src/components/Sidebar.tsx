@@ -30,7 +30,7 @@ export function Sidebar() {
   return (
     <aside
       className={cn(
-        'flex flex-col border-r border-[var(--border)] bg-[var(--bg)] transition-all duration-300 marquee-border marquee-border--pause',
+        'flex flex-col border-r border-[var(--border)] glass-panel transition-all duration-300 marquee-border marquee-border--pause',
         sidebarCollapsed ? 'w-[68px]' : 'w-[220px]'
       )}
     >

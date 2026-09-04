@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+﻿import { useState, useEffect, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Plus, Film, MoreVertical, Pencil, Trash2, FolderOpen, Search, Clock, Sun, Moon, HelpCircle,
@@ -255,7 +255,7 @@ export function Dashboard() {
   return (
     <div className="min-h-screen bg-[var(--page)]">
       {/* 顶部终端状态条 */}
-      <div className="border-b border-[var(--border)] bg-[rgba(10,15,28,0.9)]">
+      <div className="border-b border-[var(--border)] bg-[var(--card-bg)] backdrop-blur-md">
         <div className="max-w-[1560px] mx-auto px-8 py-1.5 flex items-center justify-between">
           <div className="term-line">
             <span className="text-[var(--ink-3)]">cineslice@local</span>
@@ -329,7 +329,7 @@ export function Dashboard() {
 
         {/* 指标卡 */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-          <div className="rounded-[var(--radius-card)] bg-[var(--card-bg)] border border-[var(--border)] p-5 marquee-border">
+          <div className="glass-panel rounded-[var(--radius-card)] p-5 marquee-border breathing">
             <div className="flex items-center gap-2 mb-3">
               <Activity className="w-4 h-4 text-[var(--term-cyan)]" />
               <span className="metric-label">总项目数</span>
@@ -337,7 +337,7 @@ export function Dashboard() {
             <div className="metric-value text-3xl mb-1">{projects.length + archivedProjects.length}</div>
             <div className="metric-label">进行中 {projects.length} · 回收站 {archivedProjects.length}</div>
           </div>
-          <div className="rounded-[var(--radius-card)] bg-[var(--card-bg)] border border-[var(--border)] p-5 marquee-border">
+          <div className="glass-panel rounded-[var(--radius-card)] p-5 marquee-border breathing">
             <div className="flex items-center gap-2 mb-3">
               <GitBranch className="w-4 h-4 text-[var(--accent)]" />
               <span className="metric-label">流水线阶段</span>
@@ -345,7 +345,7 @@ export function Dashboard() {
             <div className="metric-value text-3xl mb-1">9</div>
             <div className="metric-label">小说 → 剧集 → 剧本 → 分镜 → 视频</div>
           </div>
-          <div className="rounded-[var(--radius-card)] bg-[var(--card-bg)] border border-[var(--border)] p-5 marquee-border">
+          <div className="glass-panel rounded-[var(--radius-card)] p-5 marquee-border breathing">
             <div className="flex items-center gap-2 mb-3">
               <Boxes className="w-4 h-4 text-[var(--term-purple)]" />
               <span className="metric-label">AI 模型</span>
@@ -353,7 +353,7 @@ export function Dashboard() {
             <div className="metric-value text-3xl mb-1">{modelCount}</div>
             <div className="metric-label">已配置 · 多服务商</div>
           </div>
-          <div className="rounded-[var(--radius-card)] bg-[var(--card-bg)] border border-[var(--border)] p-5 marquee-border">
+          <div className="glass-panel rounded-[var(--radius-card)] p-5 marquee-border breathing">
             <div className="flex items-center gap-2 mb-3">
               <Server className="w-4 h-4 text-[var(--term-green)]" />
               <span className="metric-label">运行模式</span>
@@ -366,7 +366,7 @@ export function Dashboard() {
         {/* 双栏：项目状态 + 快捷操作 */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6">
           {/* 左：项目状态列表 */}
-          <div className="lg:col-span-2 rounded-[var(--radius-card)] bg-[var(--card-bg)] border border-[var(--border)] p-5 marquee-border">
+          <div className="lg:col-span-2 glass-panel rounded-[var(--radius-card)] p-5 marquee-border">
             <div className="flex items-center justify-between mb-4">
               <div>
                 <div className="term-label mb-1">PROJECT STATUS</div>
@@ -443,7 +443,7 @@ export function Dashboard() {
                     <div
                       key={project.id}
                       onClick={isArchived ? undefined : () => navigate(`/projects/${project.id}`)}
-                      className={`group rounded-[var(--radius-control)] border border-[var(--border)] bg-[var(--panel-2)]/60 px-4 py-3 flex items-center gap-4 transition-all hover:border-[var(--border-hover)] ${
+                      className={`group rounded-[var(--radius-control)] border border-[var(--border)] bg-[var(--panel-2)]/60 px-4 py-3 flex items-center gap-4 transition-all hover:border-[var(--border-hover)] marquee-border ${
                         isArchived ? 'opacity-80' : 'cursor-pointer'
                       } ${menuOpenId === project.id ? 'z-40' : ''}`}
                     >
@@ -544,7 +544,7 @@ export function Dashboard() {
           </div>
 
           {/* 右：快捷操作 */}
-          <div className="rounded-[var(--radius-card)] bg-[var(--card-bg)] border border-[var(--border)] p-5 marquee-border">
+          <div className="glass-panel rounded-[var(--radius-card)] p-5 marquee-border">
             <div className="term-label mb-1">QUICK ACTIONS</div>
             <h2 className="text-base font-bold text-[var(--ink-1)] mb-4">快捷操作</h2>
             <div className="space-y-2 mb-6">
@@ -552,7 +552,7 @@ export function Dashboard() {
                 <button
                   key={action.label}
                   onClick={action.onClick}
-                  className="w-full flex items-center gap-3 px-3 py-2.5 rounded-[var(--radius-control)] border border-[var(--border)] bg-[var(--panel-2)]/50 hover:border-[var(--border-hover)] hover:bg-[var(--accent-soft)] transition-all group"
+                  className="w-full flex items-center gap-3 px-3 py-2.5 rounded-[var(--radius-control)] border border-[var(--border)] bg-[var(--panel-2)]/50 hover:border-[var(--border-hover)] hover:bg-[var(--accent-soft)] transition-all group marquee-border"
                 >
                   <div className="w-8 h-8 rounded-md bg-[var(--accent-soft)] text-[var(--accent)] flex items-center justify-center group-hover:scale-110 transition-transform">
                     <action.icon className="w-4 h-4" />
@@ -566,7 +566,7 @@ export function Dashboard() {
             </div>
 
             {/* 端点信息 */}
-            <div className="rounded-lg border border-[var(--border)] bg-[rgba(10,15,28,0.6)] px-3 py-3">
+            <div className="rounded-lg border border-[var(--border)] bg-[var(--panel-2)]/80 px-3 py-3">
               <div className="term-label mb-1.5">PIPELINE_ENDPOINT</div>
               <div className="term-line">
                 <span className="text-[var(--term-cyan)]">http://127.0.0.1:3000/api</span>
@@ -576,7 +576,7 @@ export function Dashboard() {
         </div>
 
         {/* 近 7 天活跃趋势 */}
-        <div className="rounded-[var(--radius-card)] bg-[var(--card-bg)] border border-[var(--border)] p-5 mb-8 marquee-border">
+        <div className="glass-panel rounded-[var(--radius-card)] p-5 mb-8 marquee-border">
           <div className="flex items-center justify-between mb-4">
             <div>
               <div className="term-label mb-1">ACTIVITY</div>
