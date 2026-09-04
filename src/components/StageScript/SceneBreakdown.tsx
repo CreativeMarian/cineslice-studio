@@ -19,6 +19,7 @@ import {
   Save,
   X,
   Info,
+  MapPin,
 } from 'lucide-react';
 import { Button, Card, EmptyState, Badge, Modal, Textarea, Input, Select } from '../ui';
 import { ConfigPanel } from './ConfigPanel';
@@ -259,6 +260,10 @@ export function SceneBreakdown() {
           {shots.map((shot: Shot) => {
             const isSelected = selectedShotId === shot.id;
             const isExpanded = expandedShotId === shot.id;
+            const sceneName = shot.scene_id ? scenes.find(s => s.id === shot.scene_id)?.name : undefined;
+            const shotChars = Array.isArray(shot.characters_in_shot)
+              ? shot.characters_in_shot.map((c: unknown) => String(c)).filter(Boolean)
+              : [];
             return (
               <Card
                 key={shot.id}
@@ -291,6 +296,18 @@ export function SceneBreakdown() {
                   {/* 内容摘要 */}
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-2 flex-wrap">
+                      {sceneName && (
+                        <Badge variant="accent" className="flex items-center gap-1">
+                          <MapPin className="w-3 h-3" />
+                          {sceneName}
+                        </Badge>
+                      )}
+                      {shotChars.map((name: string, i: number) => (
+                        <Badge key={`${name}-${i}`} variant="info" className="flex items-center gap-1">
+                          <User className="w-3 h-3" />
+                          {name}
+                        </Badge>
+                      ))}
                       <Badge variant="default" className="flex items-center gap-1">
                         <Camera className="w-3 h-3" />
                         {CAMERA_MOVEMENT_LABELS[shot.camera_movement] || shot.camera_movement}

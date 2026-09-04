@@ -4,8 +4,9 @@
 
 import type { Database } from '../types';
 import { aiProxy } from './aiProxy';
-import { NovelEpisodeDAO, ScriptCharacterDAO, ScriptSceneDAO, ShotDAO } from '../models';
+import { NovelEpisodeDAO, ScriptCharacterDAO, ScriptSceneDAO, ShotDAO, ModelRegistryDAO } from '../models';
 import { parseAiJsonOrThrow } from '../utils/aiJsonParser';
+import { generateId, now } from '../models/index';
 
 // ═══════════════════════════════════════════════════════════════
 // 类型定义
@@ -212,7 +213,8 @@ export const scriptAnalysisService = {
   async analyzeScript(
     db: Database,
     episodeId: string,
-    userId: string
+    userId: string,
+    opts?: { provider?: string; modelName?: string; forceRefresh?: boolean }
   ): Promise<ScriptAnalysisResult> {
     console.log(`[ScriptAnalysis] 开始分析剧本 episode=${episodeId}`);
 
@@ -220,6 +222,45 @@ export const scriptAnalysisService = {
     const episode = NovelEpisodeDAO.getById(db, episodeId);
     if (!episode) {
       throw new Error(`剧集不存在: ${episodeId}`);
+    }
+
+    // 落库缓存命中：直接复用（剧集剧本更新后自动失效重分析）
+    // v2.0：此前每次关键帧/视频生成都全量重分析，手动路径每镜一次 AI 调用，浪费且慢
+    const cachedRow = db.prepare('SELECT analysis_json, updated_at, model_used FROM script_analysis WHERE episode_id = ?').get(episodeId) as any;
+    if (cachedRow && !opts?.forceRefresh) {
+      const episodeUpdated = new Date(episode.updated_at || 0).getTime();
+      const cachedUpdated = new Date(cachedRow.updated_at || 0).getTime();
+      if (episodeUpdated <= cachedUpdated) {
+        try {
+          const parsed = JSON.parse(cachedRow.analysis_json);
+          if (parsed && parsed.plotStructure) {
+            console.log(`[ScriptAnalysis] 命中缓存（${cachedRow.model_used || '未知模型'}）`);
+            return parsed as ScriptAnalysisResult;
+          }
+        } catch {
+          // 缓存损坏，重新分析
+        }
+      } else {
+        console.log('[ScriptAnalysis] 剧本已更新，重新分析');
+      }
+    }
+
+    // 模型解析：优先显式传入，否则取用户第一个文本模型
+    // v2.0：此前硬编码 doubao/default，用户未配置该模型名时 MODEL_NOT_CONFIGURED 必然抛错，
+    // 手动路径的剧本分析优化从未真正生效
+    let provider = opts?.provider;
+    let modelName = opts?.modelName;
+    if (!provider || !modelName) {
+      const textModels = ModelRegistryDAO.listByUserAndType(db, userId, 'text');
+      const preferred = textModels.find(m => ['doubao', 'deepseek', 'zhipu', 'qwen', 'minimax'].includes(m.provider))
+        || textModels[0];
+      if (preferred) {
+        provider = preferred.provider;
+        modelName = preferred.model_name;
+      }
+    }
+    if (!provider || !modelName) {
+      throw new Error('未配置文本模型，无法进行剧本分析');
     }
 
     // 获取角色和场景信息（辅助分析）
@@ -247,8 +288,8 @@ export const scriptAnalysisService = {
     const result = await aiProxy.generateText({
       db,
       userId,
-      provider: 'doubao',
-      modelName: 'default',
+      provider,
+      modelName,
       prompt: fullPrompt,
       systemPrompt: '你是一位专业的影视剧本分析师，擅长从剧情、场景、角色、情绪、节奏、视觉风格等多个维度深度拆解剧本。输出严格的JSON格式。',
       temperature: 0.3,  // 低温度保证分析准确性
@@ -269,6 +310,20 @@ export const scriptAnalysisService = {
     console.log(`  - 角色分析: ${analysis.characterAnalysis?.length || 0} 个`);
     console.log(`  - 情绪曲线: ${analysis.emotionalCurve?.length || 0} 个节点`);
     console.log(`  - 推荐风格: ${analysis.visualStyleSuggestion?.recommendedStyle || '未指定'}`);
+
+    // 写缓存（upsert，幂等）
+    try {
+      const ts = now();
+      db.prepare(`INSERT INTO script_analysis (id, user_id, episode_id, analysis_json, model_used, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(episode_id) DO UPDATE SET
+          analysis_json = excluded.analysis_json,
+          model_used = excluded.model_used,
+          updated_at = excluded.updated_at`)
+        .run(generateId('sana'), userId, episodeId, JSON.stringify(analysis), `${provider}/${modelName}`, ts, ts);
+    } catch (cacheErr) {
+      console.warn('[ScriptAnalysis] 缓存写入失败（不影响主流程）:', (cacheErr as Error).message);
+    }
 
     return analysis;
   },
