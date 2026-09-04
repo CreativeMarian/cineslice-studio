@@ -141,15 +141,6 @@ router.get('/shots/:id', asyncHandler(async (req: Request, res: Response) => {
   res.json({ success: true, data: shot });
 }));
 
-// 更新镜头
-router.put('/shots/:id', asyncHandler(async (req: Request, res: Response) => {
-  const db = getDb(req);
-  const shot = ShotDAO.getByIdAndUser(db, req.params.id, req.user.id);
-  if (!shot) throw createError(404, 'NOT_FOUND', '镜头不存在');
-  const updated = ShotDAO.update(db, req.params.id, req.body);
-  res.json({ success: true, data: updated });
-}));
-
 // 删除镜头
 router.delete('/shots/:id', asyncHandler(async (req: Request, res: Response) => {
   const db = getDb(req);
@@ -234,8 +225,19 @@ router.post('/shots/:id/keyframes/endframe', validateBody(regenerateSchema), asy
 
 // 更新镜头（如：首尾帧衔接开关 use_next_first_frame）
 const updateShotSchema = z.object({
+  shot_number: z.number().int().min(1).optional(),
+  scene_id: z.string().nullable().optional(),
+  scene_name: z.string().nullable().optional(),
+  subject: z.string().nullable().optional(),
+  action_description: z.string().nullable().optional(),
+  dialogue: z.string().nullable().optional(),
+  camera_movement: z.string().nullable().optional(),
+  shot_size: z.string().nullable().optional(),
+  duration_seconds: z.number().positive().optional(),
+  characters_in_shot: z.array(z.string()).optional(),
+  props_in_shot: z.array(z.string()).optional(),
   use_next_first_frame: z.number().int().min(0).max(1).optional(),
-});
+}).passthrough();
 router.put('/shots/:id', validateBody(updateShotSchema), asyncHandler(async (req: Request, res: Response) => {
   const db = getDb(req);
   const shot = ShotDAO.getByIdAndUser(db, req.params.id, req.user.id);

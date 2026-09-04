@@ -63,7 +63,8 @@ export async function stageKeyframes(db: Database, task: AutoPipelineTask): Prom
       // 如果镜头没有指定角色，从 action_description 中匹配角色名
       if (characterIds.length === 0) {
         for (const char of allCharacters) {
-          if (shot.action_description.includes(char.name) || shot.dialogue.includes(char.name)) {
+          const shotText = `${shot.action_description || ''} ${shot.dialogue || ''}`;
+          if (shotText.includes(char.name)) {
             characterIds.push(char.id);
           }
         }

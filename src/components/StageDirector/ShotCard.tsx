@@ -13,12 +13,17 @@ import { VideoParamsPanel } from './VideoParamsPanel';
 
 const shotSizeLabels: Record<string, string> = {
   extreme_close_up: '大特写',
+  extreme_closeup: '大特写',
   close_up: '特写',
+  closeup: '特写',
   medium_close_up: '近景',
+  medium_closeup: '近景',
   medium: '中景',
   medium_long: '中全景',
   long: '全景',
+  full: '全景',
   extreme_long: '远景',
+  extreme_wide: '大远景',
 };
 
 const cameraLabels: Record<string, string> = {

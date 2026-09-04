@@ -102,6 +102,10 @@ export default defineConfig(async () => {
       host: '0.0.0.0',
       port: frontendPort,
       strictPort: false, // 允许 Vite 自动找下一个端口（双重保险）
+      watch: {
+        // 忽略临时文件与审计脚本，避免文件监视器崩溃（EBUSY）
+        ignored: ['**/*.agent_infra_tmp*', '**/*.tmp', '**/smoke-*.ts', '**/patch-*.cjs', '**/api-audit.cjs', '**/data-check.cjs'],
+      },
       proxy: {
         '/api': {
           target: `http://127.0.0.1:${backendPort}`,
