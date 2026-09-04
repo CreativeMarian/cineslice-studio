@@ -35,7 +35,7 @@ export function NovelManager() {
         setChapters(res.data.chapters);
         // 上传成功后自动全选章节
         setSelectedChapterIds(res.data.chapters.map((c: NovelChapter) => c.id));
-        showToast(`成功解析 ${res.data.total_chapters} 个章节，已自动全选`, 'success');
+        showToast(`成功解析 ${res.data.total_chapters} 个章节。下一步：点击「生成剧集剧本」改编为剧集`, 'success');
         // 自动切换到剧集管理标签
         setTimeout(() => updatePipelineStep('episodes'), 800);
       } else {

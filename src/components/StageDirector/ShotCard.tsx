@@ -139,7 +139,7 @@ export function ShotCard({ shot, index, isExpanded, onToggle, showToast }: ShotC
           });
           if (res.data.status === 'completed' || res.data.status === 'failed') {
             setPollingVideoId(null);
-            showToast(res.data.status === 'completed' ? '视频生成完成' : '视频生成失败', res.data.status === 'completed' ? 'success' : 'error');
+            showToast(res.data.status === 'completed' ? '视频生成完成。下一步：进入「导出」阶段合成成片' : '视频生成失败', res.data.status === 'completed' ? 'success' : 'error');
           }
         }
       } catch {
@@ -205,7 +205,7 @@ export function ShotCard({ shot, index, isExpanded, onToggle, showToast }: ShotC
       });
       if (res.success && res.data) {
         setKeyframes(res.data as unknown as ShotKeyframe[]);
-        showToast('关键帧生成成功', 'success');
+        showToast('关键帧生成成功。下一步：选择视频模型生成该镜头视频', 'success');
       } else {
         showToast(res.message || '关键帧生成失败', 'error');
       }

@@ -98,7 +98,7 @@ export function StageAssets() {
       const res = await characterService.extract(currentEpisodeId, { provider, modelName });
       if (res.success && res.data) {
         setCharacters(res.data);
-        showToast(`成功提取 ${res.data.length} 个角色`, 'success');
+        showToast(`成功提取 ${res.data.length} 个角色。下一步：点击角色卡片生成定妆照`, 'success');
       }
     } catch {
       showToast('提取角色失败，请检查模型配置', 'error');
@@ -124,7 +124,7 @@ export function StageAssets() {
       const res = await sceneService.extract(currentEpisodeId, { provider, modelName });
       if (res.success && res.data) {
         setScenes(res.data);
-        showToast(`成功提取 ${res.data.length} 个场景`, 'success');
+        showToast(`成功提取 ${res.data.length} 个场景。下一步：点击场景卡片生成场景概念图`, 'success');
       }
     } catch {
       showToast('提取场景失败，请检查模型配置', 'error');
@@ -150,7 +150,7 @@ export function StageAssets() {
       const res = await propService.extract(currentEpisodeId, { provider, modelName });
       if (res.success && res.data) {
         setProps(res.data);
-        showToast(`成功提取 ${res.data.length} 个道具`, 'success');
+        showToast(`成功提取 ${res.data.length} 个道具。下一步：标记线索道具以注入镜头参考图`, 'success');
       }
     } catch {
       showToast('提取道具失败，请检查模型配置', 'error');

@@ -178,7 +178,7 @@ export function StageExport() {
                 setComposeResult(statusRes.data);
                 if (statusRes.data.status === 'completed') {
                   stopPolling();
-                  showToast('视频合成完成！', 'success');
+                  showToast('视频合成完成！下一步：导出剧本/分镜等文档备份项目', 'success');
                 } else if (statusRes.data.status === 'failed') {
                   stopPolling();
                   showToast(`合成失败：${statusRes.data.error || '未知错误'}`, 'error');
@@ -198,7 +198,7 @@ export function StageExport() {
           }, 2000);
           pollTimerRef.current = timer;
         } else if (res.data.status === 'completed') {
-          showToast('视频合成完成！', 'success');
+          showToast('视频合成完成！下一步：导出剧本/分镜等文档备份项目', 'success');
         } else if (res.data.status === 'failed') {
           showToast(`合成失败：${res.data.error || '未知错误'}`, 'error');
         }

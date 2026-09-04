@@ -54,7 +54,7 @@ export function AudioPanel({ episodeId, shots, showToast }: AudioPanelProps) {
       if (res.success && res.data) {
         setTtsResults(res.data);
         const successCount = res.data.filter((r: TtsResult) => r.audioUrl).length;
-        showToast(`配音生成完成：${successCount} 个镜头`, 'success');
+        showToast(`配音生成完成：${successCount} 个镜头。下一步：点击「音频合成」合并音轨`, 'success');
       }
     } catch {
       showToast('配音生成失败', 'error');
@@ -78,7 +78,7 @@ export function AudioPanel({ episodeId, shots, showToast }: AudioPanelProps) {
       });
       if (res.success && res.data) {
         setComposedAudio({ url: res.data.data.audioUrl, duration: res.data.data.totalDuration });
-        showToast('音频合成完成', 'success');
+        showToast('音频合成完成。下一步：进入「导出」阶段合成成片', 'success');
       }
     } catch {
       showToast('音频合成失败', 'error');

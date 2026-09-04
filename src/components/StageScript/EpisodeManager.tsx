@@ -111,7 +111,7 @@ export function EpisodeManager() {
         if (res.data.length > 0) {
           setCurrentEpisode(res.data[0].id);
         }
-        showToast(`成功生成 ${res.data.length} 集`, 'success');
+        showToast(`成功生成 ${res.data.length} 集。下一步：点击「编辑剧本」检查润色`, 'success');
         // 停留在剧集管理页，由用户主动进入剧本编辑
       }
     } catch (err: any) {

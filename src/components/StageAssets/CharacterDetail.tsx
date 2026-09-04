@@ -169,7 +169,7 @@ export function CharacterDetail({ character, onClose, onUpdate }: CharacterDetai
       });
       if (res.success && res.data) {
         onUpdate(res.data);
-        showToast('概念图生成成功', 'success');
+        showToast('概念图生成成功。下一步：生成四视图完善角色设定', 'success');
       }
     } catch {
       showToast('生成概念图失败', 'error');
@@ -215,7 +215,7 @@ export function CharacterDetail({ character, onClose, onUpdate }: CharacterDetai
       if (res.success && res.data) {
         // 直接使用返回的完整角色数据更新状态
         onUpdate(res.data);
-        showToast('四视图生成成功', 'success');
+        showToast('四视图生成成功。下一步：可进入「导演」阶段生成关键帧', 'success');
       }
     } catch (err: any) {
       const errorMsg = err?.response?.data?.message || err?.message || '四视图生成失败';

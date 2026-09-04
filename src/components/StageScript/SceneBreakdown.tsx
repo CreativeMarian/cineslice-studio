@@ -70,7 +70,7 @@ export function SceneBreakdown() {
       });
       if (res.success && res.data) {
         setShots(res.data);
-        showToast(`成功生成 ${res.data.length} 个镜头`, 'success');
+        showToast(`成功生成 ${res.data.length} 个镜头。下一步：进入「资产」阶段为角色定妆`, 'success');
       }
     } catch {
       showToast('生成分镜失败', 'error');
