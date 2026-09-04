@@ -5,6 +5,7 @@ import { Clapperboard, Video, Music, Film } from 'lucide-react';
 import { Card, EmptyState, Badge, Tabs } from '../ui';
 import { useProjectStore } from '../../stores/useProjectStore';
 import { useUIStore } from '../../stores/useUIStore';
+import { sceneService } from '../../services/assetService';
 import { AudioPanel } from './AudioPanel';
 import { BatchToolbar } from './BatchToolbar';
 import { ShotCard } from './ShotCard';
@@ -14,6 +15,7 @@ export function StageDirector() {
   const { showToast } = useUIStore();
   const [expandedShot, setExpandedShot] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'video' | 'audio'>('video');
+  const [sceneMap, setSceneMap] = useState<Record<string, string>>({}); // scene_id → scene_name
 
   useEffect(() => {
     if (episodes.length > 0 && !currentEpisodeId) {
@@ -24,6 +26,18 @@ export function StageDirector() {
       loadShots(currentEpisodeId);
     }
   }, [episodes, currentEpisodeId, shots.length, setCurrentEpisode, loadShots]);
+
+  // 加载场景清单：分镜生成后镜头已关联 scene_id，此处用于展示"镜头所属场景"
+  useEffect(() => {
+    if (!currentEpisodeId) return;
+    sceneService.list(currentEpisodeId).then((res) => {
+      if (res.success && res.data) {
+        const map: Record<string, string> = {};
+        for (const s of res.data) if (s.id) map[s.id] = s.name;
+        setSceneMap(map);
+      }
+    }).catch(() => { /* 场景未提取时静默 */ });
+  }, [currentEpisodeId]);
 
   const currentEpisode = episodes.find(e => e.id === currentEpisodeId);
   const hasShots = shots.length > 0;
@@ -98,6 +112,7 @@ export function StageDirector() {
                 key={shot.id}
                 shot={shot}
                 index={index}
+                sceneName={shot.scene_id ? sceneMap[shot.scene_id] : undefined}
                 isExpanded={expandedShot === shot.id}
                 onToggle={() => setExpandedShot(expandedShot === shot.id ? null : shot.id)}
                 showToast={showToast}

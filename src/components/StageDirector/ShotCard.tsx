@@ -39,9 +39,16 @@ interface ShotCardProps {
   isExpanded: boolean;
   onToggle: () => void;
   showToast: (msg: string, type: 'success' | 'error' | 'info') => void;
+  sceneName?: string;
 }
 
-export function ShotCard({ shot, index, isExpanded, onToggle, showToast }: ShotCardProps) {
+// 解析 characters_in_shot（后端已解析为 JSON 数组）
+function parseShotCharacterNames(shot: Shot): string[] {
+  if (!Array.isArray(shot.characters_in_shot)) return [];
+  return shot.characters_in_shot.map((s: unknown) => String(s)).filter(Boolean);
+}
+
+export function ShotCard({ shot, index, isExpanded, onToggle, showToast, sceneName }: ShotCardProps) {
   const { configs, loadConfigs } = useModelStore();
   const [keyframes, setKeyframes] = useState<ShotKeyframe[]>([]);
   const [videos, setVideos] = useState<ShotVideoInterval[]>([]);
@@ -360,9 +367,13 @@ export function ShotCard({ shot, index, isExpanded, onToggle, showToast }: ShotC
         </div>
 
         <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 mb-1">
+          <div className="flex items-center gap-2 mb-1 flex-wrap">
             <Badge variant="default">{shotSizeLabels[shot.shot_size] || shot.shot_size}</Badge>
             <Badge variant="default">{cameraLabels[shot.camera_movement] || shot.camera_movement}</Badge>
+            {sceneName && <Badge variant="accent">🎬 {sceneName}</Badge>}
+            {parseShotCharacterNames(shot).map((name, i) => (
+              <Badge key={`${name}-${i}`} variant="info">👤 {name}</Badge>
+            ))}
             <span className="text-xs text-[var(--ink-3)]">{shot.duration_seconds}s</span>
           </div>
           <p className="text-sm text-[var(--ink-1)] line-clamp-1">{shot.action_description}</p>
