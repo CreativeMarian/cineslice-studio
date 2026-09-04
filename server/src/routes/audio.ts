@@ -13,6 +13,13 @@ import { projectStorage } from '../services/projectStorage';
 import { sanitizeFileName } from '../utils/filename';
 import { composeAudio, mergeVideoAudio, recommendSfx, BGM_PRESETS, type BgmPreset } from '../services/audioComposer';
 import { NovelEpisodeDAO, ShotDAO } from '../models';
+import { downloadToFile } from '../utils/download';
+import {
+  parseSpeaker,
+  stripSpeakerPrefix,
+  resolveVoiceForShot,
+  adjustSpeedByEmotion,
+} from '../services/voiceAssignment';
 import type { Database } from '../types';
 
 const router = Router();
@@ -47,6 +54,8 @@ router.post('/episodes/:id/tts', validateBody(ttsShotSchema), asyncHandler(async
 
   const audioDir = projectStorage.getAudioDir(episode.project_id);
   projectStorage.ensureDir(audioDir);
+  const episodeId = episode.id;
+  const projectId = episode.project_id;
 
   // 并发控制：限制同时最多 4 个 TTS 请求
   const CONCURRENCY = 4;
@@ -59,25 +68,49 @@ router.post('/episodes/:id/tts', validateBody(ttsShotSchema), asyncHandler(async
       const shot = targetShots[idx];
       if (!shot.dialogue || shot.dialogue.trim().length === 0) continue;
       try {
+        // 每个镜头独立解析说话者 → 角色音色档案/动态分配（v2.0）
+        // 此前整集共用单一 voice，角色音色 UI 配置完全不生效
+        const speaker = parseSpeaker(shot.dialogue);
+        let finalVoice = voice;
+        let finalSpeed = speed;
+        if (!finalVoice) {
+          const assigned = resolveVoiceForShot(db, episodeId, shot.dialogue);
+          finalVoice = assigned.voice;
+          finalSpeed = adjustSpeedByEmotion(shot.dialogue, shot.action_description || '', assigned.speed);
+        }
+        // 去角色名前缀，只读台词正文
+        const dialogueText = stripSpeakerPrefix(shot.dialogue);
+
         const result = await aiProxy.generateAudio({
           db,
           userId: req.user.id,
           provider,
           modelName,
-          text: shot.dialogue,
-          voice,
-          speed,
+          text: dialogueText,
+          voice: finalVoice,
+          speed: finalSpeed,
         });
         const fileName = `tts_shot_${shot.shot_number}_${Date.now()}.mp3`;
         const localPath = path.resolve(audioDir, fileName);
-        const base64Data = result.audioUrl.includes(',') ? result.audioUrl.split(',')[1] : result.audioUrl;
-        fs.writeFileSync(localPath, Buffer.from(base64Data, 'base64'));
+        if (/^https?:\/\//.test(result.audioUrl)) {
+          // 适配器可能返回音频文件 URL，直接下载为二进制（避免把 URL 文本当 base64 解码）
+          await downloadToFile(result.audioUrl, localPath, { timeoutMs: 60_000, maxBytes: 50 * 1024 * 1024 });
+        } else {
+          const base64Data = result.audioUrl.includes(',') ? result.audioUrl.split(',')[1] : result.audioUrl;
+          fs.writeFileSync(localPath, Buffer.from(base64Data, 'base64'));
+        }
+        // 落盘校验：0 字节文件会让合成阶段失败
+        if (fs.existsSync(localPath) && fs.statSync(localPath).size === 0) {
+          throw new Error('TTS 写入了空音频文件');
+        }
         results[idx] = {
           shotId: shot.id,
           shotNumber: shot.shot_number,
           audioUrl: projectStorage.toUrlPath(localPath),
           fileName,
-          voice: result.voice,
+          voice: finalVoice,
+          speed: finalSpeed,
+          speaker: speaker || undefined,
           durationSeconds: result.durationSeconds,
         };
       } catch (err: any) {
