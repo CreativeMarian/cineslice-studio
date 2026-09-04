@@ -11,6 +11,7 @@ import {
   Home,
   Network,
   Coins,
+  Sparkles,
 } from 'lucide-react';
 import { cn } from '../utils';
 import { useUIStore } from '../stores/useUIStore';
@@ -104,6 +105,22 @@ export function Sidebar() {
             系统
           </p>
         )}
+        <NavLink
+          to="/create"
+          className={({ isActive }) =>
+            cn(
+              'flex items-center gap-3 px-3 py-2.5 rounded-[var(--radius-control)] text-sm font-medium transition-all duration-200',
+              isActive
+                ? 'bg-[var(--panel-2)] text-[var(--accent)]'
+                : 'text-[var(--ink-2)] hover:bg-[var(--panel-2)] hover:text-[var(--ink-1)]',
+              sidebarCollapsed && 'justify-center px-0'
+            )
+          }
+          title={sidebarCollapsed ? '自由创作' : undefined}
+        >
+          <Sparkles className="w-5 h-5 flex-shrink-0" />
+          {!sidebarCollapsed && <span>自由创作</span>}
+        </NavLink>
         <NavLink
           to="/models"
           className={({ isActive }) =>

@@ -36,6 +36,7 @@ import stylePresetRoutes from './routes/stylePresets';
 import pipelineRoutes from './routes/pipeline';
 import taskRoutes from './routes/tasks';
 import aiRoutes from './routes/ai';
+import createRoutes from './routes/create';
 import projectPatchRoutes from './routes/projectPatch';
 import videoComposeRoutes from './routes/videoCompose';
 import audioRoutes from './routes/audio';
@@ -144,6 +145,7 @@ async function main() {
   app.use('/api/projects/:id/pipeline', pipelineRoutes);
   app.use('/api/tasks', taskRoutes);
   app.use('/api/ai', aiRoutes);
+  app.use('/api/create', createRoutes); // 自由创作工作台：文生图/图生图/文生视频/图生视频
   app.use('/api/project-patch', projectPatchRoutes);
   app.use('/api', videoComposeRoutes); // /api/episodes/:id/compose, /api/compose/:taskId, /api/ffmpeg/status
   app.use('/api', audioRoutes); // /api/episodes/:id/tts, /api/episodes/:id/audio-compose, etc.

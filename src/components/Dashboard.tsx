@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { Plus, Film, MoreVertical, Pencil, Trash2, FolderOpen, Search, Clock, Sun, Moon, HelpCircle, BookOpen, Wand2, FileUp, ChevronRight, Zap, Settings, Users, Archive, ArchiveRestore, AlertTriangle, Coins } from 'lucide-react';
+import { Plus, Film, MoreVertical, Pencil, Trash2, FolderOpen, Search, Clock, Sun, Moon, HelpCircle, BookOpen, Wand2, FileUp, ChevronRight, Zap, Settings, Users, Archive, ArchiveRestore, AlertTriangle, Coins, Sparkles } from 'lucide-react';
 import { Button, Card, EmptyState, Modal, Input, Badge } from './ui';
 import { projectService } from '../services/projectService';
 import { exportService } from '../services/exportService';
@@ -309,7 +309,7 @@ export function Dashboard() {
         </div>
 
         {/* 三入口 */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
           {/* 从小说开始 */}
           <Card
             hover
@@ -384,6 +384,25 @@ export function Dashboard() {
                 <ChevronRight className="w-4 h-4 ml-1 group-hover:translate-x-1 transition-transform" />
               </div>
             </div>
+          {/* 自由创作 */}
+          <Card
+            hover
+            className="p-6 cursor-pointer group relative overflow-hidden"
+            onClick={() => navigate('/create')}
+          >
+            <div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-bl from-pink-500/10 to-transparent rounded-bl-full" />
+            <div className="relative">
+              <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-pink-500 to-rose-600 flex items-center justify-center mb-4 shadow-[0_4px_12px_rgba(244,114,182,0.3)]">
+                <Sparkles className="w-6 h-6 text-white" />
+              </div>
+              <h3 className="font-semibold text-[var(--ink-1)] mb-1 font-[var(--font-display)]">自由创作</h3>
+              <p className="text-sm text-[var(--ink-3)] mb-4">不建项目，直接文生图 / 图生图 / 文生视频 / 图生视频</p>
+              <div className="flex items-center text-sm text-pink-500 font-medium group-hover:gap-2 transition-all">
+                打开工作台
+                <ChevronRight className="w-4 h-4 ml-1 group-hover:translate-x-1 transition-transform" />
+              </div>
+            </div>
+          </Card>
           </Card>
         </div>
 
