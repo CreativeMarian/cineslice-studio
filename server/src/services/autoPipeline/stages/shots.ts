@@ -1,10 +1,12 @@
 // 阶段6：分镜生成
+// v2.0 - 场景关联（scene_id 落库）+ 角色资产上下文注入 + 修复 shot_type 列不存在 bug + 道具落库
 import type { Database } from '../../../types';
-import { NovelEpisodeDAO, ShotDAO } from '../../../models';
+import { NovelEpisodeDAO, ShotDAO, ScriptCharacterDAO } from '../../../models';
 import { aiProxy } from '../../aiProxy';
 import { shotGenerationPrompt } from '../../prompts/shotGeneration';
 import { promptOptimizationService } from '../../promptOptimizationService';
 import { parseAiJsonOrThrow } from '../../../utils/aiJsonParser';
+import { buildShotSceneMap } from '../../shotConsistencyService';
 import type { AutoPipelineTask } from '../types';
 import { getFirstModel, getOrCreateScriptAnalysis } from '../helpers';
 import { saveTask } from '../taskStore';
@@ -26,10 +28,16 @@ export async function stageShots(db: Database, task: AutoPipelineTask): Promise<
   // 剧本分析（在分镜生成之前分析剧情、场景、角色、情绪、节奏）
   const scriptAnalysis = await getOrCreateScriptAnalysis(db, task.projectId, task.userId, first.id);
 
+  // 已有角色资产（定妆信息）→ 注入分镜 prompt，保证分镜描述贴合定妆角色
+  const existingCharacters = ScriptCharacterDAO.listByEpisode(db, first.id)
+    .filter(c => c.name)
+    .map(c => ({ name: c.name, appearance: c.visual_description || c.description || c.name }));
+
   const { systemPrompt, prompt } = shotGenerationPrompt({
     scriptContent: first.script_content,
     shotDensity: 'normal',
     includeDialogue: true,
+    characters: existingCharacters.length > 0 ? existingCharacters : undefined,
   });
 
   // 提示词优化（基于剧本分析结果细化分镜提示词）
@@ -66,15 +74,21 @@ export async function stageShots(db: Database, task: AutoPipelineTask): Promise<
       return { ...s, shotNumber: num };
     });
 
+    // 场景关联：sceneName → 匹配/创建 script_scenes → scene_id 落库（场景参考图链路）
+    const sceneMap = buildShotSceneMap(db, task.userId, first.id, finalList);
+
     return ShotDAO.batchCreate(db, finalList.map((s: any) => ({
       user_id: task.userId,
       episode_id: first.id,
       shot_number: s.shotNumber,
-      shot_type: s.shotType || s.shot_type || 'medium',
+      shot_size: s.shotSize || s.shot_size || 'medium',
       camera_movement: s.cameraMovement || s.camera_movement || 'static',
       action_description: s.actionDescription || s.action_description || '',
       dialogue: s.dialogue || '',
       duration_seconds: s.durationSeconds || s.duration_seconds || 5,
+      characters_in_shot: s.charactersInShot ? JSON.stringify(s.charactersInShot) : null,
+      props_in_shot: s.propsInShot ? JSON.stringify(s.propsInShot) : null,
+      scene_id: s.sceneName ? sceneMap.get(String(s.sceneName).trim()) : undefined,
       subject: s.subject || null,
       lighting: s.lighting || null,
       mood: s.mood || null,

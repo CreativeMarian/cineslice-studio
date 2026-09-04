@@ -27,6 +27,7 @@ import {
   resolveLastFrameForShot,
   collectShotReferenceImages,
   generateKeyframeCandidates,
+  buildShotSceneMap,
 } from './shotConsistencyService';
 import type { Database } from '../types';
 
@@ -186,7 +187,9 @@ export async function polishEpisodeScript(
 
 // ============ 分镜 ============
 
-/** 生成分镜（先删旧再创建，与自动流水线逻辑一致） */
+/** 生成分镜（先删旧再创建，与自动流水线逻辑一致）
+ * v2.0 - 场景关联（sceneName→script_scenes 匹配/创建，写 scene_id）+ 角色资产上下文注入
+ */
 export async function generateShotsForEpisode(
   db: Database,
   userId: string,
@@ -202,10 +205,21 @@ export async function generateShotsForEpisode(
   if (!episode) throw createError(404, 'NOT_FOUND', '剧集不存在');
 
   const { textProvider, textModel, shotDensity, includeDialogue } = opts;
+
+  // 已有角色资产（定妆信息）→ 注入分镜 prompt，保证分镜描述贴合定妆角色
+  const existingCharacters = ScriptCharacterDAO.listByEpisode(db, episode.id)
+    .filter(c => c.name)
+    .map(c => ({ name: c.name, appearance: c.visual_description || c.description || c.name }));
+  // 已有场景清单 → 约束镜头 sceneName 归属
+  const existingScenes = ScriptSceneDAO.listByEpisode(db, episode.id);
+  const sceneNames = existingScenes.map(s => s.name).filter(Boolean);
+
   const { systemPrompt, prompt } = shotGenerationPrompt({
     scriptContent: episode.script_content,
     shotDensity: shotDensity || 'normal',
     includeDialogue: includeDialogue !== false,
+    characters: existingCharacters.length > 0 ? existingCharacters : undefined,
+    sceneNames: sceneNames.length > 0 ? sceneNames : undefined,
   });
 
   const result = await aiProxy.generateText({
@@ -237,6 +251,10 @@ export async function generateShotsForEpisode(
       return { ...s, shotNumber: num };
     });
 
+    // 场景关联：sceneName → 匹配/创建 script_scenes，保证场景参考图注入链路可用
+    // （此前 shots.scene_id 100% 为空，场景概念图永远收集不到，是最大连贯性缺口）
+    const sceneMap = buildShotSceneMap(db, userId, episode.id, finalShots);
+
     return ShotDAO.batchCreate(db, finalShots.map((s: any) => ({
       user_id: userId,
       episode_id: episode.id,
@@ -248,6 +266,8 @@ export async function generateShotsForEpisode(
       grid_position: s.gridPosition || '5',
       duration_seconds: s.durationSeconds || 5,
       characters_in_shot: s.charactersInShot ? JSON.stringify(s.charactersInShot) : null,
+      props_in_shot: s.propsInShot ? JSON.stringify(s.propsInShot) : null,
+      scene_id: s.sceneName ? sceneMap.get(String(s.sceneName).trim()) : undefined,
       notes: s.notes || null,
       subject: s.subject || null,
       lighting: s.lighting || null,

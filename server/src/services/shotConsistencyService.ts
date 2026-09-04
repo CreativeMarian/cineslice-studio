@@ -49,6 +49,54 @@ export function parseShotPropIds(shot: Shot): string[] {
   return ids;
 }
 
+/**
+ * 分镜场景关联：sceneName → 已有场景精确/包含匹配，未匹配则创建
+ * 返回 场景名 → scene_id 映射，供 ShotDAO.batchCreate 写入 scene_id
+ * （此前分镜不关联场景，shots.scene_id 全空，场景参考图链路完全失效）
+ */
+export function buildShotSceneMap(
+  db: Database,
+  userId: string,
+  episodeId: string,
+  shots: Array<{ sceneName?: string | null; actionDescription?: string }>
+): Map<string, string> {
+  const sceneMap = new Map<string, string>();
+  for (const s of ScriptSceneDAO.listByEpisode(db, episodeId)) {
+    if (s.name) sceneMap.set(s.name, s.id);
+  }
+  const normalize = (n: string): string => n.replace(/场景|室内|室外|外景|内景|【|】/g, '').trim();
+
+  for (const s of shots) {
+    const raw = s.sceneName;
+    if (!raw || typeof raw !== 'string') continue;
+    const name = raw.trim();
+    if (!name || sceneMap.has(name)) continue;
+    const norm = normalize(name);
+    let matchedId: string | undefined;
+    if (norm) {
+      for (const [existingName, id] of sceneMap.entries()) {
+        const eNorm = normalize(existingName);
+        if (eNorm && (eNorm.includes(norm) || norm.includes(eNorm))) {
+          matchedId = id;
+          break;
+        }
+      }
+    }
+    if (matchedId) {
+      sceneMap.set(name, matchedId);
+    } else {
+      const created = ScriptSceneDAO.create(db, {
+        user_id: userId,
+        episode_id: episodeId,
+        name,
+        description: shots.find(x => String(x.sceneName || '').trim() === name)?.actionDescription || '',
+      });
+      sceneMap.set(name, created.id);
+    }
+  }
+  return sceneMap;
+}
+
 /** 解析概念图 JSON 数组，返回图片 URL 列表 */
 export function parseConceptImages(raw: string | null | any[]): string[] {
   if (Array.isArray(raw)) {
@@ -81,7 +129,17 @@ export function collectShotReferenceImages(db: Database, shot: Shot): string[] {
   const chars = charIds.length > 0
     ? ScriptCharacterDAO.getByIds(db, charIds).filter(Boolean)
     : [];
-  if (chars.length < charIds.length) {
+  if (chars.length === 0) {
+    // 镜头未标记角色（约 44% 历史镜头）→ 从动作描述/台词按角色名匹配，保证角色参考图不丢失
+    const episodeChars = ScriptCharacterDAO.listByEpisode(db, shot.episode_id);
+    const text = `${shot.action_description || ''} ${shot.dialogue || ''}`;
+    for (const c of episodeChars) {
+      if (c.name && text.includes(c.name)) {
+        chars.push(c);
+        if (chars.length >= 2) break;
+      }
+    }
+  } else if (chars.length < charIds.length) {
     // 有按 id 未命中的项 → 按角色名匹配当前剧集角色
     const episodeChars = ScriptCharacterDAO.listByEpisode(db, shot.episode_id);
     for (const ref of charIds) {

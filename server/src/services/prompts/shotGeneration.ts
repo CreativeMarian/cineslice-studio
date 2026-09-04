@@ -14,6 +14,8 @@ export interface ShotGenerationParams {
   includeDialogue?: boolean;
   targetShots?: number; // 目标镜头数，默认60
   episodeDuration?: number; // 目标时长（分钟），默认3
+  characters?: Array<{ name: string; appearance: string }>; // 已有角色资产（定妆信息），注入保证人物一致
+  sceneNames?: string[]; // 已有场景清单（资产阶段提取），约束镜头场景归属
 }
 
 export function shotGenerationPrompt(params: ShotGenerationParams): { systemPrompt: string; prompt: string } {
@@ -105,9 +107,17 @@ ${DIRECTOR_COMPLIANCE_RULES}
 - 上一镜头角色在左边，下一镜头不能突然到右边（除非有移动动作描述）
 - 角色服装、发型在连续镜头中保持一致
 - 每个镜头必须标注 subject（镜头主体角色名），对话场景中说话者必须是主体
+- 每个镜头必须标注 sceneName（该镜头所属场景名）：同一场戏的连续镜头 sceneName 必须一致，场景切换必须发生在剧情明确的转场处
+
+${params.characters && params.characters.length > 0 ? `【角色定妆信息】（资产库已定义，必须严格引用角色名，画面描述以定妆信息为准，不得自行更改外貌/服装）
+${params.characters.map((c) => `- ${c.name}：${c.appearance}`).join('\n')}` : ''}
+
+${params.sceneNames && params.sceneNames.length > 0 ? `【已有场景清单】（镜头 sceneName 必须从以下场景中选取，同一场景的光影氛围保持一致）
+${params.sceneNames.join('、')}` : ''}
 
 输出格式为 JSON 数组，每个镜头包含：
 - shotNumber: 镜头序号（从1开始）
+- sceneName: 镜头所属场景名（与剧本场景一致，或从已有场景清单选取）
 - shotSize: 景别（extreme_wide/long/full/medium/medium_closeup/closeup/extreme_closeup）
 - cameraMovement: 镜头运动（push_in/pull_out/pan/truck/crane/handheld/steadicam/static）
 - pace: 节奏（fast/normal/slow/slow_motion/fast_motion/long_take）
@@ -120,6 +130,7 @@ ${DIRECTOR_COMPLIANCE_RULES}
 - transition: 转场方式（cut/fade/dissolve/wipe/match_cut）
 - durationSeconds: 预估时长（秒，根据pace自动匹配：fast=2, normal=4, slow=6, slow_motion=3, fast_motion=4, long_take=8）
 - charactersInShot: 镜头中出现的角色名数组
+- propsInShot: 镜头中出现的关键道具名数组（无则为空数组，只列对剧情/画面有实质影响的道具）
 - notes: 备注（可选）
 
 只返回 JSON，不要其他文字。`;
@@ -138,7 +149,9 @@ ${params.scriptContent}
 8. 按剧本顺序排列
 9. durationSeconds 根据 pace 自动匹配（fast=2, normal=4, slow=6, slow_motion=3），整体控制在单集约3秒
 10. 主画面描述严格按"主体+景别+视角+构图+氛围光感"撰写，方便AI出图和生视频
-11. 无需描述服装造型（已在资产库中定义），确保分镜适配AI元素的添加
+${params.characters && params.characters.length > 0
+  ? '11. 角色外貌与服装严格按上方【角色定妆信息】引用角色名，不得自行更改外观'
+  : '11. 无需描述服装造型（已在资产库中定义），确保分镜适配AI元素的添加'}
 12. 遵守制作合规红线：无文字Logo品牌、医疗仅表现状态、人物原创虚构、无血腥暴力与未成年人
 
 请以 JSON 数组格式返回。`;
