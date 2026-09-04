@@ -10,6 +10,7 @@ import { aiProxy } from '../../aiProxy';
 import { directorPromptService } from '../../directorPromptService';
 import { aiPromptOptimizerService, type ScriptContextForAI } from '../../aiPromptOptimizerService';
 import { collectShotReferenceImages } from '../../shotConsistencyService';
+import { parseCharactersInShot } from '../../../models/shot';
 import type { AutoPipelineTask } from '../types';
 import { getFirstModel, getOrCreateScriptAnalysis, getProjectStylePreset, buildDirectorShotContext } from '../helpers';
 
@@ -56,12 +57,7 @@ export async function stageKeyframes(db: Database, task: AutoPipelineTask): Prom
       // 解析当前镜头中的角色
       let characterIds: string[] = [];
       if (shot.characters_in_shot) {
-        try {
-          characterIds = JSON.parse(shot.characters_in_shot);
-        } catch {
-          // 解析失败，尝试按逗号分割
-          characterIds = shot.characters_in_shot.split(',').map(s => s.trim()).filter(Boolean);
-        }
+        characterIds = parseCharactersInShot(shot.characters_in_shot);
       }
 
       // 如果镜头没有指定角色，从 action_description 中匹配角色名

@@ -264,8 +264,8 @@ export interface Shot {
   camera_movement: CameraMovement;
   grid_position: string;
   duration_seconds: number;
-  characters_in_shot: string | null;
-  props_in_shot: string | null;
+  characters_in_shot: string[] | null; // DAO 已解析为角色名数组（JSON 字符串历史兼容 parseCharactersInShot）
+  props_in_shot: string[] | null;      // DAO 已解析为道具名数组
   notes: string | null;
   subject: string | null;
   lighting: string | null;

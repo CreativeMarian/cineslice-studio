@@ -112,7 +112,7 @@ ${episodes.map(ep => `<h2>第${ep.episode_number}集：${ep.title}</h2><div>${(e
         s.episode, s.shot_number, s.shot_size, s.camera_movement,
         (s.action_description || '').replace(/[",\n]/g, ' '),
         (s.dialogue || '').replace(/[",\n]/g, ' '),
-        s.duration_seconds, s.characters_in_shot || '',
+        s.duration_seconds, s.characters_in_shot ? JSON.stringify(s.characters_in_shot) : '',
       ]);
       content = [headers, ...rows].map(r => r.map(c => `"${c}"`).join(',')).join('\n');
       contentType = 'text/csv; charset=utf-8';

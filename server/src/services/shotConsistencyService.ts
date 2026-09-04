@@ -23,13 +23,14 @@ import { aiProxy } from './aiProxy';
 
 /** 解析镜头角色 ID 列表（兼容 JSON 与逗号分隔） */
 export function parseShotCharacterIds(shot: Shot): string[] {
+  if (Array.isArray(shot.characters_in_shot)) return shot.characters_in_shot;
   let ids: string[] = [];
   if (shot.characters_in_shot) {
     try {
       const parsed = JSON.parse(shot.characters_in_shot);
       if (Array.isArray(parsed)) ids = parsed;
     } catch {
-      ids = shot.characters_in_shot.split(',').map(s => s.trim()).filter(Boolean);
+      ids = (shot.characters_in_shot as string).split(',').map(s => s.trim()).filter(Boolean);
     }
   }
   return ids;
@@ -37,13 +38,14 @@ export function parseShotCharacterIds(shot: Shot): string[] {
 
 /** 解析镜头道具 ID 列表（props_in_shot 兼容 JSON 与逗号分隔） */
 export function parseShotPropIds(shot: Shot): string[] {
+  if (Array.isArray(shot.props_in_shot)) return shot.props_in_shot;
   let ids: string[] = [];
   if (shot.props_in_shot) {
     try {
       const parsed = JSON.parse(shot.props_in_shot);
       if (Array.isArray(parsed)) ids = parsed;
     } catch {
-      ids = shot.props_in_shot.split(',').map(s => s.trim()).filter(Boolean);
+      ids = (shot.props_in_shot as string).split(',').map(s => s.trim()).filter(Boolean);
     }
   }
   return ids;

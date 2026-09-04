@@ -58,6 +58,44 @@ export function serializeCharactersInShot(characters: string[]): string | null {
   return JSON.stringify(characters);
 }
 
+/** 统一解析 props_in_shot 字段（与 parseCharactersInShot 同规则） */
+export function parsePropsInShot(value: any): string[] {
+  if (!value) return [];
+  if (Array.isArray(value)) {
+    return value.filter((v: any) => typeof v === 'string' && v.trim()).map((v: string) => v.trim());
+  }
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed) return [];
+    if (trimmed.startsWith('[') && trimmed.endsWith(']')) {
+      try {
+        const parsed = JSON.parse(trimmed);
+        if (Array.isArray(parsed)) {
+          return parsed.filter((v: any) => typeof v === 'string' && v.trim()).map((v: string) => v.trim());
+        }
+      } catch { /* fallthrough */ }
+    }
+    return trimmed.split(/[,，]/).map(s => s.trim()).filter(s => s.length > 0);
+  }
+  return [];
+}
+
+/** 将 SQL 行解析为前端/API 期望的 Shot（characters_in_shot / props_in_shot 转为数组） */
+export function mapShotRow(row: any): Shot {
+  if (!row) return row;
+  return {
+    ...row,
+    characters_in_shot: row.characters_in_shot ? parseCharactersInShot(row.characters_in_shot) : null,
+    props_in_shot: row.props_in_shot ? parsePropsInShot(row.props_in_shot) : null,
+  };
+}
+
+/** 序列化 props_in_shot 为 JSON 字符串 */
+export function serializePropsInShot(props: string[]): string | null {
+  if (!props || props.length === 0) return null;
+  return JSON.stringify(props);
+}
+
 export const ShotDAO = {
   create(db: Database, data: {
     user_id: string; episode_id: string; scene_id?: string; shot_number: number;
@@ -95,21 +133,25 @@ export const ShotDAO = {
   },
 
   listByEpisode(db: Database, episodeId: string): Shot[] {
-    return db.prepare('SELECT * FROM shots WHERE episode_id = ? ORDER BY shot_number ASC').all(episodeId) as Shot[];
+    const rows = db.prepare('SELECT * FROM shots WHERE episode_id = ? ORDER BY shot_number ASC').all(episodeId) as any[];
+    return rows.map(mapShotRow);
   },
 
   getById(db: Database, id: string): Shot | null {
-    return (db.prepare('SELECT * FROM shots WHERE id = ?').get(id) as Shot) || null;
+    const row = db.prepare('SELECT * FROM shots WHERE id = ?').get(id) as any;
+    return row ? mapShotRow(row) : null;
   },
 
   getByIds(db: Database, ids: string[]): Shot[] {
     if (ids.length === 0) return [];
     const placeholders = ids.map(() => '?').join(',');
-    return db.prepare(`SELECT * FROM shots WHERE id IN (${placeholders}) ORDER BY shot_number ASC`).all(...ids) as Shot[];
+    const rows = db.prepare(`SELECT * FROM shots WHERE id IN (${placeholders}) ORDER BY shot_number ASC`).all(...ids) as any[];
+    return rows.map(mapShotRow);
   },
 
   getByIdAndUser(db: Database, id: string, userId: string): Shot | null {
-    return (db.prepare('SELECT * FROM shots WHERE id = ? AND user_id = ?').get(id, userId) as Shot) || null;
+    const row = db.prepare('SELECT * FROM shots WHERE id = ? AND user_id = ?').get(id, userId) as any;
+    return row ? mapShotRow(row) : null;
   },
 
   update(db: Database, id: string, data: Partial<Shot>): Shot | null {
