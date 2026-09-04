@@ -53,7 +53,7 @@ export function ImageModal({ open, onClose, imageUrl, title, description }: Imag
 
         {/* 信息栏 */}
         {(title || description) && (
-          <div className="mt-3 px-4 py-3 bg-[var(--bg-card)] rounded-xl border border-[var(--border)]">
+          <div className="mt-3 px-4 py-3 bg-[var(--card-bg)] rounded-xl border border-[var(--border)]">
             {title && (
               <h4 className="font-medium text-[var(--ink-1)] flex items-center gap-2">
                 <ZoomIn className="w-4 h-4 text-[var(--accent)]" />

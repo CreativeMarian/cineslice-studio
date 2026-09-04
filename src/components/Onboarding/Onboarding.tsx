@@ -64,7 +64,7 @@ export function Onboarding() {
 
         {/* 内容卡片 */}
         <div className="bg-[var(--bg)] rounded-2xl border border-[var(--border)] p-8 text-center shadow-[var(--shadow-float)]">
-          <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-[var(--accent)] to-[var(--accent-2)] flex items-center justify-center mx-auto mb-6 shadow-[0_8px_24px_rgba(249,115,22,0.3)]">
+          <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-[var(--accent)] to-[var(--accent-2)] flex items-center justify-center mx-auto mb-6 shadow-[0_8px_24px_rgba(43, 116, 245, 0.25)]">
             <currentStep.icon className="w-10 h-10 text-[var(--on-accent)]" />
           </div>
 

@@ -23,7 +23,7 @@ export function Badge({ children, variant = 'default', className, dot = false }:
   return (
     <span
       className={cn(
-        'inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium whitespace-nowrap max-w-full',
+        'inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-[var(--radius-sm)] text-xs font-medium whitespace-nowrap max-w-full',
         variantStyles[variant],
         className
       )}

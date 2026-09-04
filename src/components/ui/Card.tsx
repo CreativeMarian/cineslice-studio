@@ -14,9 +14,9 @@ export function Card({ children, className, hover = false, onClick, glow = false
     <div
       onClick={onClick}
       className={cn(
-        'bg-[var(--bg)] rounded-[var(--radius-card)] border border-[var(--border)]',
+        'bg-[var(--card-bg)] rounded-[var(--radius-card)] border border-[var(--border)]',
         'shadow-[var(--shadow-card)]',
-        hover && 'cursor-pointer transition-all duration-300 hover:border-[var(--border-hover)] hover:shadow-[var(--shadow-float)] hover:-translate-y-0.5',
+        hover && 'cursor-pointer transition-all duration-300 hover:border-[var(--border-hover)] hover:shadow-[var(--shadow-float)] hover:-translate-y-0.5 card-hover',
         glow && 'shadow-[var(--shadow-glow)]',
         className
       )}

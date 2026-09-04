@@ -11,9 +11,6 @@ import { Login } from './components/Login';
 import { Dashboard } from './components/Dashboard';
 import { NotFound } from './components/NotFound';
 import { LandingPage } from './components/LandingPage/LandingPage';
-import ParticleBackground from './components/ui/ParticleBackground';
-import { useGlobalClickParticles } from './hooks/useClickParticles';
-import { useEffect } from 'react';
 
 // 路由懒加载
 const Onboarding = lazy(() => import('./components/Onboarding/Onboarding').then(m => ({ default: m.Onboarding })));
@@ -32,29 +29,11 @@ function LazyRoute({ children }: { children: React.ReactNode }) {
 }
 
 export default function App() {
-  const { init: initGlobalClickParticles } = useGlobalClickParticles({
-    count: 8,
-    color: '#F97316',
-    duration: 500,
-    spread: 60,
-  });
-
-  useEffect(() => {
-    const cleanup = initGlobalClickParticles();
-    return cleanup;
-  }, [initGlobalClickParticles]);
-
   return (
     <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
       <ThemeProvider>
         <AuthProvider>
           <ErrorBoundary>
-          <ParticleBackground
-            particleCount={50}
-            color="#F97316"
-            speed={0.2}
-            connectDistance={120}
-          />
           <Routes>
             {/* 公开路由 */}
             <Route path="/login" element={<Login />} />

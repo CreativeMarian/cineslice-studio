@@ -53,7 +53,7 @@ export default function CreateStudio() {
         {/* 头部 */}
         <div>
           <div className="flex items-center gap-3 mb-2">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-[var(--accent)] to-[var(--accent-2)] flex items-center justify-center shadow-[0_4px_12px_rgba(249,115,22,0.3)]">
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-[var(--accent)] to-[var(--accent-2)] flex items-center justify-center shadow-[0_4px_12px_rgba(43, 116, 245, 0.25)]">
               <Sparkles className="w-5 h-5 text-white" />
             </div>
             <div>

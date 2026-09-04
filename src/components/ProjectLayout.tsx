@@ -294,7 +294,7 @@ export function ProjectLayout() {
         <Topbar />
         {/* 流水线进度条 */}
         {pipelineStatus && (
-          <div className="px-4 py-2 border-b border-[var(--border)] bg-[var(--bg-card)]">
+          <div className="px-4 py-2 border-b border-[var(--border)] bg-[var(--card-bg)]">
             <div className="flex items-center gap-3">
               <button
                 onClick={handleToggleMode}

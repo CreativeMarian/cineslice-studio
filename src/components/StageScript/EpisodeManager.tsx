@@ -395,7 +395,7 @@ export function EpisodeManager() {
                   {/* 集数编号 - 使用 episode_number 而非数组索引 */}
                   <div className={`w-14 h-14 rounded-xl flex items-center justify-center flex-shrink-0 transition-all ${
                     isActive
-                      ? 'bg-gradient-to-br from-[var(--accent)] to-[var(--accent-2)] shadow-[0_4px_16px_rgba(249,115,22,0.3)]'
+                      ? 'bg-gradient-to-br from-[var(--accent)] to-[var(--accent-2)] shadow-[0_4px_16px_rgba(43, 116, 245, 0.25)]'
                       : 'bg-[var(--panel-2)] border border-[var(--border)]'
                   }`}>
                     <div className="text-center">

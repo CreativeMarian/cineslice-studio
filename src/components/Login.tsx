@@ -28,19 +28,19 @@ export function Login() {
       {/* 左侧视觉区 */}
       <div className="hidden lg:flex lg:w-1/2 relative overflow-hidden">
         {/* 渐变背景 */}
-        <div className="absolute inset-0 bg-gradient-to-br from-[#1a1508] via-[var(--page)] to-[#0d1117]" />
+        <div className="absolute inset-0 bg-gradient-to-br from-[var(--accent-soft)] via-[var(--page)] to-[var(--panel-2)]" />
         <div className="absolute inset-0 opacity-30" style={{
-          backgroundImage: 'radial-gradient(circle at 30% 20%, rgba(249,115,22,0.15) 0%, transparent 50%), radial-gradient(circle at 70% 80%, rgba(251,146,60,0.1) 0%, transparent 50%)'
+          backgroundImage: 'radial-gradient(circle at 30% 20%, rgba(43,116,245,0.08) 0%, transparent 50%), radial-gradient(circle at 70% 80%, rgba(91,147,247,0.06) 0%, transparent 50%)'
         }} />
 
         {/* 装饰元素 */}
-        <div className="absolute top-20 left-20 w-64 h-64 rounded-full bg-[var(--accent)]/5 blur-3xl" />
-        <div className="absolute bottom-20 right-20 w-80 h-80 rounded-full bg-[var(--accent-2)]/5 blur-3xl" />
+        <div className="absolute top-20 left-20 w-64 h-64 rounded-full bg-[var(--accent)]/4" />
+        <div className="absolute bottom-20 right-20 w-80 h-80 rounded-full bg-[var(--accent-2)]/4" />
 
         <div className="relative z-10 flex flex-col justify-center px-16 py-20">
           {/* Logo */}
           <div className="flex items-center gap-3 mb-12">
-            <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-[var(--accent)] to-[var(--accent-2)] flex items-center justify-center shadow-[0_8px_32px_rgba(249,115,22,0.4)]">
+            <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-[var(--accent)] to-[var(--accent-2)] flex items-center justify-center shadow-[0_8px_32px_rgba(43, 116, 245, 0.35)]">
               <Film className="w-6 h-6 text-[var(--on-accent)]" />
             </div>
             <span className="text-xl font-bold text-[var(--ink-1)] font-[var(--font-display)]">CineSlice Studio</span>

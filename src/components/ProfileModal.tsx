@@ -70,7 +70,7 @@ export function ProfileModal({ open, onOpenChange }: ProfileModalProps) {
         <Tabs.Content value="profile">
           <div className="space-y-4">
             <div className="flex items-center gap-4 mb-6">
-              <div className="w-16 h-16 rounded-full bg-gradient-to-br from-[var(--accent)] to-[var(--accent-2)] flex items-center justify-center shadow-[0_4px_12px_rgba(249,115,22,0.3)]">
+              <div className="w-16 h-16 rounded-full bg-gradient-to-br from-[var(--accent)] to-[var(--accent-2)] flex items-center justify-center shadow-[0_4px_12px_rgba(43, 116, 245, 0.25)]">
                 <User className="w-8 h-8 text-[var(--on-accent)]" />
               </div>
               <div>

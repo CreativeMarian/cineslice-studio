@@ -172,7 +172,7 @@ export function SceneBreakdown() {
     medium: 'bg-[rgba(94,140,255,0.12)] text-[var(--color-info)]',
     medium_closeup: 'bg-[rgba(94,140,255,0.18)] text-[var(--color-info)]',
     wide: 'bg-[rgba(63,203,134,0.12)] text-[var(--color-success)]',
-    extreme_wide: 'bg-[rgba(249,115,22,0.12)] text-[var(--accent)]',
+    extreme_wide: 'bg-[rgba(43, 116, 245, 0.10)] text-[var(--accent)]',
     long: 'bg-[rgba(63,203,134,0.18)] text-[var(--color-success)]',
     full: 'bg-[rgba(63,203,134,0.15)] text-[var(--color-success)]',
   };

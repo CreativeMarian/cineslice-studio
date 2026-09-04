@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { ZoomIn, ZoomOut, Maximize2, RotateCcw, ArrowLeft, Cpu, ChevronRight } from 'lucide-react';
+import { ZoomIn, ZoomOut, Maximize2, RotateCcw, ArrowLeft, Network, ChevronRight } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 
 interface MindNode {
@@ -21,35 +21,67 @@ interface Connection {
   label?: string;
 }
 
+// ============================================================
+// 新逻辑链（v2.0）：对齐当前真实实现
+// 主线：项目准备 → 剧本工坊 → 资产铸造 → 导演执行 → 质量保障 → 输出交付
+// 旁支：自由创作（文生图/图生图/文生视频/图生视频）
+// ============================================================
+
 const nodes: MindNode[] = [
-  { id: 'root', label: 'CineSlice Studio', desc: '切片式影视锻造工厂', color: '#4a2c7a', x: 60, y: 380, width: 170, height: 75 },
-  { id: 'prep', label: '前期准备', color: '#8b5cf6', x: 300, y: 100, width: 120, height: 45 },
-  { id: 'novel', label: '小说上传', desc: '解析章节', input: '.txt/.md文件', output: '章节列表', color: '#a78bfa', x: 500, y: 20, width: 150, height: 65 },
-  { id: 'episode', label: '剧集拆分', desc: 'AI改编', input: '章节内容', output: '剧集列表', color: '#a78bfa', x: 500, y: 105, width: 150, height: 65 },
-  { id: 'script', label: '剧本生成', desc: '可编辑', input: '剧集梗概', output: '完整剧本', color: '#a78bfa', x: 500, y: 190, width: 150, height: 65 },
-  { id: 'analysis', label: '剧本分析', desc: '核心大脑·7维度', input: '剧本内容', output: '分析结果(缓存)', color: '#ec4899', x: 500, y: 290, width: 170, height: 85 },
-  { id: 'exec', label: '中期执行', color: '#6366f1', x: 300, y: 450, width: 120, height: 45 },
-  { id: 'character', label: '角色提取', desc: '含概念图', input: '剧本+分析', output: '角色列表', color: '#818cf8', x: 750, y: 20, width: 150, height: 65 },
-  { id: 'scene', label: '场景提取', desc: '含参考图', input: '剧本+分析', output: '场景列表', color: '#818cf8', x: 750, y: 105, width: 150, height: 65 },
-  { id: 'shot', label: '分镜生成', desc: '景别/运动/时长', input: '剧本+分析', output: '分镜表', color: '#818cf8', x: 750, y: 190, width: 150, height: 65 },
-  { id: 'keyframe', label: '关键帧生成', desc: '首帧参考图', input: '镜头+角色+场景', output: '关键帧图片', color: '#818cf8', x: 750, y: 290, width: 150, height: 65 },
-  { id: 'audio', label: '配音生成', desc: '动态音色/语速', input: '对话+性格+情绪', output: '配音音频', color: '#818cf8', x: 750, y: 390, width: 150, height: 65 },
-  { id: 'video', label: '视频生成', desc: '异步任务+轮询', input: '镜头+首帧+分析', output: '视频片段', color: '#818cf8', x: 750, y: 490, width: 150, height: 65 },
-  { id: 'quality', label: '质量保障', color: '#ec4899', x: 300, y: 640, width: 120, height: 45 },
-  { id: 'layer1', label: '第一层:导演级模板', desc: '7维度优化·保底', input: '镜头上下文+分析', output: '优化提示词', color: '#f472b6', x: 500, y: 580, width: 170, height: 75 },
-  { id: 'layer2', label: '第二层:AI深度优化', desc: '7维度分析·核心', input: '完整剧本上下文', output: 'AI优化提示词', color: '#f472b6', x: 500, y: 680, width: 170, height: 75 },
-  { id: 'consistency', label: '一致性保障', desc: '人物/场景/风格', input: '概念图+参考图', output: '统一视觉', color: '#f472b6', x: 500, y: 780, width: 170, height: 65 },
-  { id: 'output', label: '输出导出', color: '#10b981', x: 300, y: 850, width: 120, height: 45 },
-  { id: 'compose', label: '最终合成', desc: 'FFmpeg编码', input: '视频+配音', output: '成片MP4', color: '#34d399', x: 750, y: 600, width: 150, height: 65 },
-  { id: 'export', label: '多格式导出', desc: 'MP4/PDF/FDX/Excel', input: '项目数据', output: '导出文件', color: '#34d399', x: 750, y: 690, width: 150, height: 65 },
-  { id: 'pipeline', label: '全自动流水线', desc: '9阶段一键生成', input: '小说文件', output: '成片视频', color: '#34d399', x: 750, y: 780, width: 150, height: 65 },
+  // ── 根 ──
+  { id: 'root', label: 'CineSlice Studio', desc: 'AI 短剧生产流水线 · 从小说到成片', color: '#2b74f5', x: 60, y: 520, width: 190, height: 80 },
+
+  // ── 一、剧本工坊（前期） ──
+  { id: 'prep', label: '剧本工坊', desc: 'StageScript', color: '#4a7de0', x: 330, y: 130, width: 130, height: 45 },
+  { id: 'novel', label: '小说上传', desc: '解析章节', input: '.txt/.md', output: '章节列表', color: '#7aa2f0', x: 530, y: 20, width: 150, height: 65 },
+  { id: 'episode', label: '剧集拆分', desc: '集标记检测·分批5集·缺集补全', input: '章节内容', output: '剧集列表', color: '#7aa2f0', x: 530, y: 105, width: 170, height: 65 },
+  { id: 'script', label: '剧本生成', desc: '可编辑', input: '剧集梗概', output: '完整剧本', color: '#7aa2f0', x: 530, y: 195, width: 150, height: 65 },
+  { id: 'analysis', label: '剧本分析', desc: '7维分析·落库缓存·模型参数化', input: '剧本内容', output: '分析结果(缓存)', color: '#4a7de0', x: 530, y: 300, width: 180, height: 85 },
+
+  // ── 二、资产铸造（中期） ──
+  { id: 'exec', label: '资产铸造', desc: 'StageAssets', color: '#3d6fd8', x: 330, y: 480, width: 130, height: 45 },
+  { id: 'character', label: '角色提取', desc: '定妆图 + 衣橱 + 音色', input: '剧本+分析', output: '角色资产', color: '#5f8ceb', x: 780, y: 20, width: 170, height: 70 },
+  { id: 'scene', label: '场景提取', desc: '概念参考图', input: '剧本+分析', output: '场景清单', color: '#5f8ceb', x: 780, y: 110, width: 150, height: 65 },
+  { id: 'prop', label: '道具提取', desc: '跨镜头视觉连贯', input: '剧本+分析', output: '道具清单', color: '#5f8ceb', x: 780, y: 195, width: 150, height: 65 },
+
+  // ── 三、导演执行（中期） ──
+  { id: 'dir', label: '导演执行', desc: 'StageDirector', color: '#3d6fd8', x: 330, y: 680, width: 130, height: 45 },
+  { id: 'shot', label: '分镜生成', desc: '场景关联 scene_id 落库', input: '剧本+分析+角色+场景', output: '分镜表', color: '#5f8ceb', x: 1040, y: 20, width: 180, height: 70 },
+  { id: 'keyframe', label: '关键帧生成', desc: '角色定妆+场景图+道具图注入', input: '镜头+角色+场景+道具', output: '关键帧图片', color: '#5f8ceb', x: 1040, y: 120, width: 180, height: 70 },
+  { id: 'audio', label: '配音生成', desc: 'voice_profile 优先·动态音色', input: '对话+角色音色+情绪', output: '配音音频', color: '#5f8ceb', x: 1040, y: 230, width: 170, height: 70 },
+  { id: 'video', label: '视频生成', desc: '首尾帧硬衔接·参考图≤2', input: '镜头+关键帧+分析', output: '视频片段', color: '#5f8ceb', x: 1040, y: 340, width: 180, height: 70 },
+
+  // ── 四、质量保障 ──
+  { id: 'quality', label: '质量保障', desc: '贯穿生成链路', color: '#2e5cb8', x: 330, y: 880, width: 130, height: 45 },
+  { id: 'layer1', label: '导演模板', desc: '8维细节标准+合规红线', input: '镜头上下文', output: '导演级提示词', color: '#7aa2f0', x: 530, y: 800, width: 170, height: 70 },
+  { id: 'layer2', label: 'AI 深度优化', desc: '剧本上下文+低温度', input: '完整剧本分析', output: 'AI 优化提示词', color: '#7aa2f0', x: 530, y: 890, width: 170, height: 70 },
+  { id: 'consistency', label: '一致性保障', desc: '角色/场景/道具参考图+负面词', input: '资产库', output: '统一视觉', color: '#7aa2f0', x: 530, y: 980, width: 180, height: 70 },
+
+  // ── 五、输出交付 ──
+  { id: 'output', label: '输出交付', desc: 'StageExport', color: '#1f4f9e', x: 330, y: 1180, width: 130, height: 45 },
+  { id: 'subtitle', label: '字幕生成', desc: '角色名前缀去重', input: '台词+时长', output: 'SRT 字幕', color: '#4a7de0', x: 780, y: 1080, width: 150, height: 65 },
+  { id: 'compose', label: '视频合成', desc: 'FFmpeg 编码', input: '视频+配音+字幕', output: '成片 MP4', color: '#4a7de0', x: 780, y: 1170, width: 150, height: 65 },
+  { id: 'export', label: '多格式导出', desc: 'MP4/PDF/FDX/Excel/ZIP', input: '项目数据', output: '导出文件', color: '#4a7de0', x: 780, y: 1260, width: 170, height: 65 },
+  { id: 'pipeline', label: '全自动流水线', desc: '9阶段一键串联·断点恢复', input: '小说文件', output: '成片视频', color: '#4a7de0', x: 1040, y: 1170, width: 170, height: 65 },
+
+  // ── 六、自由创作（旁支） ──
+  { id: 'free', label: '自由创作', desc: 'CreateStudio·独立工作台', color: '#1f4f9e', x: 60, y: 1180, width: 150, height: 55 },
+  { id: 't2i', label: '文生图', desc: '提示词→图片', input: '描述', output: '图片', color: '#7aa2f0', x: 280, y: 1130, width: 120, height: 60 },
+  { id: 'i2i', label: '图生图', desc: '参考图编辑', input: '图片+指令', output: '新图', color: '#7aa2f0', x: 280, y: 1210, width: 120, height: 60 },
+  { id: 't2v', label: '文生视频', desc: '提示词→视频', input: '描述', output: '视频', color: '#7aa2f0', x: 280, y: 1290, width: 120, height: 60 },
+  { id: 'i2v', label: '图生视频', desc: '首帧→视频', input: '图片+描述', output: '视频', color: '#7aa2f0', x: 280, y: 1370, width: 120, height: 60 },
 ];
 
 const connections: Connection[] = [
-  { from: 'root', to: 'prep' },
-  { from: 'root', to: 'exec' },
-  { from: 'root', to: 'quality' },
-  { from: 'root', to: 'output' },
+  // 根 → 主线
+  { from: 'root', to: 'prep', label: '项目' },
+  { from: 'root', to: 'exec', label: '资产' },
+  { from: 'root', to: 'dir', label: '导演' },
+  { from: 'root', to: 'quality', label: '质量' },
+  { from: 'root', to: 'output', label: '交付' },
+  { from: 'root', to: 'free', label: '自由创作' },
+
+  // 剧本工坊
   { from: 'prep', to: 'novel' },
   { from: 'prep', to: 'episode' },
   { from: 'prep', to: 'script' },
@@ -57,24 +89,34 @@ const connections: Connection[] = [
   { from: 'novel', to: 'episode', label: '章节' },
   { from: 'episode', to: 'script', label: '梗概' },
   { from: 'script', to: 'analysis', label: '剧本' },
+
+  // 资产铸造
   { from: 'exec', to: 'character' },
   { from: 'exec', to: 'scene' },
-  { from: 'exec', to: 'shot' },
-  { from: 'exec', to: 'keyframe' },
-  { from: 'exec', to: 'audio' },
-  { from: 'exec', to: 'video' },
+  { from: 'exec', to: 'prop' },
   { from: 'analysis', to: 'character', label: '角色分析' },
   { from: 'analysis', to: 'scene', label: '场景分析' },
+  { from: 'analysis', to: 'prop', label: '线索道具' },
+
+  // 导演执行
+  { from: 'dir', to: 'shot' },
+  { from: 'dir', to: 'keyframe' },
+  { from: 'dir', to: 'audio' },
+  { from: 'dir', to: 'video' },
+  { from: 'character', to: 'shot', label: '定妆注入' },
+  { from: 'scene', to: 'shot', label: '场景约束' },
   { from: 'analysis', to: 'shot', label: '剧情/情绪' },
-  { from: 'analysis', to: 'keyframe', label: '视觉风格' },
-  { from: 'analysis', to: 'video', label: '全维度' },
-  { from: 'character', to: 'keyframe', label: '概念图' },
-  { from: 'character', to: 'audio', label: '性格' },
-  { from: 'scene', to: 'keyframe', label: '参考图' },
   { from: 'shot', to: 'keyframe', label: '镜头' },
+  { from: 'character', to: 'keyframe', label: '定妆图' },
+  { from: 'scene', to: 'keyframe', label: '概念图' },
+  { from: 'prop', to: 'keyframe', label: '道具图' },
   { from: 'shot', to: 'audio', label: '对话' },
+  { from: 'character', to: 'audio', label: '音色' },
   { from: 'shot', to: 'video', label: '镜头' },
-  { from: 'keyframe', to: 'video', label: '首帧' },
+  { from: 'keyframe', to: 'video', label: '首帧/尾帧' },
+  { from: 'analysis', to: 'video', label: '全维度' },
+
+  // 质量保障
   { from: 'quality', to: 'layer1' },
   { from: 'quality', to: 'layer2' },
   { from: 'quality', to: 'consistency' },
@@ -84,17 +126,29 @@ const connections: Connection[] = [
   { from: 'layer2', to: 'video', label: 'AI提示词' },
   { from: 'consistency', to: 'keyframe' },
   { from: 'consistency', to: 'video' },
+
+  // 输出交付
+  { from: 'output', to: 'subtitle' },
   { from: 'output', to: 'compose' },
   { from: 'output', to: 'export' },
   { from: 'output', to: 'pipeline' },
-  { from: 'video', to: 'compose', label: '视频片段' },
+  { from: 'shot', to: 'subtitle', label: '台词' },
+  { from: 'video', to: 'compose', label: '片段' },
   { from: 'audio', to: 'compose', label: '配音' },
+  { from: 'subtitle', to: 'compose', label: '字幕' },
+  { from: 'export', to: 'pipeline', label: '闭环' },
+
+  // 自由创作
+  { from: 'free', to: 't2i' },
+  { from: 'free', to: 'i2i' },
+  { from: 'free', to: 't2v' },
+  { from: 'free', to: 'i2v' },
 ];
 
 export function MindMapPage() {
   const navigate = useNavigate();
   const containerRef = useRef<HTMLDivElement>(null);
-  const [scale, setScale] = useState(0.6);
+  const [scale, setScale] = useState(0.55);
   const [position, setPosition] = useState({ x: 0, y: 0 });
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
@@ -127,7 +181,7 @@ export function MindMapPage() {
   }, []);
 
   const resetView = useCallback(() => {
-    setScale(0.6);
+    setScale(0.55);
     setPosition({ x: 0, y: 0 });
   }, []);
 
@@ -135,11 +189,11 @@ export function MindMapPage() {
     if (containerRef.current) {
       const containerWidth = containerRef.current.clientWidth;
       const containerHeight = containerRef.current.clientHeight;
-      const contentWidth = 1000;
-      const contentHeight = 900;
+      const contentWidth = 1300;
+      const contentHeight = 1500;
       const scaleX = containerWidth / contentWidth;
       const scaleY = containerHeight / contentHeight;
-      const newScale = Math.min(scaleX, scaleY, 1);
+      const newScale = Math.min(scaleX, scaleY, 0.9);
       setScale(newScale);
       setPosition({ x: (containerWidth - contentWidth * newScale) / 2, y: 20 });
     }
@@ -169,7 +223,7 @@ export function MindMapPage() {
         <path
           d={path}
           fill="none"
-          stroke={isHighlighted ? '#8b5cf6' : '#c4b5fd'}
+          stroke={isHighlighted ? '#2b74f5' : '#b9c6e8'}
           strokeWidth={isHighlighted ? 2.5 : 1.5}
           opacity={isHighlighted ? 1 : 0.6}
         />
@@ -179,7 +233,7 @@ export function MindMapPage() {
             y={(fromY + toY) / 2 - 5}
             textAnchor="middle"
             fontSize="10"
-            fill="#7c3aed"
+            fill="#4a7de0"
             opacity={isHighlighted ? 1 : 0.7}
           >
             {conn.label}
@@ -208,11 +262,11 @@ export function MindMapPage() {
           height={node.height}
           rx={isRoot ? 16 : 10}
           fill={node.color}
-          opacity={isSelected || isHovered ? 1 : 0.9}
+          opacity={isSelected || isHovered ? 1 : 0.92}
           stroke={isSelected ? '#fff' : 'transparent'}
           strokeWidth={isSelected ? 3 : 0}
           style={{
-            filter: isSelected || isHovered ? 'drop-shadow(0 4px 12px rgba(0,0,0,0.3))' : 'drop-shadow(0 2px 6px rgba(0,0,0,0.15))',
+            filter: isSelected || isHovered ? 'drop-shadow(0 4px 12px rgba(43,116,245,0.30))' : 'drop-shadow(0 2px 6px rgba(120,140,180,0.25))',
             transition: 'all 0.2s ease',
           }}
         />
@@ -231,7 +285,7 @@ export function MindMapPage() {
             x={node.width / 2}
             y={isRoot ? 48 : 36}
             textAnchor="middle"
-            fill="rgba(255,255,255,0.85)"
+            fill="rgba(255,255,255,0.88)"
             fontSize={isRoot ? 10 : 9}
           >
             {node.desc}
@@ -242,7 +296,7 @@ export function MindMapPage() {
             x={node.width / 2}
             y={node.height - 20}
             textAnchor="middle"
-            fill="rgba(255,255,255,0.75)"
+            fill="rgba(255,255,255,0.78)"
             fontSize="8"
           >
             ← {node.input}
@@ -253,7 +307,7 @@ export function MindMapPage() {
             x={node.width / 2}
             y={node.height - 9}
             textAnchor="middle"
-            fill="rgba(255,255,255,0.9)"
+            fill="rgba(255,255,255,0.92)"
             fontSize="8"
             fontWeight="500"
           >
@@ -266,7 +320,7 @@ export function MindMapPage() {
 
   return (
     <div className="min-h-screen bg-[var(--page)] flex flex-col">
-      <header className="border-b border-[var(--border)] bg-[var(--bg)]/80 backdrop-blur-xl sticky top-0 z-40">
+      <header className="border-b border-[var(--border)] bg-[var(--card-bg)] sticky top-0 z-40">
         <div className="max-w-full mx-auto px-6 py-3 flex items-center gap-4">
           <button
             onClick={() => navigate(-1)}
@@ -275,12 +329,12 @@ export function MindMapPage() {
             <ArrowLeft className="w-5 h-5" />
           </button>
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-[var(--accent)] to-[var(--accent-2)] flex items-center justify-center shadow-[0_4px_16px_rgba(249,115,22,0.3)]">
-              <Cpu className="w-5 h-5 text-[var(--on-accent)]" />
+            <div className="w-10 h-10 rounded-xl bg-[var(--accent)] flex items-center justify-center shadow-[0_4px_16px_rgba(43,116,245,0.25)]">
+              <Network className="w-5 h-5 text-white" />
             </div>
             <div>
               <h1 className="text-lg font-bold text-[var(--ink-1)] font-[var(--font-display)]">项目思维导图</h1>
-              <p className="text-xs text-[var(--ink-3)]">CineSlice Studio 全流程参数传递关系</p>
+              <p className="text-xs text-[var(--ink-3)]">CineSlice Studio v2.0 全流程参数传递关系</p>
             </div>
           </div>
           <div className="ml-auto flex items-center gap-2">
@@ -323,7 +377,7 @@ export function MindMapPage() {
           ref={containerRef}
           className="flex-1 overflow-hidden relative"
           style={{
-            background: 'radial-gradient(circle at 50% 50%, rgba(139, 92, 246, 0.05) 0%, transparent 50%), var(--page)',
+            background: 'radial-gradient(circle at 50% 50%, rgba(43, 116, 245, 0.04) 0%, transparent 50%), var(--page)',
             cursor: isDragging ? 'grabbing' : 'grab',
           }}
           onWheel={handleWheel}
@@ -336,7 +390,7 @@ export function MindMapPage() {
           <div
             className="absolute inset-0 pointer-events-none"
             style={{
-              backgroundImage: `linear-gradient(rgba(139, 92, 246, 0.08) 1px, transparent 1px), linear-gradient(90deg, rgba(139, 92, 246, 0.08) 1px, transparent 1px)`,
+              backgroundImage: `linear-gradient(rgba(120, 140, 180, 0.06) 1px, transparent 1px), linear-gradient(90deg, rgba(120, 140, 180, 0.06) 1px, transparent 1px)`,
               backgroundSize: `${40 * scale}px ${40 * scale}px`,
               backgroundPosition: `${position.x}px ${position.y}px`,
             }}
@@ -347,7 +401,7 @@ export function MindMapPage() {
               {nodes.map(renderNode)}
             </g>
           </svg>
-          <div className="absolute bottom-4 left-4 text-xs text-[var(--ink-3)] bg-[var(--bg)]/80 backdrop-blur px-3 py-2 rounded-lg border border-[var(--border)]">
+          <div className="absolute bottom-4 left-4 text-xs text-[var(--ink-3)] bg-[var(--card-bg)] px-3 py-2 rounded-lg border border-[var(--border)]">
             <div className="flex items-center gap-2">
               <span>拖拽移动</span>
               <span>·</span>
@@ -359,7 +413,7 @@ export function MindMapPage() {
         </div>
 
         {selectedNode && (
-          <div className="w-80 border-l border-[var(--border)] bg-[var(--bg)] overflow-y-auto">
+          <div className="w-80 border-l border-[var(--border)] bg-[var(--card-bg)] overflow-y-auto">
             <div className="p-4">
               <div className="flex items-center gap-3 mb-4">
                 <div
@@ -375,7 +429,7 @@ export function MindMapPage() {
               </div>
               <div className="space-y-3">
                 {selectedNode.input && (
-                  <div className="p-3 rounded-lg bg-[var(--panel-1)] border border-[var(--border)]">
+                  <div className="p-3 rounded-lg bg-[var(--panel-2)] border border-[var(--border)]">
                     <div className="text-xs text-[var(--ink-3)] mb-1 flex items-center gap-1">
                       <ChevronRight className="w-3 h-3 rotate-180" /> 输入参数
                     </div>
@@ -383,14 +437,14 @@ export function MindMapPage() {
                   </div>
                 )}
                 {selectedNode.output && (
-                  <div className="p-3 rounded-lg bg-[var(--panel-1)] border border-[var(--border)]">
+                  <div className="p-3 rounded-lg bg-[var(--panel-2)] border border-[var(--border)]">
                     <div className="text-xs text-[var(--ink-3)] mb-1 flex items-center gap-1">
                       <ChevronRight className="w-3 h-3" /> 输出参数
                     </div>
                     <div className="text-sm text-[var(--ink-1)] font-medium">{selectedNode.output}</div>
                   </div>
                 )}
-                <div className="p-3 rounded-lg bg-[var(--panel-1)] border border-[var(--border)]">
+                <div className="p-3 rounded-lg bg-[var(--panel-2)] border border-[var(--border)]">
                   <div className="text-xs text-[var(--ink-3)] mb-2">参数传递去向</div>
                   <div className="space-y-1">
                     {connections.filter(c => c.from === selectedNode.id).map(c => {
@@ -414,27 +468,27 @@ export function MindMapPage() {
         )}
       </div>
 
-      <footer className="border-t border-[var(--border)] bg-[var(--bg)]/80 backdrop-blur-xl px-6 py-3">
+      <footer className="border-t border-[var(--border)] bg-[var(--card-bg)] px-6 py-3">
         <div className="flex items-center justify-center gap-6 flex-wrap">
           <div className="flex items-center gap-2">
-            <div className="w-4 h-4 rounded" style={{ background: '#4a2c7a' }} />
+            <div className="w-4 h-4 rounded" style={{ background: '#2b74f5' }} />
             <span className="text-xs text-[var(--ink-2)]">根节点</span>
           </div>
           <div className="flex items-center gap-2">
-            <div className="w-4 h-4 rounded" style={{ background: '#8b5cf6' }} />
-            <span className="text-xs text-[var(--ink-2)]">前期准备</span>
+            <div className="w-4 h-4 rounded" style={{ background: '#4a7de0' }} />
+            <span className="text-xs text-[var(--ink-2)]">剧本工坊</span>
           </div>
           <div className="flex items-center gap-2">
-            <div className="w-4 h-4 rounded" style={{ background: '#6366f1' }} />
-            <span className="text-xs text-[var(--ink-2)]">中期执行</span>
+            <div className="w-4 h-4 rounded" style={{ background: '#3d6fd8' }} />
+            <span className="text-xs text-[var(--ink-2)]">资产/导演</span>
           </div>
           <div className="flex items-center gap-2">
-            <div className="w-4 h-4 rounded" style={{ background: '#ec4899' }} />
+            <div className="w-4 h-4 rounded" style={{ background: '#2e5cb8' }} />
             <span className="text-xs text-[var(--ink-2)]">质量保障</span>
           </div>
           <div className="flex items-center gap-2">
-            <div className="w-4 h-4 rounded" style={{ background: '#10b981' }} />
-            <span className="text-xs text-[var(--ink-2)]">输出导出</span>
+            <div className="w-4 h-4 rounded" style={{ background: '#1f4f9e' }} />
+            <span className="text-xs text-[var(--ink-2)]">输出/自由创作</span>
           </div>
           <div className="w-px h-4 bg-[var(--border)]" />
           <div className="text-xs text-[var(--ink-3)]">

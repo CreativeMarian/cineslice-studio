@@ -93,7 +93,7 @@ export function SettingsPage() {
 
   return (
     <div className="min-h-screen bg-[var(--page)]">
-      <header className="border-b border-[var(--border)] bg-[var(--bg)]/80 backdrop-blur-xl sticky top-0 z-40">
+      <header className="border-b border-[var(--border)] bg-[var(--card-bg)] sticky top-0 z-40">
         <div className="max-w-4xl mx-auto px-6 py-4 flex items-center gap-4">
           <button
             onClick={() => navigate(-1)}
@@ -102,7 +102,7 @@ export function SettingsPage() {
             <ArrowLeft className="w-5 h-5" />
           </button>
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-[var(--accent)] to-[var(--accent-2)] flex items-center justify-center shadow-[0_4px_12px_rgba(249,115,22,0.3)]">
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-[var(--accent)] to-[var(--accent-2)] flex items-center justify-center shadow-[0_4px_12px_rgba(43, 116, 245, 0.25)]">
               <SettingsIcon className="w-5 h-5 text-[var(--on-accent)]" />
             </div>
             <div>
@@ -252,7 +252,7 @@ export function SettingsPage() {
 
           <Tabs.Content value="about">
             <Card className="p-6 text-center">
-              <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-[var(--accent)] to-[var(--accent-2)] flex items-center justify-center mx-auto mb-4 shadow-[0_4px_16px_rgba(249,115,22,0.3)]">
+              <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-[var(--accent)] to-[var(--accent-2)] flex items-center justify-center mx-auto mb-4 shadow-[0_4px_16px_rgba(43, 116, 245, 0.25)]">
                 <SettingsIcon className="w-8 h-8 text-[var(--on-accent)]" />
               </div>
               <h3 className="text-xl font-bold text-[var(--ink-1)] mb-1 font-[var(--font-display)]">CineSlice Studio</h3>

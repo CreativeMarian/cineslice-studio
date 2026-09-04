@@ -40,7 +40,7 @@ export function Topbar() {
 
   return (
     <>
-      <header className="h-16 border-b border-[var(--border)] bg-[var(--bg)]/80 backdrop-blur-xl flex items-center justify-between px-5 flex-shrink-0">
+      <header className="h-16 border-b border-[var(--border)] bg-[var(--card-bg)] flex items-center justify-between px-5 flex-shrink-0">
         <div className="flex items-center gap-4 min-w-0">
           <button
             onClick={() => navigate('/')}

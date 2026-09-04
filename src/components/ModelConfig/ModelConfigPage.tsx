@@ -213,7 +213,7 @@ export function ModelConfigPage() {
   return (
     <>
     <div className="min-h-screen bg-[var(--page)]">
-      <header className="border-b border-[var(--border)] bg-[var(--bg)]/80 backdrop-blur-xl sticky top-0 z-40">
+      <header className="border-b border-[var(--border)] bg-[var(--card-bg)] sticky top-0 z-40">
         <div className="max-w-6xl mx-auto px-6 py-4 flex items-center gap-4">
           <button
             onClick={() => navigate(-1)}
@@ -222,7 +222,7 @@ export function ModelConfigPage() {
             <ArrowLeft className="w-5 h-5" />
           </button>
           <div className="flex items-center gap-3">
-            <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-[var(--accent)] to-[var(--accent-2)] flex items-center justify-center shadow-[0_4px_16px_rgba(249,115,22,0.3)]">
+            <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-[var(--accent)] to-[var(--accent-2)] flex items-center justify-center shadow-[0_4px_16px_rgba(43, 116, 245, 0.25)]">
               <Cpu className="w-5 h-5 text-[var(--on-accent)]" />
             </div>
             <div>
@@ -282,7 +282,7 @@ export function ModelConfigPage() {
             </div>
             <button
               onClick={() => setShowCustomModal(true)}
-              className="flex items-center gap-2 px-4 py-2 rounded-lg bg-gradient-to-r from-[var(--accent)] to-[var(--accent-2)] text-[var(--on-accent)] text-sm font-medium hover:brightness-110 active:brightness-95 transition-all shadow-[0_2px_8px_rgba(249,115,22,0.3)] hover:shadow-[0_4px_16px_rgba(249,115,22,0.4)] hover:-translate-y-0.5 flex-shrink-0"
+              className="flex items-center gap-2 px-4 py-2 rounded-lg bg-gradient-to-r from-[var(--accent)] to-[var(--accent-2)] text-[var(--on-accent)] text-sm font-medium hover:brightness-110 active:brightness-95 transition-all shadow-[0_2px_8px_rgba(43, 116, 245, 0.25)] hover:shadow-[0_4px_16px_rgba(43, 116, 245, 0.35)] hover:-translate-y-0.5 flex-shrink-0"
             >
               <Plus className="w-4 h-4" />
               自定义

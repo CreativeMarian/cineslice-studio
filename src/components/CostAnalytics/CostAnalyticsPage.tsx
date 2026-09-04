@@ -27,7 +27,7 @@ const TYPE_LABELS: Record<string, string> = {
 const TYPE_COLORS: Record<string, string> = {
   text: '#3b82f6',
   image: '#a855f7',
-  video: '#f97316',
+  video: '#2b74f5',
   audio: '#22c55e',
 };
 
@@ -153,13 +153,13 @@ export function CostAnalyticsPage() {
   return (
     <div className="min-h-screen bg-[var(--page)]">
       {/* 顶部栏 */}
-      <header className="border-b border-[var(--border)] bg-[var(--bg)]/80 backdrop-blur-xl sticky top-0 z-40">
+      <header className="border-b border-[var(--border)] bg-[var(--card-bg)] sticky top-0 z-40">
         <div className="max-w-6xl mx-auto px-6 py-4 flex items-center gap-3">
           <Button variant="ghost" size="icon" onClick={() => navigate('/')} title="返回">
             <ArrowLeft className="w-5 h-5" />
           </Button>
           <div className="flex items-center gap-2.5">
-            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center shadow-[0_4px_12px_rgba(249,115,22,0.3)]">
+            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center shadow-[0_4px_12px_rgba(43, 116, 245, 0.25)]">
               <Coins className="w-5 h-5 text-white" />
             </div>
             <div>

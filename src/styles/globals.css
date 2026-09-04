@@ -1,80 +1,82 @@
 @import "tailwindcss";
 
 /* ============================================================
-   CineSlice Studio 设计系统
-   风格：现代简洁 · 橙色强调 · 玻璃拟态 · uupm.cc风格
+   CineSlice Studio 设计系统 v3.0
+   风格：轻玻璃 SaaS 工具后台（Soft-Glassmorphism）
+   - 主色：靛蓝 #2b74f5；浅色底 #f7f9fc + 低透明度点阵网格
+   - 卡片：半透白 + 细浅灰边框 + 大圆角 + 淡蓝灰柔和阴影
+   - 禁止：重度 backdrop-filter 磨砂、黑色硬阴影、发光特效、花哨渐变
    ============================================================ */
 
 @theme {
   /* ---- 字体 ---- */
-  --font-display: 'Space Grotesk', system-ui, sans-serif;
-  --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
-  --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+  --font-display: 'Inter', 'PingFang SC', system-ui, sans-serif;
+  --font-sans: 'Inter', system-ui, -apple-system, 'PingFang SC', sans-serif;
+  --font-mono: 'JetBrains Mono', 'Fira Code', 'SFMono-Regular', monospace;
 
-  /* ---- 橙色强调色（uupm.cc风格） ---- */
-  --color-accent-50: #FFF7ED;
-  --color-accent-100: #FFEDD5;
-  --color-accent-200: #FED7AA;
-  --color-accent-300: #FDBA74;
-  --color-accent-400: #FB923C;
-  --color-accent-500: #F97316;   /* 主强调色 - 橙色 */
-  --color-accent-600: #EA580C;
-  --color-accent-700: #C2410C;
-  --color-accent-800: #9A3412;
-  --color-accent-900: #7C2D12;
+  /* ---- 靛蓝强调色（轻玻璃 SaaS 主色） ---- */
+  --color-accent-50: #eef4ff;
+  --color-accent-100: #dce8fd;
+  --color-accent-200: #b9d1fb;
+  --color-accent-300: #8ab4f8;
+  --color-accent-400: #5b93f7;
+  --color-accent-500: #2b74f5;   /* 主强调色 - 靛蓝 */
+  --color-accent-600: #1f5fd4;
+  --color-accent-700: #1a4dad;
+  --color-accent-800: #173e8a;
+  --color-accent-900: #14336f;
 
   /* ---- 语义色 ---- */
-  --color-success: #10B981;
-  --color-warning: #F59E0B;
-  --color-danger: #EF4444;
-  --color-info: #3B82F6;
+  --color-success: #2e9e5b;
+  --color-warning: #d9a014;
+  --color-danger: #e74c3c;
+  --color-info: #2b74f5;
 }
 
 /* ============================================================
-   CSS 变量设计令牌（扩展 token 契约）
+   CSS 变量设计令牌
    ============================================================ */
 
 :root {
-  /* 基底 —— 浅色主题（uupm.cc风格：米白/浅灰蓝） */
-  --page: #F8FAFC;
-  --bg: #FFFFFF;
-  --panel-2: #F1F5F9;
-  --panel-3: #E2E8F0;
-  --border: rgba(0, 0, 0, 0.06);
-  --border-light: rgba(0, 0, 0, 0.03);
-  --border-hover: rgba(249, 115, 22, 0.3);
+  /* 基底 —— 浅色主题（文档：极浅灰白 + 点阵网格） */
+  --page: #f7f9fc;
+  --bg: #ffffff;
+  --card-bg: rgba(255, 255, 255, 0.82);
+  --panel-2: #f1f4f9;
+  --panel-3: #e8edf5;
+  --border: rgba(220, 228, 240, 0.7);
+  --border-light: rgba(220, 228, 240, 0.4);
+  --border-hover: rgba(43, 116, 245, 0.35);
 
-  /* 墨（三级） */
-  --ink-1: #0F172A;
-  --ink-2: #475569;
-  --ink-3: #94A3B8;
+  /* 墨（三级，文档：正文 #2c3344 / 次要 #788296） */
+  --ink-1: #2c3344;
+  --ink-2: #788296;
+  --ink-3: #a3adc0;
 
-  /* 品牌 —— 橙色（uupm.cc风格） */
-  --accent: #F97316;
-  --accent-2: #FB923C;
-  --accent-soft: rgba(249, 115, 22, 0.10);
-  --accent-glow: rgba(249, 115, 22, 0.25);
+  /* 品牌 —— 靛蓝（文档：主强调色 #2b74f5） */
+  --accent: #2b74f5;
+  --accent-2: #5b93f7;
+  --accent-soft: rgba(43, 116, 245, 0.08);
+  --accent-glow: rgba(43, 116, 245, 0.20);
   --on-accent: #FFFFFF;
 
-  /* 圆角（uupm.cc风格：大圆角） */
-  --radius-shell: 24px;
-  --radius-card: 18px;
+  /* 圆角（文档：大 16 / 中 12 / 小 8） */
+  --radius-shell: 16px;
+  --radius-card: 16px;
   --radius-control: 12px;
+  --radius-sm: 8px;
   --radius-pill: 999px;
 
-  /* 阴影（uupm.cc风格：柔和、分层） */
+  /* 阴影（文档：淡蓝灰弥散阴影，禁黑色硬阴影） */
   --shadow-card:
-    0 1px 2px rgba(0, 0, 0, 0.03),
-    0 4px 12px -4px rgba(0, 0, 0, 0.06),
-    0 12px 32px -12px rgba(0, 0, 0, 0.08);
+    0 1px 2px rgba(150, 170, 210, 0.06),
+    0 6px 20px rgba(150, 170, 210, 0.10);
   --shadow-float:
-    0 2px 8px rgba(0, 0, 0, 0.04),
-    0 12px 32px -8px rgba(0, 0, 0, 0.08),
-    0 32px 64px -24px rgba(0, 0, 0, 0.10);
+    0 2px 6px rgba(150, 170, 210, 0.08),
+    0 12px 32px rgba(150, 170, 210, 0.14);
   --shadow-glow:
     0 0 0 1px var(--accent-soft),
-    0 4px 16px -4px var(--accent-glow),
-    0 1px 4px rgba(0, 0, 0, 0.04);
+    0 4px 16px -4px var(--accent-glow);
   --shadow-inset:
     inset 0 1px 0 rgba(255, 255, 255, 0.9);
 
@@ -87,70 +89,42 @@
   --text-2xl: 1.5rem;
   --text-3xl: 1.875rem;
   --text-4xl: 2.25rem;
-  --text-display: 3rem;
-
-  /* 间距 */
-  --space-1: 0.25rem;
-  --space-2: 0.5rem;
-  --space-3: 0.75rem;
-  --space-4: 1rem;
-  --space-5: 1.25rem;
-  --space-6: 1.5rem;
-  --space-8: 2rem;
-  --space-10: 2.5rem;
-  --space-12: 3rem;
+  --text-display: 2.75rem;
 }
 
-/* 暗色主题覆盖（uupm.cc风格） */
+/* 暗色主题派生（保留：开发者工具常规需求；靛蓝系深色） */
 .dark {
-  /* 基底 —— 深炭灰（非纯黑，带微蓝） */
-  --page: #0F172A;
-  --bg: #1E293B;
-  --panel-2: #334155;
-  --panel-3: #475569;
-  --border: rgba(255, 255, 255, 0.08);
-  --border-light: rgba(255, 255, 255, 0.04);
-  --border-hover: rgba(249, 115, 22, 0.4);
+  --page: #0f141c;
+  --bg: #161d29;
+  --card-bg: rgba(26, 34, 48, 0.85);
+  --panel-2: #1d2534;
+  --panel-3: #283144;
+  --border: rgba(148, 168, 200, 0.16);
+  --border-light: rgba(148, 168, 200, 0.10);
+  --border-hover: rgba(91, 147, 247, 0.4);
 
-  /* 墨（三级） */
-  --ink-1: #F8FAFC;
-  --ink-2: #CBD5E1;
-  --ink-3: #64748B;
+  --ink-1: #e8edf5;
+  --ink-2: #9aa7bd;
+  --ink-3: #64748b;
 
-  /* 品牌 —— 橙色（暗色更亮） */
-  --accent: #FB923C;
-  --accent-2: #FDBA74;
-  --accent-soft: rgba(251, 146, 60, 0.15);
-  --accent-glow: rgba(251, 146, 60, 0.40);
-  --on-accent: #1A0A00;
+  --accent: #5b93f7;
+  --accent-2: #7fb0ff;
+  --accent-soft: rgba(91, 147, 247, 0.14);
+  --accent-glow: rgba(91, 147, 247, 0.30);
+  --on-accent: #FFFFFF;
 
-  /* 阴影 */
   --shadow-card:
-    0 1px 2px rgba(0, 0, 0, 0.4),
-    0 4px 16px -4px rgba(0, 0, 0, 0.5),
-    0 16px 40px -16px rgba(0, 0, 0, 0.6);
+    0 1px 2px rgba(0, 0, 0, 0.3),
+    0 6px 20px rgba(0, 0, 0, 0.35);
   --shadow-float:
-    0 2px 8px rgba(0, 0, 0, 0.5),
-    0 16px 40px -8px rgba(0, 0, 0, 0.6),
-    0 40px 80px -32px rgba(0, 0, 0, 0.7);
-  --shadow-glow:
-    0 0 0 1px var(--accent-soft),
-    0 4px 16px -4px var(--accent-glow),
-    0 1px 4px rgba(0, 0, 0, 0.4);
+    0 2px 6px rgba(0, 0, 0, 0.3),
+    0 12px 32px rgba(0, 0, 0, 0.4);
   --shadow-inset:
-    inset 0 1px 0 rgba(255, 255, 255, 0.08);
-}
-
-/* 暗色模式滚动条 */
-.dark ::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.1);
-}
-.dark ::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.2);
+    inset 0 1px 0 rgba(255, 255, 255, 0.05);
 }
 
 /* ============================================================
-   基础样式
+   基础样式（文档：点阵网格背景）
    ============================================================ */
 
 * {
@@ -168,11 +142,18 @@ body,
 body {
   font-family: var(--font-sans);
   background-color: var(--page);
+  /* 低透明度点阵网格（文档规范） */
+  background-image: radial-gradient(#dde3f0 0.6px, transparent 0.6px);
+  background-size: 24px 24px;
   color: var(--ink-1);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   font-size: 15px;
   line-height: 1.6;
+}
+
+.dark body {
+  background-image: radial-gradient(rgba(120, 140, 180, 0.25) 0.6px, transparent 0.6px);
 }
 
 /* 标题字体 */
@@ -192,11 +173,17 @@ h1, h2, h3, h4, h5, h6 {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: rgba(0, 0, 0, 0.15);
+  background: rgba(148, 168, 210, 0.4);
   border-radius: 3px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(0, 0, 0, 0.25);
+  background: rgba(148, 168, 210, 0.6);
+}
+.dark ::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.12);
+}
+.dark ::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.22);
 }
 
 /* 选中文本 */
@@ -224,11 +211,6 @@ h1, h2, h3, h4, h5, h6 {
   to { opacity: 1; transform: translateX(0); }
 }
 
-@keyframes pulse-glow {
-  0%, 100% { box-shadow: 0 0 0 0 var(--accent-glow); }
-  50% { box-shadow: 0 0 0 8px transparent; }
-}
-
 @keyframes shimmer {
   0% { background-position: 200% 0; }
   100% { background-position: -200% 0; }
@@ -250,10 +232,6 @@ h1, h2, h3, h4, h5, h6 {
   animation: slideInRight 0.3s ease-out;
 }
 
-.animate-pulse-glow {
-  animation: pulse-glow 2s ease-in-out infinite;
-}
-
 /* 骨架屏 */
 .skeleton {
   background: linear-gradient(
@@ -267,21 +245,37 @@ h1, h2, h3, h4, h5, h6 {
 }
 
 /* ============================================================
-   通用工具类
+   轻玻璃 & 通用工具类（无重度 blur，半透底色 + 细边框 + 柔和阴影）
    ============================================================ */
 
 .glass {
-  background: rgba(255, 255, 255, 0.7);
-  backdrop-filter: blur(16px) saturate(180%);
-  -webkit-backdrop-filter: blur(16px) saturate(180%);
-  border: 1px solid rgba(255, 255, 255, 0.3);
+  background: rgba(255, 255, 255, 0.82);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-card);
 }
 
 .dark .glass {
-  background: rgba(30, 41, 59, 0.8);
-  backdrop-filter: blur(16px) saturate(180%);
-  -webkit-backdrop-filter: blur(16px) saturate(180%);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(26, 34, 48, 0.85);
+}
+
+/* 顶部悬浮条：允许轻微 blur（8px 内），不构成重度磨砂 */
+.glass-strong {
+  background: rgba(255, 255, 255, 0.88);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-float);
+}
+
+.glass-light {
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid var(--border-light);
+}
+
+.dark .glass-strong {
+  background: rgba(22, 29, 41, 0.92);
+}
+
+.dark .glass-light {
+  background: rgba(22, 29, 41, 0.8);
 }
 
 .text-gradient {
@@ -304,174 +298,41 @@ h1, h2, h3, h4, h5, h6 {
 }
 
 /* ============================================================
-   沉浸式光感 & 高斯模糊
+   卡片悬浮（克制版：仅轻微抬升 + 阴影加深，无发光）
    ============================================================ */
 
-/* 毛玻璃效果（增强版） */
-.glass-strong {
-  background: rgba(18, 21, 28, 0.85);
-  backdrop-filter: blur(20px) saturate(180%);
-  -webkit-backdrop-filter: blur(20px) saturate(180%);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-}
-
-.glass-light {
-  background: rgba(255, 255, 255, 0.7);
-  backdrop-filter: blur(16px) saturate(180%);
-  -webkit-backdrop-filter: blur(16px) saturate(180%);
-  border: 1px solid rgba(255, 255, 255, 0.3);
-}
-
-/* 沉浸式光晕背景 */
-.ambient-glow {
-  position: relative;
-  overflow: hidden;
-}
-
-.ambient-glow::before {
-  content: '';
-  position: absolute;
-  top: -50%;
-  left: -50%;
-  width: 200%;
-  height: 200%;
-  background: radial-gradient(
-    circle at 30% 20%,
-    rgba(249, 115, 22, 0.12) 0%,
-    transparent 50%
-  ),
-  radial-gradient(
-    circle at 70% 80%,
-    rgba(251, 146, 60, 0.08) 0%,
-    transparent 50%
-  );
-  pointer-events: none;
-  z-index: 0;
-  animation: ambientFloat 20s ease-in-out infinite;
-}
-
-@keyframes ambientFloat {
-  0%, 100% { transform: translate(0, 0) rotate(0deg); }
-  33% { transform: translate(2%, -2%) rotate(1deg); }
-  66% { transform: translate(-1%, 1%) rotate(-1deg); }
-}
-
-/* 悬浮光晕效果 */
-.glow-hover {
-  position: relative;
-  transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
-}
-
-.glow-hover::after {
-  content: '';
-  position: absolute;
-  inset: -2px;
-  border-radius: inherit;
-  background: linear-gradient(135deg, var(--accent), var(--accent-2));
-  opacity: 0;
-  z-index: -1;
-  filter: blur(12px);
-  transition: opacity 0.4s ease;
-}
-
-.glow-hover:hover::after {
-  opacity: 0.4;
-}
-
-/* ============================================================
-   粒子特效
-   ============================================================ */
-
-/* 粒子容器 */
-.particles-container {
-  position: fixed;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  pointer-events: none;
-  z-index: 0;
-  overflow: hidden;
-}
-
-/* 单个粒子 */
-.particle {
-  position: absolute;
-  width: 4px;
-  height: 4px;
-  background: var(--accent);
-  border-radius: 50%;
-  opacity: 0;
-  animation: particleFloat 8s ease-in-out infinite;
-  box-shadow: 0 0 6px var(--accent-glow);
-}
-
-@keyframes particleFloat {
-  0% {
-    opacity: 0;
-    transform: translateY(100vh) scale(0);
-  }
-  10% {
-    opacity: 0.8;
-    transform: translateY(90vh) scale(1);
-  }
-  90% {
-    opacity: 0.6;
-    transform: translateY(10vh) scale(0.8);
-  }
-  100% {
-    opacity: 0;
-    transform: translateY(0) scale(0);
-  }
-}
-
-/* 点击粒子爆发效果 */
-.click-particle {
-  position: fixed;
-  width: 6px;
-  height: 6px;
-  background: var(--accent);
-  border-radius: 50%;
-  pointer-events: none;
-  z-index: 9999;
-  animation: clickBurst 0.6s ease-out forwards;
-  box-shadow: 0 0 8px var(--accent-glow);
-}
-
-@keyframes clickBurst {
-  0% {
-    opacity: 1;
-    transform: translate(0, 0) scale(1);
-  }
-  100% {
-    opacity: 0;
-    transform: translate(var(--tx), var(--ty)) scale(0);
-  }
-}
-
-/* ============================================================
-   按钮交互反馈
-   ============================================================ */
-
-/* 按钮基础交互 */
-.btn-interactive {
-  position: relative;
-  overflow: hidden;
+.card-hover {
   transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
   transform: translateY(0);
 }
 
-.btn-interactive:hover {
+.card-hover:hover {
   transform: translateY(-2px);
+  box-shadow: var(--shadow-float);
+  border-color: var(--border-hover);
+}
+
+/* ============================================================
+   按钮交互反馈（克制版）
+   ============================================================ */
+
+.btn-interactive {
+  position: relative;
+  overflow: hidden;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  transform: translateY(0);
+}
+
+.btn-interactive:hover {
+  transform: translateY(-1px);
   box-shadow: var(--shadow-float);
 }
 
 .btn-interactive:active {
-  transform: translateY(0) scale(0.97);
-  transition: all 0.1s ease;
+  transform: translateY(0) scale(0.98);
+  transition: all 0.08s ease;
 }
 
-/* 按钮涟漪效果 */
 .btn-ripple {
   position: relative;
   overflow: hidden;
@@ -485,7 +346,7 @@ h1, h2, h3, h4, h5, h6 {
   width: 0;
   height: 0;
   border-radius: 50%;
-  background: rgba(255, 255, 255, 0.3);
+  background: rgba(255, 255, 255, 0.25);
   transform: translate(-50%, -50%);
   transition: width 0.6s ease, height 0.6s ease, opacity 0.6s ease;
   opacity: 0;
@@ -498,62 +359,11 @@ h1, h2, h3, h4, h5, h6 {
   transition: width 0s, height 0s, opacity 0s;
 }
 
-/* 按钮发光边框 */
-.btn-glow-border {
-  position: relative;
-}
-
-.btn-glow-border::before {
-  content: '';
-  position: absolute;
-  inset: -1px;
-  border-radius: inherit;
-  background: linear-gradient(135deg, var(--accent), var(--accent-2), var(--accent));
-  z-index: -1;
-  opacity: 0;
-  transition: opacity 0.3s ease;
-}
-
-.btn-glow-border:hover::before {
-  opacity: 1;
-  animation: borderGlow 2s linear infinite;
-}
-
-@keyframes borderGlow {
-  0% { filter: hue-rotate(0deg); }
-  100% { filter: hue-rotate(360deg); }
-}
-
-/* ============================================================
-   卡片悬浮 & 深度效果
-   ============================================================ */
-
-.card-hover {
-  transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
-  transform: translateY(0);
-}
-
-.card-hover:hover {
-  transform: translateY(-4px);
-  box-shadow: var(--shadow-float);
-  border-color: var(--accent-soft);
-}
-
-/* 3D 倾斜效果 */
-.card-3d {
-  transform-style: preserve-3d;
-  transition: transform 0.3s ease;
-}
-
-.card-3d:hover {
-  transform: perspective(1000px) rotateX(2deg) rotateY(-2deg) translateZ(10px);
-}
-
 /* ============================================================
    加载 & 进度动画
    ============================================================ */
 
-/* 渐变进度条 */
+/* 渐变进度条（靛蓝系） */
 .progress-gradient {
   background: linear-gradient(90deg, var(--accent), var(--accent-2), var(--accent));
   background-size: 200% 100%;
@@ -565,38 +375,14 @@ h1, h2, h3, h4, h5, h6 {
   100% { background-position: -200% 0; }
 }
 
-/* 呼吸灯效果 */
+/* 呼吸灯（克制） */
 .breathing {
   animation: breathing 3s ease-in-out infinite;
 }
 
 @keyframes breathing {
-  0%, 100% { opacity: 0.6; box-shadow: 0 0 0 0 var(--accent-glow); }
-  50% { opacity: 1; box-shadow: 0 0 0 8px transparent; }
-}
-
-/* ============================================================
-   滚动条美化
-   ============================================================ */
-
-::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
-}
-
-::-webkit-scrollbar-track {
-  background: var(--panel-2);
-  border-radius: 4px;
-}
-
-::-webkit-scrollbar-thumb {
-  background: linear-gradient(180deg, var(--accent-400), var(--accent-600));
-  border-radius: 4px;
-  transition: all 0.2s ease;
-}
-
-::-webkit-scrollbar-thumb:hover {
-  background: linear-gradient(180deg, var(--accent-300), var(--accent-500));
+  0%, 100% { opacity: 0.7; }
+  50% { opacity: 1; }
 }
 
 /* ============================================================

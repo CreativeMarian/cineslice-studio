@@ -194,7 +194,7 @@ export function StylePresetSelector({ value, onChange, showDetails = true, compa
               </div>
 
               {/* 内容 */}
-              <div className="p-3 bg-[var(--bg-card)]">
+              <div className="p-3 bg-[var(--card-bg)]">
                 <div className="flex items-center justify-between mb-1">
                   <span className="text-sm font-semibold text-[var(--ink-1)] truncate">{preset.name}</span>
                   <span className="text-[10px] text-[var(--ink-4)] bg-[var(--bg-2)] px-1.5 py-0.5 rounded flex-shrink-0 ml-1">

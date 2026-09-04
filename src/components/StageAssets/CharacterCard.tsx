@@ -14,7 +14,7 @@ export function CharacterCard({ character, onSelect, onImageClick }: CharacterCa
   const hasImage = !!selectedImage?.url;
 
   const roleConfig: Record<string, string> = {
-    protagonist: 'bg-[rgba(249,115,22,0.12)] text-[var(--accent)]',
+    protagonist: 'bg-[rgba(43, 116, 245, 0.10)] text-[var(--accent)]',
     supporting: 'bg-[rgba(94,140,255,0.12)] text-[var(--color-info)]',
     antagonist: 'bg-[rgba(255,107,90,0.12)] text-[var(--color-danger)]',
     extra: 'bg-[var(--panel-2)] text-[var(--ink-3)]',

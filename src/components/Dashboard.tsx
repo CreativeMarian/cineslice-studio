@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { Plus, Film, MoreVertical, Pencil, Trash2, FolderOpen, Search, Clock, Sun, Moon, HelpCircle, BookOpen, Wand2, FileUp, ChevronRight, Zap, Settings, Users, Archive, ArchiveRestore, AlertTriangle, Coins, Sparkles } from 'lucide-react';
+import { Plus, Film, MoreVertical, Pencil, Trash2, FolderOpen, Search, Clock, Sun, Moon, HelpCircle, BookOpen, Wand2, FileUp, ChevronRight, Zap, Settings, Users, Archive, ArchiveRestore, AlertTriangle, Coins, Sparkles, Layers } from 'lucide-react';
 import { Button, Card, EmptyState, Modal, Input, Badge } from './ui';
 import { projectService } from '../services/projectService';
 import { exportService } from '../services/exportService';
@@ -189,11 +189,11 @@ export function Dashboard() {
 
   return (
     <div className="min-h-screen bg-[var(--page)]">
-      {/* 顶部栏 */}
-      <header className="border-b border-[var(--border)] bg-[var(--bg)]/80 backdrop-blur-xl sticky top-0 z-40">
+      {/* 顶部栏（文档：标题 + 说明 + 右上角操作按钮组） */}
+      <header className="border-b border-[var(--border)] bg-[var(--card-bg)] sticky top-0 z-40">
         <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-[var(--accent)] to-[var(--accent-2)] flex items-center justify-center shadow-[0_4px_16px_rgba(249,115,22,0.3)]">
+            <div className="w-11 h-11 rounded-xl bg-[var(--accent)] flex items-center justify-center shadow-[0_4px_16px_rgba(43,116,245,0.25)]">
               <Film className="w-6 h-6 text-white" />
             </div>
             <div>
@@ -203,15 +203,6 @@ export function Dashboard() {
           </div>
           <div className="flex items-center gap-2">
             <TaskCenter />
-            <div className="relative hidden md:block">
-              <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-[var(--ink-3)]" />
-              <Input
-                placeholder="搜索项目..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-9 w-56"
-              />
-            </div>
             <Button variant="ghost" size="icon" onClick={toggleTheme} title="切换主题">
               {theme === 'dark' ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
             </Button>
@@ -223,102 +214,100 @@ export function Dashboard() {
       </header>
 
       <main className="max-w-7xl mx-auto px-6 py-8">
-        {/* 欢迎Hero区域 */}
-        <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-[var(--accent)]/10 via-purple-500/5 to-transparent border border-[var(--border)] p-8 mb-8">
-          <div className="absolute top-0 right-0 w-64 h-64 bg-gradient-to-bl from-[var(--accent)]/20 to-transparent rounded-bl-full" />
-          <div className="absolute bottom-0 left-1/2 w-96 h-32 bg-gradient-to-t from-purple-500/10 to-transparent" />
-          <div className="relative">
-            <div className="flex items-center gap-3 mb-4">
-              <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-[var(--accent)] to-[var(--accent-2)] flex items-center justify-center shadow-[0_8px_24px_rgba(249,115,22,0.3)]">
+        {/* 顶部大面板（文档：标题面板 → 说明 → 操作按钮） */}
+        <div className="card-hover rounded-2xl bg-[var(--card-bg)] border border-[var(--border)] shadow-[var(--shadow-card)] p-8 mb-6">
+          <div className="flex flex-col md:flex-row md:items-center gap-6">
+            <div className="flex items-center gap-4 flex-1 min-w-0">
+              <div className="w-14 h-14 rounded-2xl bg-[var(--accent)] flex items-center justify-center shadow-[0_8px_24px_rgba(43,116,245,0.25)] flex-shrink-0">
                 <Film className="w-7 h-7 text-white" />
               </div>
-              <div>
-                <h1 className="text-2xl font-bold text-[var(--ink-1)] font-[var(--font-display)]">欢迎使用 CineSlice Studio</h1>
-                <p className="text-sm text-[var(--ink-3)]">AI 驱动的全流程漫剧/短剧生产流水线 · 从小说到成片，一键搞定</p>
+              <div className="min-w-0">
+                <h1 className="text-xl font-bold text-[var(--ink-1)] font-[var(--font-display)] mb-1">欢迎使用 CineSlice Studio</h1>
+                <p className="text-sm text-[var(--ink-3)]">从小说到成片的 AI 全流程生产流水线 · 9 阶段 · 全自动或半自动</p>
               </div>
             </div>
-
-            {/* 核心优势 */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-6">
-              <div className="p-4 rounded-xl bg-[var(--bg)]/60 border border-[var(--border)]">
-                <div className="w-8 h-8 rounded-lg bg-[var(--accent-soft)] flex items-center justify-center mb-2">
-                  <Zap className="w-4 h-4 text-[var(--accent)]" />
-                </div>
-                <h4 className="text-sm font-semibold text-[var(--ink-1)] mb-1">全自动流水线</h4>
-                <p className="text-xs text-[var(--ink-3)]">9阶段一键生成，无需人工干预</p>
-              </div>
-              <div className="p-4 rounded-xl bg-[var(--bg)]/60 border border-[var(--border)]">
-                <div className="w-8 h-8 rounded-lg bg-purple-100 dark:bg-purple-900/30 flex items-center justify-center mb-2">
-                  <Users className="w-4 h-4 text-purple-500" />
-                </div>
-                <h4 className="text-sm font-semibold text-[var(--ink-1)] mb-1">人物一致性</h4>
-                <p className="text-xs text-[var(--ink-3)]">角色概念图+参考图，全片统一</p>
-              </div>
-              <div className="p-4 rounded-xl bg-[var(--bg)]/60 border border-[var(--border)]">
-                <div className="w-8 h-8 rounded-lg bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center mb-2">
-                  <Wand2 className="w-4 h-4 text-blue-500" />
-                </div>
-                <h4 className="text-sm font-semibold text-[var(--ink-1)] mb-1">智能提示词</h4>
-                <p className="text-xs text-[var(--ink-3)]">剧本分析+两层优化，自动生成</p>
-              </div>
-              <div className="p-4 rounded-xl bg-[var(--bg)]/60 border border-[var(--border)]">
-                <div className="w-8 h-8 rounded-lg bg-green-100 dark:bg-green-900/30 flex items-center justify-center mb-2">
-                  <Settings className="w-4 h-4 text-green-500" />
-                </div>
-                <h4 className="text-sm font-semibold text-[var(--ink-1)] mb-1">多模型支持</h4>
-                <p className="text-xs text-[var(--ink-3)]">50+模型，自由切换，成本可控</p>
-              </div>
+            {/* 右上角操作按钮组（文档规范） */}
+            <div className="flex items-center gap-2 flex-shrink-0">
+              <Button variant="ghost" size="sm" onClick={() => navigate('/costs')}>
+                <Coins className="w-4 h-4 mr-1" /> 成本统计
+              </Button>
+              <Button variant="ghost" size="sm" onClick={() => navigate('/models')}>
+                <Settings className="w-4 h-4 mr-1" /> 配置模型
+              </Button>
+              <Button variant="ghost" size="sm" onClick={() => navigate('/mindmap')}>
+                <BookOpen className="w-4 h-4 mr-1" /> 查看流程
+              </Button>
+              <Button onClick={handleStartFromNovel} leftIcon={<Plus className="w-4 h-4" />}>
+                新建项目
+              </Button>
             </div>
+          </div>
 
-            {/* 模型统计 + 快速开始 */}
-            <div className="flex flex-wrap items-center gap-6 mt-6 pt-6 border-t border-[var(--border)]">
-              <div className="flex items-center gap-6">
-                <div className="text-center">
-                  <div className="text-2xl font-bold text-[var(--accent)]">50+</div>
-                  <div className="text-xs text-[var(--ink-3)]">AI模型</div>
-                </div>
-                <div className="w-px h-8 bg-[var(--border)]" />
-                <div className="text-center">
-                  <div className="text-2xl font-bold text-purple-500">9</div>
-                  <div className="text-xs text-[var(--ink-3)]">制作阶段</div>
-                </div>
-                <div className="w-px h-8 bg-[var(--border)]" />
-                <div className="text-center">
-                  <div className="text-2xl font-bold text-blue-500">5</div>
-                  <div className="text-xs text-[var(--ink-3)]">风格预设</div>
-                </div>
-                <div className="w-px h-8 bg-[var(--border)]" />
-                <div className="text-center">
-                  <div className="text-2xl font-bold text-green-500">100%</div>
-                  <div className="text-xs text-[var(--ink-3)]">本地部署</div>
-                </div>
+          {/* 核心优势（低饱和靛蓝单色系） */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-6">
+            <div className="p-4 rounded-xl bg-[var(--panel-2)]/70 border border-[var(--border-light)]">
+              <div className="w-8 h-8 rounded-lg bg-[var(--accent-soft)] flex items-center justify-center mb-2">
+                <Zap className="w-4 h-4 text-[var(--accent)]" />
               </div>
-              <div className="ml-auto flex items-center gap-2">
-                <Button variant="ghost" size="sm" onClick={() => navigate('/costs')}>
-                  <Coins className="w-4 h-4 mr-1" /> 成本统计
-                </Button>
-                <Button variant="ghost" size="sm" onClick={() => navigate('/models')}>
-                  <Settings className="w-4 h-4 mr-1" /> 配置模型
-                </Button>
-                <Button variant="ghost" size="sm" onClick={() => navigate('/mindmap')}>
-                  <BookOpen className="w-4 h-4 mr-1" /> 查看流程
-                </Button>
+              <h4 className="text-sm font-semibold text-[var(--ink-1)] mb-1">全自动流水线</h4>
+              <p className="text-xs text-[var(--ink-3)]">9 阶段一键生成，无需人工干预</p>
+            </div>
+            <div className="p-4 rounded-xl bg-[var(--panel-2)]/70 border border-[var(--border-light)]">
+              <div className="w-8 h-8 rounded-lg bg-[var(--accent-soft)] flex items-center justify-center mb-2">
+                <Users className="w-4 h-4 text-[var(--accent)]" />
+              </div>
+              <h4 className="text-sm font-semibold text-[var(--ink-1)] mb-1">人物一致性</h4>
+              <p className="text-xs text-[var(--ink-3)]">角色定妆 + 场景参考图，全片统一</p>
+            </div>
+            <div className="p-4 rounded-xl bg-[var(--panel-2)]/70 border border-[var(--border-light)]">
+              <div className="w-8 h-8 rounded-lg bg-[var(--accent-soft)] flex items-center justify-center mb-2">
+                <Wand2 className="w-4 h-4 text-[var(--accent)]" />
+              </div>
+              <h4 className="text-sm font-semibold text-[var(--ink-1)] mb-1">智能提示词</h4>
+              <p className="text-xs text-[var(--ink-3)]">剧本分析 + 双层优化，自动生成</p>
+            </div>
+            <div className="p-4 rounded-xl bg-[var(--panel-2)]/70 border border-[var(--border-light)]">
+              <div className="w-8 h-8 rounded-lg bg-[var(--accent-soft)] flex items-center justify-center mb-2">
+                <Layers className="w-4 h-4 text-[var(--accent)]" />
+              </div>
+              <h4 className="text-sm font-semibold text-[var(--ink-1)] mb-1">多模型支持</h4>
+              <p className="text-xs text-[var(--ink-3)]">50+ 模型，自由切换，成本可控</p>
+            </div>
+          </div>
+
+          {/* 数据统计 */}
+          <div className="flex flex-wrap items-center gap-6 mt-6 pt-6 border-t border-[var(--border)]">
+            <div className="flex items-center gap-6">
+              <div className="text-center">
+                <div className="text-2xl font-bold text-[var(--accent)]">50+</div>
+                <div className="text-xs text-[var(--ink-3)]">AI模型</div>
+              </div>
+              <div className="w-px h-8 bg-[var(--border)]" />
+              <div className="text-center">
+                <div className="text-2xl font-bold text-[var(--ink-1)]">9</div>
+                <div className="text-xs text-[var(--ink-3)]">制作阶段</div>
+              </div>
+              <div className="w-px h-8 bg-[var(--border)]" />
+              <div className="text-center">
+                <div className="text-2xl font-bold text-[var(--ink-1)]">4</div>
+                <div className="text-xs text-[var(--ink-3)]">创作方式</div>
+              </div>
+              <div className="w-px h-8 bg-[var(--border)]" />
+              <div className="text-center">
+                <div className="text-2xl font-bold text-[var(--ink-1)]">100%</div>
+                <div className="text-xs text-[var(--ink-3)]">本地部署</div>
               </div>
             </div>
           </div>
         </div>
 
-        {/* 三入口 */}
+        {/* 四入口（产品功能入口，保留；视觉统一靛蓝） */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
           {/* 从小说开始 */}
-          <Card
-            hover
-            className="p-6 cursor-pointer group relative overflow-hidden"
-            onClick={handleStartFromNovel}
-          >
-            <div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-bl from-[var(--accent)]/10 to-transparent rounded-bl-full" />
+          <Card hover className="p-6 cursor-pointer group relative overflow-hidden" onClick={handleStartFromNovel}>
+            <div className="absolute top-0 right-0 w-32 h-32 bg-[var(--accent-soft)] to-transparent rounded-bl-full" />
             <div className="relative">
-              <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-[var(--accent)] to-[var(--accent-2)] flex items-center justify-center mb-4 shadow-[0_4px_12px_rgba(249,115,22,0.3)]">
+              <div className="w-12 h-12 rounded-xl bg-[var(--accent)] flex items-center justify-center mb-4 shadow-[0_4px_12px_rgba(43,116,245,0.25)]">
                 <BookOpen className="w-6 h-6 text-white" />
               </div>
               <h3 className="font-semibold text-[var(--ink-1)] mb-1 font-[var(--font-display)]">从小说开始</h3>
@@ -340,19 +329,14 @@ export function Dashboard() {
           </Card>
 
           {/* 从灵感开始 */}
-          <Card
-            hover
-            className="p-6 cursor-pointer group relative overflow-hidden"
-            onClick={() => setCreateModalOpen(true)}
-          >
-            <div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-bl from-purple-500/10 to-transparent rounded-bl-full" />
+          <Card hover className="p-6 cursor-pointer group relative overflow-hidden" onClick={() => setCreateModalOpen(true)}>
             <div className="relative">
-              <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-purple-500 to-purple-600 flex items-center justify-center mb-4 shadow-[0_4px_12px_rgba(168,85,247,0.3)]">
+              <div className="w-12 h-12 rounded-xl bg-[var(--accent)] flex items-center justify-center mb-4 shadow-[0_4px_12px_rgba(43,116,245,0.25)]">
                 <Wand2 className="w-6 h-6 text-white" />
               </div>
               <h3 className="font-semibold text-[var(--ink-1)] mb-1 font-[var(--font-display)]">从灵感开始</h3>
               <p className="text-sm text-[var(--ink-3)] mb-4">输入故事大纲或创意，AI 自动生成剧本和分镜</p>
-              <div className="flex items-center text-sm text-purple-500 font-medium group-hover:gap-2 transition-all">
+              <div className="flex items-center text-sm text-[var(--accent)] font-medium group-hover:gap-2 transition-all">
                 创建空白项目
                 <ChevronRight className="w-4 h-4 ml-1 group-hover:translate-x-1 transition-transform" />
               </div>
@@ -360,53 +344,38 @@ export function Dashboard() {
           </Card>
 
           {/* 导入项目 */}
-          <Card
-            hover
-            className="p-6 cursor-pointer group relative overflow-hidden"
-            onClick={() => importFileRef.current?.click()}
-          >
-            <input
-              ref={importFileRef}
-              type="file"
-              accept=".zip"
-              className="hidden"
-              onChange={handleImport}
-            />
-            <div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-bl from-green-500/10 to-transparent rounded-bl-full" />
+          <Card hover className="p-6 cursor-pointer group relative overflow-hidden" onClick={() => importFileRef.current?.click()}>
+            <input ref={importFileRef} type="file" accept=".zip" className="hidden" onChange={handleImport} />
             <div className="relative">
-              <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-green-500 to-emerald-600 flex items-center justify-center mb-4 shadow-[0_4px_12px_rgba(34,197,94,0.3)]">
+              <div className="w-12 h-12 rounded-xl bg-[var(--accent)] flex items-center justify-center mb-4 shadow-[0_4px_12px_rgba(43,116,245,0.25)]">
                 <FileUp className="w-6 h-6 text-white" />
               </div>
               <h3 className="font-semibold text-[var(--ink-1)] mb-1 font-[var(--font-display)]">导入项目</h3>
               <p className="text-sm text-[var(--ink-3)] mb-4">上传 ZIP 备份文件，恢复之前的项目数据</p>
-              <div className="flex items-center text-sm text-green-500 font-medium group-hover:gap-2 transition-all">
+              <div className="flex items-center text-sm text-[var(--accent)] font-medium group-hover:gap-2 transition-all">
                 选择 ZIP 文件
                 <ChevronRight className="w-4 h-4 ml-1 group-hover:translate-x-1 transition-transform" />
               </div>
             </div>
+          </Card>
+
           {/* 自由创作 */}
-          <Card
-            hover
-            className="p-6 cursor-pointer group relative overflow-hidden"
-            onClick={() => navigate('/create')}
-          >
-            <div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-bl from-pink-500/10 to-transparent rounded-bl-full" />
+          <Card hover className="p-6 cursor-pointer group relative overflow-hidden" onClick={() => navigate('/create')}>
             <div className="relative">
-              <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-pink-500 to-rose-600 flex items-center justify-center mb-4 shadow-[0_4px_12px_rgba(244,114,182,0.3)]">
+              <div className="w-12 h-12 rounded-xl bg-[var(--accent)] flex items-center justify-center mb-4 shadow-[0_4px_12px_rgba(43,116,245,0.25)]">
                 <Sparkles className="w-6 h-6 text-white" />
               </div>
               <h3 className="font-semibold text-[var(--ink-1)] mb-1 font-[var(--font-display)]">自由创作</h3>
               <p className="text-sm text-[var(--ink-3)] mb-4">不建项目，直接文生图 / 图生图 / 文生视频 / 图生视频</p>
-              <div className="flex items-center text-sm text-pink-500 font-medium group-hover:gap-2 transition-all">
+              <div className="flex items-center text-sm text-[var(--accent)] font-medium group-hover:gap-2 transition-all">
                 打开工作台
                 <ChevronRight className="w-4 h-4 ml-1 group-hover:translate-x-1 transition-transform" />
               </div>
             </div>
           </Card>
-          </Card>
         </div>
 
-        {/* 项目列表：进行中 / 回收站 */}
+        {/* 筛选搜索栏（文档：搜索框 + 状态切换） */}
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-1">
             <button
@@ -433,6 +402,15 @@ export function Dashboard() {
               回收站
             </button>
             <Badge variant="default" className="ml-2">{filteredProjects.length}</Badge>
+          </div>
+          <div className="relative">
+            <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-[var(--ink-3)]" />
+            <Input
+              placeholder="搜索项目..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="pl-9 w-56"
+            />
           </div>
         </div>
 
@@ -557,7 +535,7 @@ export function Dashboard() {
                         </div>
                         <div className="h-1.5 bg-[var(--panel-2)] rounded-full overflow-hidden">
                           <div
-                            className="h-full bg-gradient-to-r from-[var(--accent)] to-[var(--accent-2)] rounded-full transition-all"
+                            className="h-full bg-[var(--accent)] rounded-full transition-all"
                             style={{ width: `${progress}%` }}
                           />
                         </div>
