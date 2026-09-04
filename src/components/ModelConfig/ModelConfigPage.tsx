@@ -383,7 +383,7 @@ export function ModelConfigPage() {
                                 {group.models.length} 个模型
                               </span>
                               {groupConfiguredCount > 0 && (
-                                <span className="text-xs text-green-600 bg-green-50 dark:bg-green-900/20 px-2 py-0.5 rounded-full flex items-center gap-1">
+                                <span className="text-xs text-green-600 dark:text-green-400 bg-green-50 dark:bg-green-900/20 px-2 py-0.5 rounded-full flex items-center gap-1">
                                   <CheckCircle2 className="w-3 h-3" />
                                   已配置 {groupConfiguredCount}
                                 </span>

@@ -108,7 +108,7 @@ export function GenerationProgress({
               <Sparkles className={cn('w-4 h-4', isGenerating && 'animate-pulse')} />
             )}
           </div>
-          <p className={cn('text-xs font-medium flex-1 truncate', isError ? 'text-red-600' : isSuccess ? 'text-green-600' : 'text-[var(--ink-1)]')}>
+          <p className={cn('text-xs font-medium flex-1 truncate', isError ? 'text-red-600 dark:text-red-400' : isSuccess ? 'text-green-600 dark:text-green-400' : 'text-[var(--ink-1)]')}>
             {displayStage}
           </p>
           {!isError && !isSuccess && (
@@ -144,7 +144,7 @@ export function GenerationProgress({
           )}
         </div>
         <div className="flex-1 min-w-0">
-          <p className={cn('text-sm font-semibold truncate', isError ? 'text-red-600' : isSuccess ? 'text-green-600' : 'text-[var(--ink-1)]')}>
+          <p className={cn('text-sm font-semibold truncate', isError ? 'text-red-600 dark:text-red-400' : isSuccess ? 'text-green-600 dark:text-green-400' : 'text-[var(--ink-1)]')}>
             {displayStage}
           </p>
           <p className="text-xs text-[var(--ink-3)] flex items-center gap-2 mt-0.5">

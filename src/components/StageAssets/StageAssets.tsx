@@ -534,7 +534,7 @@ export function StageAssets() {
                       <button
                         type="button"
                         onClick={() => togglePropClue(prop)}
-                        className={`px-2 py-0.5 mt-1.5 rounded text-[10px] border transition-colors ${prop.is_clue ? 'bg-red-500/10 text-red-600 border-red-500/30' : 'text-[var(--ink-3)] border-[var(--border)] hover:bg-[var(--panel-2)]'}`}
+                        className={`px-2 py-0.5 mt-1.5 rounded text-[10px] border transition-colors ${prop.is_clue ? 'bg-red-500/10 text-red-600 dark:text-red-400 border-red-500/30' : 'text-[var(--ink-3)] border-[var(--border)] hover:bg-[var(--panel-2)]'}`}
                       >
                         {prop.is_clue ? '🔑 线索道具' : '标记为线索'}
                       </button>

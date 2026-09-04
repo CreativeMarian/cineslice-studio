@@ -438,7 +438,7 @@ export function CustomModelModal({ isOpen, onClose, onSave, defaultType = 'text'
               )}
             </Button>
             {testStatus === 'success' && (
-              <span className="text-xs text-green-600 flex items-center gap-1">
+              <span className="text-xs text-green-600 dark:text-green-400 flex items-center gap-1">
                 <CheckCircle2 className="w-3 h-3" />
                 {testMessage}
               </span>

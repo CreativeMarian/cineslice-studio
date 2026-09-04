@@ -175,7 +175,7 @@ export function AudioPanel({ episodeId, shots, showToast }: AudioPanelProps) {
           )}
         </div>
         {ttsResults.length === 0 && (
-          <p className="text-xs text-yellow-600 mt-2">⚠️ 请先生成配音，再进行音频合成</p>
+          <p className="text-xs text-yellow-600 dark:text-yellow-400 mt-2">⚠️ 请先生成配音，再进行音频合成</p>
         )}
       </Card>
 

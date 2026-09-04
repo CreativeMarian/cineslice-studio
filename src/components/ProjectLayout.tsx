@@ -355,7 +355,7 @@ export function ProjectLayout() {
                   ) : (
                     <>
                       <AlertTriangle className="w-3.5 h-3.5 text-yellow-500" />
-                      <span className="text-yellow-600">任务中断：</span>
+                      <span className="text-yellow-600 dark:text-yellow-400">任务中断：</span>
                       <span className="text-[var(--ink-2)]">{STAGE_LABELS[autoTaskStatus.currentStage] || autoTaskStatus.currentStage}</span>
                       <span className="text-[var(--ink-3)]">— {autoTaskStatus.error || '服务器重启导致中断'}</span>
                     </>

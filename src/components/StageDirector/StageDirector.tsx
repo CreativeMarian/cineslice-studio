@@ -84,9 +84,9 @@ export function StageDirector() {
 
       {/* 流程引导 */}
       <div className="flex items-center gap-2 mb-4 text-xs text-[var(--ink-3)] flex-wrap">
-        <span className="px-2 py-1 rounded bg-green-500/10 text-green-600">✓ 剧本</span>
+        <span className="px-2 py-1 rounded bg-green-500/10 text-green-600 dark:text-green-400">✓ 剧本</span>
         <span>→</span>
-        <span className="px-2 py-1 rounded bg-green-500/10 text-green-600">✓ 分镜</span>
+        <span className="px-2 py-1 rounded bg-green-500/10 text-green-600 dark:text-green-400">✓ 分镜</span>
         <span>→</span>
         <span className="px-2 py-1 rounded bg-[var(--accent-soft)] text-[var(--accent)] font-medium">音频合成</span>
         <span>→</span>

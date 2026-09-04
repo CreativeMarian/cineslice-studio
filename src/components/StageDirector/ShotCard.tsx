@@ -392,7 +392,7 @@ export function ShotCard({ shot, index, isExpanded, onToggle, showToast, sceneNa
             type="button"
             onClick={(e) => { e.stopPropagation(); handleGenerateKeyframe(); }}
             disabled={isGeneratingKeyframe}
-            className={`flex items-center gap-1.5 px-2 py-1 rounded-md text-xs transition-colors ${firstKeyframe ? 'text-green-600 bg-green-50 hover:bg-green-100' : 'text-[var(--ink-3)] hover:bg-[var(--panel-2)]'} ${isGeneratingKeyframe ? 'opacity-50 cursor-not-allowed' : ''}`}
+            className={`flex items-center gap-1.5 px-2 py-1 rounded-md text-xs transition-colors ${firstKeyframe ? 'text-green-600 dark:text-green-400 bg-green-50 hover:bg-green-100' : 'text-[var(--ink-3)] hover:bg-[var(--panel-2)]'} ${isGeneratingKeyframe ? 'opacity-50 cursor-not-allowed' : ''}`}
           >
             {isGeneratingKeyframe ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Image className="w-4 h-4" />}
             <span>{isGeneratingKeyframe ? '生成中' : firstKeyframe ? '首帧✓' : '首帧'}</span>
@@ -401,7 +401,7 @@ export function ShotCard({ shot, index, isExpanded, onToggle, showToast, sceneNa
             type="button"
             onClick={(e) => { e.stopPropagation(); handleGenerateVideo(); }}
             disabled={!firstKeyframe || !!processingVideo || isGeneratingVideo}
-            className={`flex items-center gap-1.5 px-2 py-1 rounded-md text-xs transition-colors ${completedVideo ? 'text-green-600 bg-green-50' : processingVideo ? 'text-yellow-600 bg-yellow-50' : !firstKeyframe ? 'text-[var(--ink-3)] opacity-50 cursor-not-allowed' : 'text-[var(--ink-3)] hover:bg-[var(--panel-2)]'} ${isGeneratingVideo ? 'opacity-50' : ''}`}
+            className={`flex items-center gap-1.5 px-2 py-1 rounded-md text-xs transition-colors ${completedVideo ? 'text-green-600 dark:text-green-400 bg-green-50' : processingVideo ? 'text-yellow-600 dark:text-yellow-400 bg-yellow-50' : !firstKeyframe ? 'text-[var(--ink-3)] opacity-50 cursor-not-allowed' : 'text-[var(--ink-3)] hover:bg-[var(--panel-2)]'} ${isGeneratingVideo ? 'opacity-50' : ''}`}
           >
             {processingVideo || isGeneratingVideo ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Video className="w-4 h-4" />}
             <span>{processingVideo || isGeneratingVideo ? '生成中' : completedVideo ? '视频✓' : '视频'}</span>
@@ -455,7 +455,7 @@ export function ShotCard({ shot, index, isExpanded, onToggle, showToast, sceneNa
                   {isGeneratingCandidates ? '生成中...' : `候选×4${candidates.length > 0 ? `(${candidates.length})` : ''}`}
                 </button>
                 {endFrame && (
-                  <span className="px-2 py-1 rounded-md text-[10px] bg-purple-500/10 text-purple-600 border border-purple-500/20">
+                  <span className="px-2 py-1 rounded-md text-[10px] bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20">
                     尾帧✓
                   </span>
                 )}
@@ -470,7 +470,7 @@ export function ShotCard({ shot, index, isExpanded, onToggle, showToast, sceneNa
                   {isGeneratingEndFrame ? '生成中...' : '生成尾帧'}
                 </button>
                 {useNextFirstFrame && (
-                  <span className="px-2 py-1 rounded-md text-[10px] bg-blue-500/10 text-blue-600 border border-blue-500/20">
+                  <span className="px-2 py-1 rounded-md text-[10px] bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20">
                     自动尾帧
                   </span>
                 )}
@@ -567,7 +567,7 @@ export function ShotCard({ shot, index, isExpanded, onToggle, showToast, sceneNa
               {/* 未配置视频模型时的友好提示 */}
               {!completedVideo && !processingVideo && !isGeneratingVideo && !videoConfig && firstKeyframe && (
                 <div className="mt-3 p-3 bg-yellow-500/10 border border-yellow-500/20 rounded-lg">
-                  <p className="text-xs text-yellow-600">请先在模型配置中添加视频模型（豆包 / 可灵 / 即梦等）</p>
+                  <p className="text-xs text-yellow-600 dark:text-yellow-400">请先在模型配置中添加视频模型（豆包 / 可灵 / 即梦等）</p>
                 </div>
               )}
 

@@ -10,9 +10,9 @@
 
 @theme {
   /* ---- 字体 ---- */
-  --font-display: 'Inter', 'PingFang SC', system-ui, sans-serif;
-  --font-sans: 'Inter', system-ui, -apple-system, 'PingFang SC', sans-serif;
-  --font-mono: 'JetBrains Mono', 'Fira Code', 'SFMono-Regular', monospace;
+  --font-display: 'Inter', 'Microsoft YaHei', 'PingFang SC', 'HarmonyOS Sans SC', 'Noto Sans SC', system-ui, sans-serif;
+  --font-sans: 'Inter', 'Microsoft YaHei', 'PingFang SC', 'HarmonyOS Sans SC', 'Noto Sans SC', system-ui, -apple-system, sans-serif;
+  --font-mono: 'JetBrains Mono', 'Fira Code', 'SFMono-Regular', 'Microsoft YaHei', monospace;
 
   /* ---- 靛蓝强调色（轻玻璃 SaaS 主色） ---- */
   --color-accent-50: #eef4ff;
@@ -149,6 +149,7 @@ body {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   font-size: 15px;
+  text-rendering: optimizeLegibility;
   line-height: 1.6;
 }
 

@@ -330,7 +330,7 @@ export function ModelCard({ meta, config }: ModelCardProps) {
             <Button onClick={handleSetDefault} size="sm" variant="ghost" disabled={config?.is_default}>
               <Star size={14} className="mr-1" /> 设为默认
             </Button>
-            <Button onClick={handleDelete} size="sm" variant="ghost" className="text-red-500 hover:text-red-600">
+            <Button onClick={handleDelete} size="sm" variant="ghost" className="text-red-500 hover:text-red-600 dark:text-red-400">
               <Trash2 size={14} className="mr-1" /> 删除
             </Button>
           </>
