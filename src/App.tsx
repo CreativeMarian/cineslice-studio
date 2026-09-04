@@ -7,6 +7,7 @@ import { RequireAuth } from './components/RequireAuth';
 import { ProjectLayout } from './components/ProjectLayout';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { CommandPalette } from './components/ui/CommandPalette';
+import { MouseGlow } from './components/ui/MouseGlow';
 import { Login } from './components/Login';
 import { Dashboard } from './components/Dashboard';
 import { NotFound } from './components/NotFound';
@@ -34,6 +35,7 @@ export default function App() {
       <ThemeProvider>
         <AuthProvider>
           <ErrorBoundary>
+          <MouseGlow />
           <Routes>
             {/* 公开路由 */}
             <Route path="/login" element={<Login />} />

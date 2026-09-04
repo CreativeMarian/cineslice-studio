@@ -37,6 +37,7 @@ function applyTheme(theme: Theme) {
     isDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
   }
   document.documentElement.classList.toggle('dark', isDark);
+  document.documentElement.classList.toggle('light', !isDark);
 }
 
 // 监听系统主题变化
@@ -48,6 +49,7 @@ if (typeof window !== 'undefined') {
         const parsed = JSON.parse(stored);
         if (parsed.state?.theme === 'system') {
           document.documentElement.classList.toggle('dark', e.matches);
+          document.documentElement.classList.toggle('light', !e.matches);
         }
       } catch {}
     }
