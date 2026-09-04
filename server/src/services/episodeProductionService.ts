@@ -29,6 +29,7 @@ import {
   generateKeyframeCandidates,
   buildShotSceneMap,
 } from './shotConsistencyService';
+import { parseSpeaker, stripSpeakerPrefix } from './voiceAssignment';
 import type { Database } from '../types';
 
 const DEFAULT_STYLE_OBJ = {
@@ -1080,8 +1081,8 @@ export function getEpisodeSubtitles(db: Database, userId: string, episodeId: str
         index: idx + 1,
         start: formatSrtTime(startSeconds),
         end: formatSrtTime(endSeconds),
-        text: shot.dialogue,
-        speaker: shot.subject || undefined,
+        text: stripSpeakerPrefix(shot.dialogue),
+        speaker: shot.subject || parseSpeaker(shot.dialogue) || undefined,
       });
     }
     currentTime += shot.duration_seconds || 3;
