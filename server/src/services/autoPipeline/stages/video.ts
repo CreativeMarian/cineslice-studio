@@ -237,9 +237,9 @@ export async function stageVideo(db: Database, task: AutoPipelineTask): Promise<
             status: 'processing',
           });
 
-          // 轮询任务状态（最多 10 分钟）
-          const maxWait = 600000;
-          const interval = 5000;
+          // 轮询任务状态（默认最多 10 分钟，可用 VIDEO_MAX_WAIT_MS 调整）
+          const maxWait = Number(process.env.VIDEO_MAX_WAIT_MS) || 600000;
+          const interval = Number(process.env.VIDEO_POLL_INTERVAL_MS) || 5000;
           const startTime = Date.now();
           let completed = false;
 

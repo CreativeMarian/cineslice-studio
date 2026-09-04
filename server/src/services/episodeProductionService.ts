@@ -1040,8 +1040,8 @@ export async function batchGenerateVideos(
       }
     }
 
-    // 请求间隔：避免速率限制（Agnes AI 等模型有每分钟请求数限制）
-    await new Promise(resolve => setTimeout(resolve, 5000));
+    // 请求间隔：避免速率限制（Agnes AI 等模型有每分钟请求数限制），可用环境变量 BATCH_VIDEO_INTERVAL_MS 调整
+    await new Promise(resolve => setTimeout(resolve, Number(process.env.BATCH_VIDEO_INTERVAL_MS) || 5000));
   }
 
   return {
