@@ -149,9 +149,9 @@ export function TaskCenter() {
             <div className="flex-1 overflow-y-auto p-4 space-y-2">
               {visible.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-16 text-center">
-                  <Inbox className="w-10 h-10 text-[var(--ink-4)] mb-3" />
+                  <Inbox className="w-10 h-10 text-[var(--ink-3)] mb-3" />
                   <p className="text-sm text-[var(--ink-3)]">暂无生成任务</p>
-                  <p className="text-xs text-[var(--ink-4)] mt-1">启动流水线或生成图片后，进度会显示在这里</p>
+                  <p className="text-xs text-[var(--ink-3)] mt-1">启动流水线或生成图片后，进度会显示在这里</p>
                 </div>
               ) : (
                 visible.map((task) => {

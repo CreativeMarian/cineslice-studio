@@ -15,13 +15,13 @@ export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
 
 const variantStyles: Record<Variant, string> = {
   primary:
-    'bg-[var(--accent)] text-[var(--on-accent)] hover:brightness-110 active:brightness-95 shadow-[0_2px_8px_rgba(43, 116, 245, 0.25)] hover:shadow-[0_4px_16px_rgba(43, 116, 245, 0.35)] hover:-translate-y-0.5 transition-all duration-200',
+    'bg-[var(--accent)] text-[var(--on-accent)] hover:brightness-110 active:brightness-95 shadow-[0_2px_8px_var(--accent-glow)] hover:shadow-[0_4px_16px_var(--accent-glow)] hover:-translate-y-0.5 transition-all duration-200 flow-border',
   secondary:
     'bg-[var(--panel-2)] text-[var(--ink-1)] hover:bg-[var(--panel-3)] border border-[var(--border)] hover:border-[var(--border-hover)]',
   ghost:
     'text-[var(--ink-2)] hover:text-[var(--ink-1)] hover:bg-[var(--panel-2)]',
   danger:
-    'bg-[var(--color-danger)] text-white hover:brightness-110 active:brightness-95 shadow-[0_2px_8px_rgba(239,68,68,0.3)]',
+    'bg-red-50 text-red-600 hover:bg-red-100 active:bg-red-200 border border-red-200 transition-all duration-200',
   outline:
     'border border-[var(--border)] text-[var(--ink-1)] hover:bg-[var(--panel-2)] hover:border-[var(--border-hover)] bg-transparent',
 };

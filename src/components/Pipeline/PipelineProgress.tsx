@@ -23,7 +23,7 @@ const STAGE_ICONS: Record<PipelineStage, string> = {
 };
 
 const STATUS_COLORS: Record<StageStatus, { bg: string; border: string; text: string; label: string }> = {
-  pending: { bg: 'bg-[var(--bg-2)]', border: 'border-[var(--border)]', text: 'text-[var(--ink-3)]', label: '待处理' },
+  pending: { bg: 'bg-[var(--panel-2)]', border: 'border-[var(--border)]', text: 'text-[var(--ink-3)]', label: '待处理' },
   running: { bg: 'bg-blue-500/10', border: 'border-blue-500/50', text: 'text-blue-400', label: '进行中' },
   done: { bg: 'bg-green-500/10', border: 'border-green-500/50', text: 'text-green-400', label: '已完成' },
   failed: { bg: 'bg-red-500/10', border: 'border-red-500/50', text: 'text-red-400', label: '失败' },
@@ -75,7 +75,7 @@ export function PipelineProgress({
           <span className="text-sm font-medium text-[var(--ink-2)]">流水线进度</span>
           <span className="text-sm text-[var(--ink-3)]">{progress}% ({stages.filter(s => s.status === 'done').length}/{stages.length})</span>
         </div>
-        <div className="h-2 bg-[var(--bg-2)] rounded-full overflow-hidden">
+        <div className="h-2 bg-[var(--panel-2)] rounded-full overflow-hidden">
           <div
             className="h-full bg-gradient-to-r from-[var(--accent)] to-[var(--accent-2)] rounded-full transition-all duration-500"
             style={{ width: `${progress}%` }}
@@ -120,7 +120,7 @@ export function PipelineProgress({
               </div>
               {index < stages.length - 1 && (
                 <ChevronRight className={`w-4 h-4 flex-shrink-0 -mt-5 ${
-                  stage.status === 'done' ? 'text-green-400' : 'text-[var(--ink-4)]'
+                  stage.status === 'done' ? 'text-green-400' : 'text-[var(--ink-3)]'
                 }`} />
               )}
             </div>
@@ -156,7 +156,7 @@ export function PipelineProgress({
         {onRollback && currentIndex > 0 && (
           <button
             onClick={onRollback}
-            className="px-4 py-2 border border-[var(--border)] text-[var(--ink-2)] rounded-lg text-sm font-medium hover:bg-[var(--bg-2)] transition-colors"
+            className="px-4 py-2 border border-[var(--border)] text-[var(--ink-2)] rounded-lg text-sm font-medium hover:bg-[var(--panel-2)] transition-colors"
           >
             回退
           </button>

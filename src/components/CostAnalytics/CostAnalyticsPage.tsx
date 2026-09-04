@@ -95,7 +95,7 @@ function DailyChart({ daily }: { daily: CostSummary['daily'] }) {
                 <title>{`${d.date}：$${formatCost(d.cost)} / ${formatTokens(d.tokens)} tokens`}</title>
               </rect>
               {i % labelStep === 0 && (
-                <text x={x + barW / 2} y={H - 6} textAnchor="middle" fontSize="9" fill="var(--ink-4)">
+                <text x={x + barW / 2} y={H - 6} textAnchor="middle" fontSize="9" fill="var(--ink-3)">
                   {d.date.slice(5)}
                 </text>
               )}
@@ -317,7 +317,7 @@ export function CostAnalyticsPage() {
                 <div className="overflow-x-auto">
                   <table className="w-full text-xs">
                     <thead>
-                      <tr className="text-left text-[var(--ink-4)] border-b border-[var(--border)]">
+                      <tr className="text-left text-[var(--ink-3)] border-b border-[var(--border)]">
                         <th className="pb-2 font-medium">时间</th>
                         <th className="pb-2 font-medium">模型</th>
                         <th className="pb-2 font-medium">类型</th>

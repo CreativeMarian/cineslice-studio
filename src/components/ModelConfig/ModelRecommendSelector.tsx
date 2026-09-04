@@ -115,7 +115,7 @@ export function ModelRecommendSelector({ modelType, value, onChange, stage }: Mo
           <p className="text-xs font-medium text-[var(--ink-3)] flex items-center gap-1">
             <Sparkles className="w-3 h-3 text-[var(--accent)]" />
             {stage ? `阶段推荐（${stage}）` : '智能推荐'}
-            {loadingRecommend && <span className="text-[10px] text-[var(--ink-4)]">加载中...</span>}
+            {loadingRecommend && <span className="text-[10px] text-[var(--ink-3)]">加载中...</span>}
           </p>
           {recommendations.map((rec: any) => {
             const key = hasBackendRecs

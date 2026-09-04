@@ -282,7 +282,7 @@ export function CommandPalette() {
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={handleInputKeyDown}
             placeholder="搜索项目、跳转阶段、执行操作..."
-            className="flex-1 bg-transparent outline-none text-[var(--ink-1)] placeholder:text-[var(--ink-4)] text-sm"
+            className="flex-1 bg-transparent outline-none text-[var(--ink-1)] placeholder:text-[var(--ink-3)] text-sm"
           />
           <kbd className="px-1.5 py-0.5 text-[10px] rounded border border-[var(--border)] bg-[var(--panel-2)] text-[var(--ink-3)] font-mono">
             Esc
@@ -303,7 +303,7 @@ export function CommandPalette() {
               if (groupItems.length === 0) return null;
               return (
                 <div key={group} className="mb-1">
-                  <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-[var(--ink-4)]">
+                  <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-[var(--ink-3)]">
                     {group}
                   </div>
                   {groupItems.map(({ item, idx }) => {
@@ -348,7 +348,7 @@ export function CommandPalette() {
         </div>
 
         {/* 底部提示 */}
-        <div className="px-4 py-2 border-t border-[var(--border)] flex items-center gap-4 text-[10px] text-[var(--ink-4)]">
+        <div className="px-4 py-2 border-t border-[var(--border)] flex items-center gap-4 text-[10px] text-[var(--ink-3)]">
           <span className="flex items-center gap-1"><Wand2 className="w-3 h-3" /> CineSlice 命令面板</span>
           <span className="ml-auto flex items-center gap-2">
             <kbd className="px-1 py-0.5 rounded border border-[var(--border)] font-mono">↑↓</kbd> 选择

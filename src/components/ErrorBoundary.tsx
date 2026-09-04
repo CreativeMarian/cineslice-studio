@@ -50,7 +50,7 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
             <p className="text-sm text-[var(--ink-3)] mb-1">
               {this.state.error?.message || '发生了未知错误'}
             </p>
-            <p className="text-xs text-[var(--ink-4)] mb-6">
+            <p className="text-xs text-[var(--ink-3)] mb-6">
               您可以尝试刷新页面，或返回首页重新开始
             </p>
             <div className="flex items-center justify-center gap-3">

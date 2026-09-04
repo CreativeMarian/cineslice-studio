@@ -319,11 +319,11 @@ export function EpisodeManager() {
                 已选择 {selectedChapterIds.length} 个章节 · 已用时 {generateElapsed}s · {generateProgress}%
               </p>
             </div>
-            <div className="text-xs text-[var(--ink-3)] bg-[var(--bg-2)] px-2 py-1 rounded">
+            <div className="text-xs text-[var(--ink-3)] bg-[var(--panel-2)] px-2 py-1 rounded">
               {generatingModel || 'AI 模型'}
             </div>
           </div>
-          <div className="w-full h-2 bg-[var(--bg-2)] rounded-full overflow-hidden">
+          <div className="w-full h-2 bg-[var(--panel-2)] rounded-full overflow-hidden">
             <div
               className="h-full bg-[var(--accent)] rounded-full transition-all duration-500 ease-out"
               style={{ width: `${generateProgress}%` }}

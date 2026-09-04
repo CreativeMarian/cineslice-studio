@@ -118,7 +118,7 @@ export function GenerationProgress({
           )}
         </div>
         {!isError && !isSuccess && (
-          <div className="w-full h-1 bg-[var(--bg-2)] rounded-full overflow-hidden">
+          <div className="w-full h-1 bg-[var(--panel-2)] rounded-full overflow-hidden">
             <div
               className={cn('h-full rounded-full transition-all duration-500 ease-out', barColor)}
               style={{ width: `${progress}%` }}
@@ -163,13 +163,13 @@ export function GenerationProgress({
           </p>
         </div>
         {modelName && !isError && !isSuccess && (
-          <div className="text-xs text-[var(--ink-3)] bg-[var(--bg-2)] px-2 py-1 rounded flex-shrink-0">
+          <div className="text-xs text-[var(--ink-3)] bg-[var(--panel-2)] px-2 py-1 rounded flex-shrink-0">
             {modelName}
           </div>
         )}
       </div>
       {!isError && !isSuccess && (
-        <div className="w-full h-2 bg-[var(--bg-2)] rounded-full overflow-hidden">
+        <div className="w-full h-2 bg-[var(--panel-2)] rounded-full overflow-hidden">
           <div
             className={cn('h-full rounded-full transition-all duration-500 ease-out', barColor)}
             style={{ width: `${progress}%` }}

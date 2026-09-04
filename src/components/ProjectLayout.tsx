@@ -442,7 +442,7 @@ export function ProjectLayout() {
                 )}
                 <button
                   onClick={handleRollback}
-                  className="px-3 py-1 border border-[var(--border)] text-[var(--ink-2)] rounded text-xs font-medium hover:bg-[var(--bg-2)]"
+                  className="px-3 py-1 border border-[var(--border)] text-[var(--ink-2)] rounded text-xs font-medium hover:bg-[var(--panel-2)]"
                 >
                   回退
                 </button>

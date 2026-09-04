@@ -40,7 +40,7 @@ export function Topbar() {
 
   return (
     <>
-      <header className="h-16 border-b border-[var(--border)] bg-[var(--card-bg)] flex items-center justify-between px-5 flex-shrink-0">
+      <header className="h-16 border-b border-[var(--border)] glass-nav flex items-center justify-between px-5 flex-shrink-0">
         <div className="flex items-center gap-4 min-w-0">
           <button
             onClick={() => navigate('/')}
@@ -105,7 +105,7 @@ export function Topbar() {
             className="p-2 rounded-lg hover:bg-[var(--panel-2)] text-[var(--ink-3)] hover:text-[var(--ink-1)] transition-colors"
             title={theme === 'dark' ? '切换浅色' : '切换深色'}
           >
-            {theme === 'dark' ? <Sun className="w-4.5 h-4.5" /> : <Moon className="w-4.5 h-4.5" />}
+            {theme === 'dark' ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
           </button>
 
           <div className="h-6 w-px bg-[var(--border)] mx-1" />

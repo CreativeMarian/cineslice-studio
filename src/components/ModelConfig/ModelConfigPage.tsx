@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, useRef } from 'react';
+﻿import { useEffect, useMemo, useState, useRef } from 'react';
 import { Cpu, Type, Image, Video, Volume2, ArrowLeft, Server, CheckCircle2, ExternalLink, Zap, Loader2, Search, X, ChevronDown, ChevronRight, ChevronsDownUp, ChevronsUpDown, Plus } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { Tabs, LoadingState, EmptyState, Badge, Card, Input } from '../ui';
@@ -408,7 +408,7 @@ export function ModelConfigPage() {
                           {expanded && (
                             <div className="p-4 pt-0 border-t border-[var(--border)]">
                               {/* 厂商级统一 API Key 配置 */}
-                              <div className="mb-4 p-3 rounded-xl bg-[var(--panel-1)] border border-[var(--border)]">
+                              <div className="mb-4 p-3 rounded-xl bg-[var(--panel-2)] border border-[var(--border)]">
                                 <div className="flex items-center gap-2 mb-2">
                                   <Zap className="w-3.5 h-3.5 text-[var(--accent)]" />
                                   <span className="text-xs font-medium text-[var(--ink-2)]">统一配置 API Key（应用到该厂商全部 {group.models.length} 个模型）</span>

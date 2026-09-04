@@ -150,7 +150,7 @@ export function ModelCard({ meta, config }: ModelCardProps) {
           <span className="text-xl flex-shrink-0">{TYPE_ICONS[meta.modelType]}</span>
           <div className="min-w-0 flex-1">
             <h3 className="font-semibold text-[var(--ink)] truncate">{meta.displayName}</h3>
-            <p className="text-xs text-[var(--ink-4)] truncate font-mono">{meta.modelName}</p>
+            <p className="text-xs text-[var(--ink-3)] truncate font-mono">{meta.modelName}</p>
           </div>
         </div>
         <div className="flex items-center gap-2 flex-shrink-0">
@@ -221,7 +221,7 @@ export function ModelCard({ meta, config }: ModelCardProps) {
           <button
             type="button"
             onClick={() => setShowKey(!showKey)}
-            className="absolute right-2 top-1/2 -translate-y-1/2 text-[var(--ink-4)] hover:text-[var(--ink)]"
+            className="absolute right-2 top-1/2 -translate-y-1/2 text-[var(--ink-3)] hover:text-[var(--ink)]"
           >
             {showKey ? <EyeOff size={16} /> : <Eye size={16} />}
           </button>
@@ -233,7 +233,7 @@ export function ModelCard({ meta, config }: ModelCardProps) {
         <div className="mb-3">
           <label className="block text-sm font-medium text-[var(--ink-2)] mb-1">
             <span className="text-[var(--accent)]">⚡</span> 接入点 ID（Endpoint ID）
-            <span className="text-[var(--ink-4)] ml-1">· OpenAI 兼容路由模式</span>
+            <span className="text-[var(--ink-3)] ml-1">· OpenAI 兼容路由模式</span>
           </label>
           <Input
             type="text"
@@ -241,7 +241,7 @@ export function ModelCard({ meta, config }: ModelCardProps) {
             onChange={(e) => setEndpointId(e.target.value)}
             placeholder="ep-xxxxxxxxxx-xxxxx（智能路由模型可填模型名）"
           />
-          <p className="text-xs text-[var(--ink-4)] mt-1">
+          <p className="text-xs text-[var(--ink-3)] mt-1">
             在 <a href="https://console.volcengine.com/ark" target="_blank" rel="noopener noreferrer" className="underline hover:text-[var(--accent)]">火山方舟控制台</a> 创建接入点后，将 ID 填入此处。系统自动以 JSON 格式通过 OpenAI 兼容路由调用。智能路由模型可直接填模型名（如 doubao-seedream-5-0-pro-260628）。
           </p>
         </div>
@@ -276,9 +276,9 @@ export function ModelCard({ meta, config }: ModelCardProps) {
             <div>
               <label className="block text-sm font-medium text-[var(--ink-2)] mb-1">
                 高级配置（JSON）
-                {requiresEndpointId && <span className="text-[var(--ink-4)] ml-1">· 接入点 ID 等特殊参数</span>}
-                {requiresAppId && <span className="text-[var(--ink-4)] ml-1">· AppID 等特殊参数</span>}
-                {!requiresEndpointId && !requiresAppId && <span className="text-[var(--ink-4)] ml-1">· 可选高级参数</span>}
+                {requiresEndpointId && <span className="text-[var(--ink-3)] ml-1">· 接入点 ID 等特殊参数</span>}
+                {requiresAppId && <span className="text-[var(--ink-3)] ml-1">· AppID 等特殊参数</span>}
+                {!requiresEndpointId && !requiresAppId && <span className="text-[var(--ink-3)] ml-1">· 可选高级参数</span>}
               </label>
               <textarea
                 value={configJson}
@@ -296,7 +296,7 @@ export function ModelCard({ meta, config }: ModelCardProps) {
                 className="w-full px-3 py-2 text-sm border border-[var(--border)] rounded-md bg-[var(--bg)] text-[var(--ink)] font-mono focus:outline-none focus:ring-1 focus:ring-[var(--accent)]"
               />
               {configError && <p className="text-xs text-red-500 mt-1">{configError}</p>}
-              <p className="text-xs text-[var(--ink-4)] mt-1">
+              <p className="text-xs text-[var(--ink-3)] mt-1">
                 {requiresEndpointId && endpointId ? (
                   <>
                     接入点 ID 已在上方专用输入框填写，系统自动将 <code className="bg-[var(--bg)] px-1 rounded">modelOverride</code> 合并到 JSON 配置，通过 OpenAI 兼容路由调用。

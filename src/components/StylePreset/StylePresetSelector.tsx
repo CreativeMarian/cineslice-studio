@@ -136,7 +136,7 @@ export function StylePresetSelector({ value, onChange, showDetails = true, compa
 
       {/* 参数传递说明（仅非紧凑模式显示） */}
       {!compact && (
-        <div className="flex items-start gap-2 text-xs text-[var(--ink-4)] bg-[var(--bg-2)]/50 p-2 rounded-lg">
+        <div className="flex items-start gap-2 text-xs text-[var(--ink-3)] bg-[var(--panel-2)]/50 p-2 rounded-lg">
           <Info className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
           <span>风格预设将自动应用到关键帧和视频生成：视觉风格、镜头语言、色调、节奏全程统一</span>
         </div>
@@ -153,7 +153,7 @@ export function StylePresetSelector({ value, onChange, showDetails = true, compa
               className={`px-2.5 py-1 text-xs rounded-full transition-colors ${
                 activeCategory === cat
                   ? 'bg-[var(--accent)] text-white'
-                  : 'bg-[var(--bg-2)] text-[var(--ink-3)] hover:bg-[var(--bg-3)]'
+                  : 'bg-[var(--panel-2)] text-[var(--ink-3)] hover:bg-[var(--panel-3)]'
               }`}
             >
               {cat === 'all' ? '全部' : (CATEGORY_LABELS[cat] || cat)}
@@ -197,7 +197,7 @@ export function StylePresetSelector({ value, onChange, showDetails = true, compa
               <div className="p-3 bg-[var(--card-bg)]">
                 <div className="flex items-center justify-between mb-1">
                   <span className="text-sm font-semibold text-[var(--ink-1)] truncate">{preset.name}</span>
-                  <span className="text-[10px] text-[var(--ink-4)] bg-[var(--bg-2)] px-1.5 py-0.5 rounded flex-shrink-0 ml-1">
+                  <span className="text-[10px] text-[var(--ink-3)] bg-[var(--panel-2)] px-1.5 py-0.5 rounded flex-shrink-0 ml-1">
                     {CATEGORY_LABELS[preset.category] || preset.category}
                   </span>
                 </div>
@@ -209,25 +209,25 @@ export function StylePresetSelector({ value, onChange, showDetails = true, compa
                 {showDetails && !compact && (
                   <div className="flex flex-wrap gap-1 mb-2">
                     {preset.visual_style && (
-                      <span className="inline-flex items-center gap-0.5 text-[10px] text-[var(--ink-4)] bg-[var(--bg-2)] px-1.5 py-0.5 rounded">
+                      <span className="inline-flex items-center gap-0.5 text-[10px] text-[var(--ink-3)] bg-[var(--panel-2)] px-1.5 py-0.5 rounded">
                         <Sparkles className="w-2.5 h-2.5" />
                         视觉
                       </span>
                     )}
                     {preset.camera_language && (
-                      <span className="inline-flex items-center gap-0.5 text-[10px] text-[var(--ink-4)] bg-[var(--bg-2)] px-1.5 py-0.5 rounded">
+                      <span className="inline-flex items-center gap-0.5 text-[10px] text-[var(--ink-3)] bg-[var(--panel-2)] px-1.5 py-0.5 rounded">
                         <Camera className="w-2.5 h-2.5" />
                         镜头
                       </span>
                     )}
                     {preset.color_palette && (
-                      <span className="inline-flex items-center gap-0.5 text-[10px] text-[var(--ink-4)] bg-[var(--bg-2)] px-1.5 py-0.5 rounded">
+                      <span className="inline-flex items-center gap-0.5 text-[10px] text-[var(--ink-3)] bg-[var(--panel-2)] px-1.5 py-0.5 rounded">
                         <Droplets className="w-2.5 h-2.5" />
                         色调
                       </span>
                     )}
                     {preset.shot_rhythm && (
-                      <span className="inline-flex items-center gap-0.5 text-[10px] text-[var(--ink-4)] bg-[var(--bg-2)] px-1.5 py-0.5 rounded">
+                      <span className="inline-flex items-center gap-0.5 text-[10px] text-[var(--ink-3)] bg-[var(--panel-2)] px-1.5 py-0.5 rounded">
                         <Film className="w-2.5 h-2.5" />
                         节奏
                       </span>
@@ -239,7 +239,7 @@ export function StylePresetSelector({ value, onChange, showDetails = true, compa
                 {showDetails && !compact && (
                   <div
                     onClick={(e) => toggleExpand(preset.id, e)}
-                    className="flex items-center justify-center gap-1 text-[10px] text-[var(--ink-4)] hover:text-[var(--ink-2)] cursor-pointer py-1 border-t border-[var(--border)]"
+                    className="flex items-center justify-center gap-1 text-[10px] text-[var(--ink-3)] hover:text-[var(--ink-2)] cursor-pointer py-1 border-t border-[var(--border)]"
                   >
                     {isExpanded ? (
                       <>收起参数 <ChevronUp className="w-3 h-3" /></>
@@ -294,7 +294,7 @@ export function StylePresetSelector({ value, onChange, showDetails = true, compa
 
       {/* 底部说明 */}
       {!compact && (
-        <div className="text-xs text-[var(--ink-4)] text-center pt-1">
+        <div className="text-xs text-[var(--ink-3)] text-center pt-1">
           共 {presets.length} 个风格预设 · 选中后将自动应用到全片生成
         </div>
       )}

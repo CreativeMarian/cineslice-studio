@@ -488,7 +488,7 @@ export function SceneBreakdown() {
               <p className="text-xs text-[var(--ink-3)]">AI 自动识别剧本中的场景，生成场景设定和概念图</p>
             </div>
           </div>
-          <p className="text-xs text-[var(--ink-4)] pt-2 border-t border-[var(--border)]">
+          <p className="text-xs text-[var(--ink-3)] pt-2 border-t border-[var(--border)]">
             💡 你可以在「资产」阶段先提取角色和场景，再回来生成分镜。也可以直接生成分镜，后续再补充资产。
           </p>
         </div>

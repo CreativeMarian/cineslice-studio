@@ -395,7 +395,7 @@ export function ScriptEditor() {
                 <label className="block text-sm font-medium text-[var(--ink-2)] mb-1.5">
                   音色
                   {modelKey && (
-                    <span className="text-xs text-[var(--ink-4)] ml-2">
+                    <span className="text-xs text-[var(--ink-3)] ml-2">
                       （{voices.length} 个可用）
                     </span>
                   )}
@@ -412,7 +412,7 @@ export function ScriptEditor() {
                   ))}
                 </select>
                 {!modelKey && (
-                  <p className="text-xs text-[var(--ink-4)] mt-1">请先选择音频模型，将自动列出对应音色</p>
+                  <p className="text-xs text-[var(--ink-3)] mt-1">请先选择音频模型，将自动列出对应音色</p>
                 )}
               </div>
               <div>

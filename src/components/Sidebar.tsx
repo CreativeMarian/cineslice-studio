@@ -37,8 +37,8 @@ export function Sidebar() {
       {/* Logo 区 */}
       <div className="h-16 flex items-center justify-between px-4 border-b border-[var(--border)]">
         <NavLink to="/" className="flex items-center gap-2.5">
-          <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-[var(--accent)] to-[var(--accent-2)] flex items-center justify-center shadow-[0_4px_12px_rgba(43, 116, 245, 0.25)] flex-shrink-0">
-            <Film className="w-4.5 h-4.5 text-[var(--on-accent)]" />
+          <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-[var(--accent)] to-[var(--accent-2)] flex items-center justify-center shadow-[0_4px_12px_var(--accent-glow)] flex-shrink-0">
+            <Film className="w-4 h-4 text-[var(--on-accent)]" />
           </div>
           {!sidebarCollapsed && (
             <span className="font-bold text-[var(--ink-1)] text-base font-[var(--font-display)] tracking-tight">

@@ -1,7 +1,7 @@
 ﻿import { useState, useEffect, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
-  Plus, Film, MoreVertical, Pencil, Trash2, FolderOpen, Search, Clock, Sun, Moon, HelpCircle,
+  Plus, Film, MoreVertical, Pencil, Trash2, FolderOpen, Search, Clock, Sun, Moon, HelpCircle, Radio,
   BookOpen, Wand2, FileUp, ChevronRight, Zap, Settings, Users, Archive, ArchiveRestore,
   AlertTriangle, Coins, Sparkles, Layers, Server, RefreshCw, Activity, Boxes, GitBranch,
 } from 'lucide-react';
@@ -310,18 +310,23 @@ export function Dashboard() {
       </header>
 
       <main className="max-w-[1560px] mx-auto px-8 py-6">
-        {/* 页面标题区 */}
-        <div className="flex items-end justify-between mb-5">
+        {/* Hero 区（uupm 玻璃面板） */}
+        <div className="glass-panel glass-hover rounded-[var(--radius-shell)] p-5 md:p-6 mb-6 flex items-center justify-between">
           <div>
-            <div className="term-label mb-1.5">LIVE TELEMETRY</div>
-            <h1 className="text-2xl font-bold text-[var(--ink-1)] font-[var(--font-display)] mb-1.5">创作流水线仪表盘</h1>
-            <div className="term-line term-line--dim">
-              <span className="text-[var(--ink-3)]">cineslice@local</span>
-              <span className="text-[var(--ink-2)]">~ $</span>
-              <span className="text-[var(--ink-1)]">tail -f /pipeline --live</span>
+            <div className="flex items-center gap-2">
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-blue-500/30 bg-blue-500/10 px-3 py-1 text-[10px] font-semibold tracking-wider text-blue-500">
+                <Radio className="h-3 w-3" />
+                LIVE TELEMETRY
+              </span>
             </div>
+            <h2 className="mt-3 text-2xl font-bold tracking-tight md:text-3xl">
+              <span className="gradient-text-animated">创作流水线仪表盘</span>
+            </h2>
+            <p className="mt-2 font-mono text-xs text-[var(--ink-2)] md:text-sm">
+              cineslice@local ~ $ tail -f <span className="text-[var(--accent)]">/pipeline</span> --live
+            </p>
           </div>
-          <Button variant="ghost" size="sm" onClick={handleRefresh} disabled={refreshing}>
+          <Button variant="ghost" size="sm" onClick={handleRefresh} disabled={refreshing} className="shrink-0">
             <RefreshCw className={`w-4 h-4 mr-1 ${refreshing ? 'animate-spin' : ''}`} />
             刷新
           </Button>
@@ -329,37 +334,53 @@ export function Dashboard() {
 
         {/* 指标卡 */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-          <div className="glass-panel rounded-[var(--radius-card)] p-5 marquee-border breathing">
-            <div className="flex items-center gap-2 mb-3">
-              <Activity className="w-4 h-4 text-[var(--term-cyan)]" />
-              <span className="metric-label">总项目数</span>
+          <div className="glass-panel glass-hover rounded-[var(--radius-card)] p-5 marquee-border overflow-hidden">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-xs font-medium text-[var(--ink-2)]">总项目数</p>
+                <p className="mt-2 text-3xl font-bold tracking-tight gradient-text">{projects.length + archivedProjects.length}</p>
+                <p className="mt-2 text-xs text-[var(--term-green)]">进行中 <span className="font-mono font-semibold">{projects.length}</span> · 回收站 <span className="font-mono font-semibold">{archivedProjects.length}</span></p>
+              </div>
+              <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br from-blue-500/25 to-cyan-500/25 glow-blue">
+                <Activity className="h-6 w-6 text-blue-500 drop-shadow-[0_0_8px_rgba(59,130,246,0.7)]" />
+              </div>
             </div>
-            <div className="metric-value text-3xl mb-1">{projects.length + archivedProjects.length}</div>
-            <div className="metric-label">进行中 {projects.length} · 回收站 {archivedProjects.length}</div>
           </div>
-          <div className="glass-panel rounded-[var(--radius-card)] p-5 marquee-border breathing">
-            <div className="flex items-center gap-2 mb-3">
-              <GitBranch className="w-4 h-4 text-[var(--accent)]" />
-              <span className="metric-label">流水线阶段</span>
+          <div className="glass-panel glass-hover rounded-[var(--radius-card)] p-5 marquee-border overflow-hidden">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-xs font-medium text-[var(--ink-2)]">流水线阶段</p>
+                <p className="mt-2 text-3xl font-bold tracking-tight gradient-text">5</p>
+                <p className="mt-2 text-xs text-[var(--accent)]">小说 → 剧集 → 剧本 → 分镜 → 视频</p>
+              </div>
+              <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br from-purple-500/25 to-blue-500/25 glow-purple">
+                <GitBranch className="h-6 w-6 text-purple-500 drop-shadow-[0_0_8px_rgba(139,92,246,0.7)]" />
+              </div>
             </div>
-            <div className="metric-value text-3xl mb-1">9</div>
-            <div className="metric-label">小说 → 剧集 → 剧本 → 分镜 → 视频</div>
           </div>
-          <div className="glass-panel rounded-[var(--radius-card)] p-5 marquee-border breathing">
-            <div className="flex items-center gap-2 mb-3">
-              <Boxes className="w-4 h-4 text-[var(--term-purple)]" />
-              <span className="metric-label">AI 模型</span>
+          <div className="glass-panel glass-hover rounded-[var(--radius-card)] p-5 marquee-border overflow-hidden">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-xs font-medium text-[var(--ink-2)]">AI 模型</p>
+                <p className="mt-2 text-3xl font-bold tracking-tight gradient-text">{modelCount}</p>
+                <p className="mt-2 text-xs text-[var(--term-purple)]">已配置 · 多服务商</p>
+              </div>
+              <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br from-orange-500/25 to-cyan-500/25">
+                <Boxes className="h-6 w-6 text-orange-500 drop-shadow-[0_0_8px_rgba(249,115,22,0.6)]" />
+              </div>
             </div>
-            <div className="metric-value text-3xl mb-1">{modelCount}</div>
-            <div className="metric-label">已配置 · 多服务商</div>
           </div>
-          <div className="glass-panel rounded-[var(--radius-card)] p-5 marquee-border breathing">
-            <div className="flex items-center gap-2 mb-3">
-              <Server className="w-4 h-4 text-[var(--term-green)]" />
-              <span className="metric-label">运行模式</span>
+          <div className="glass-panel glass-hover rounded-[var(--radius-card)] p-5 marquee-border overflow-hidden">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-xs font-medium text-[var(--ink-2)]">运行模式</p>
+                <p className="mt-2 text-3xl font-bold tracking-tight gradient-text">local</p>
+                <p className="mt-2 text-xs text-[var(--term-green)]">本地部署 · SQLite</p>
+              </div>
+              <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br from-green-500/25 to-cyan-500/25 glow-green">
+                <Server className="h-6 w-6 text-green-500 drop-shadow-[0_0_8px_rgba(16,185,129,0.6)]" />
+              </div>
             </div>
-            <div className="metric-value text-3xl mb-1">local</div>
-            <div className="metric-label">本地部署 · SQLite</div>
           </div>
         </div>
 
@@ -443,7 +464,7 @@ export function Dashboard() {
                     <div
                       key={project.id}
                       onClick={isArchived ? undefined : () => navigate(`/projects/${project.id}`)}
-                      className={`group rounded-[var(--radius-control)] border border-[var(--border)] bg-[var(--panel-2)]/60 px-4 py-3 flex items-center gap-4 transition-all hover:border-[var(--border-hover)] marquee-border ${
+                      className={`glass-hover rounded-[var(--radius-control)] border border-[var(--border)] bg-[var(--card-bg)]/40 px-4 py-3 flex items-center gap-4 backdrop-blur transition-all duration-200 hover:border-[var(--border-hover)] hover:bg-[var(--card-bg)]/70 marquee-border ${
                         isArchived ? 'opacity-80' : 'cursor-pointer'
                       } ${menuOpenId === project.id ? 'z-40' : ''}`}
                     >
@@ -552,7 +573,7 @@ export function Dashboard() {
                 <button
                   key={action.label}
                   onClick={action.onClick}
-                  className="w-full flex items-center gap-3 px-3 py-2.5 rounded-[var(--radius-control)] border border-[var(--border)] bg-[var(--panel-2)]/50 hover:border-[var(--border-hover)] hover:bg-[var(--accent-soft)] transition-all group marquee-border"
+                  className="w-full flex items-center gap-3 px-3 py-2.5 rounded-[var(--radius-control)] border border-[var(--border)] bg-[var(--card-bg)]/40 hover:border-[var(--border-hover)] hover:bg-[var(--accent-soft)] transition-all group glass-hover marquee-border"
                 >
                   <div className="w-8 h-8 rounded-md bg-[var(--accent-soft)] text-[var(--accent)] flex items-center justify-center group-hover:scale-110 transition-transform">
                     <action.icon className="w-4 h-4" />
@@ -566,11 +587,11 @@ export function Dashboard() {
             </div>
 
             {/* 端点信息 */}
-            <div className="rounded-lg border border-[var(--border)] bg-[var(--panel-2)]/80 px-3 py-3">
-              <div className="term-label mb-1.5">PIPELINE_ENDPOINT</div>
-              <div className="term-line">
-                <span className="text-[var(--term-cyan)]">http://127.0.0.1:3000/api</span>
-              </div>
+            <div className="term-box rounded-xl p-3">
+              <p className="flex items-center gap-1.5 text-xs font-medium text-cyan-400">
+                <Zap className="h-3 w-3" />PIPELINE_ENDPOINT
+              </p>
+              <p className="term-prompt mt-1 font-mono text-xs text-[var(--ink-1)]/90">http://127.0.0.1:3000/api</p>
             </div>
           </div>
         </div>
@@ -584,14 +605,16 @@ export function Dashboard() {
             </div>
             <div className="term-line term-line--dim"><span className="text-[var(--ink-3)]">按项目更新时间统计</span></div>
           </div>
-          <div className="flex items-end gap-3 h-28">
+          <div className="flex h-48 items-stretch justify-between gap-2">
             {trendData.map((d) => (
-              <div key={d.label} className="flex-1 flex flex-col items-center gap-1.5 min-w-0">
+              <div key={d.label} className="flex flex-1 flex-col items-center gap-2">
                 <span className="text-xs font-mono text-[var(--ink-2)]">{d.count || ''}</span>
                 <div
-                  className="w-full rounded-t-md bg-gradient-to-t from-[var(--accent)]/30 to-[var(--accent)] transition-all"
-                  style={{ height: `${Math.max(6, (d.count / maxTrend) * 72)}px`, opacity: d.count > 0 ? 1 : 0.15 }}
-                />
+                  className="w-full max-w-[48px] rounded-t-lg bg-gradient-to-t from-blue-500/60 to-purple-500 glow-purple transition-all duration-500 hover:from-purple-500/60 hover:to-cyan-500"
+                  style={{ height: `${Math.max(8, (d.count / maxTrend) * 100)}%`, opacity: d.count > 0 ? 1 : 0.15 }}
+                >
+                  <span className="flex h-full items-start justify-center pt-1 text-[10px] font-bold text-white">{d.count > 0 ? d.count : ''}</span>
+                </div>
                 <span className="text-[11px] font-mono text-[var(--ink-3)]">{d.label}</span>
               </div>
             ))}
