@@ -1,9 +1,12 @@
 // 分镜生成提示词模板
-// v4.0 — 对齐《AI短剧制作全流程手册》最佳实践
-// - 整集3分钟/60镜标准，单集约3秒一镜
-// - 主画面按"主体+景别+视角+构图+氛围光感"撰写
-// - 7列标准：镜号、场景、人物、动作、主画面、运镜、台词
-// - 适配即梦AI平台导入，1080P视频导出
+// v5.0 — 集成《导演级分镜制作标准模板》：actionDescription 按8维细节标准扩写 + 合规红线
+// 对齐《AI短剧制作全流程手册》：整集3分钟/60镜标准，单集约3秒一镜
+// 7列标准：镜号、场景、人物、动作、主画面、运镜、台词；适配即梦AI平台导入
+
+import {
+  DIRECTOR_8D_STANDARD,
+  DIRECTOR_COMPLIANCE_RULES,
+} from './directorTemplate';
 
 export interface ShotGenerationParams {
   scriptContent: string;
@@ -90,6 +93,13 @@ export function shotGenerationPrompt(params: ShotGenerationParams): { systemProm
 - 动作类镜头 pace=fast 或 slow_motion，景别用中景+特写组合
 - 动作场景 cameraMovement 用 handheld 或 push_in，不可用 static
 
+【导演级画面细节标准】（actionDescription 必填要求）
+${DIRECTOR_8D_STANDARD}
+
+每个镜头的 actionDescription 必须按上述维度展开为导演级画面描述（40-120字），至少覆盖：人物姿态与动作、面部表情、关键道具状态、光影氛围、声音线索（如环境底噪/动作音效），禁止"某某走向桌子"这类笼统单句。
+
+${DIRECTOR_COMPLIANCE_RULES}
+
 【剧情连贯性规则】
 - 前后镜头角色位置、动作状态要连贯
 - 上一镜头角色在左边，下一镜头不能突然到右边（除非有移动动作描述）
@@ -102,7 +112,7 @@ export function shotGenerationPrompt(params: ShotGenerationParams): { systemProm
 - cameraMovement: 镜头运动（push_in/pull_out/pan/truck/crane/handheld/steadicam/static）
 - pace: 节奏（fast/normal/slow/slow_motion/fast_motion/long_take）
 - subject: 镜头主体角色名（当前镜头聚焦的角色，对话时为说话者）
-- actionDescription: 画面中的动作和场景描述（含因果时序、角色位置、表情）
+- actionDescription: 画面中的动作和场景描述（导演级细节：姿态/肢体/表情/道具/光影/动态过程/声音，40-120字）
 - dialogue: 该镜头中的对话（没有则为空字符串）
 - composition: 构图说明（三分法/对称/引导线/过肩等）
 - lighting: 光影描述（侧光/逆光/顶光/柔光等）
@@ -121,7 +131,7 @@ ${params.scriptContent}
 1. 分镜密度：${densityDesc}
 2. ${params.includeDialogue !== false ? '保留重要对话，分配到对应镜头，说话者必须是该镜头subject，台词格式：角色名："对话内容"' : '不包含对话，专注画面描述'}
 3. 景别变化要有节奏，避免连续相同景别；对话用正反打，动作用中景+特写组合；重点增加特写、俯拍、仰拍镜头占比
-4. 动作描述要具体，包含人物位置、表情、动作，必须符合因果时序（先攻击后受击）
+4. actionDescription 必须按导演级细节标准展开（40-120字）：覆盖人物姿态与动作、面部表情、关键道具状态、光影氛围、声音线索，禁止笼统单句
 5. 镜头运动要符合场景情绪：动作用手持/推镜，对话用固定/稳定器，情感用慢推；合理运用推、拉、摇、移等技巧
 6. 每个镜头必须标注subject（镜头主体），主角出场必须给到主角镜头，不能被配角抢镜
 7. 前后镜头角色位置和状态要连贯，服装发型一致
@@ -129,6 +139,7 @@ ${params.scriptContent}
 9. durationSeconds 根据 pace 自动匹配（fast=2, normal=4, slow=6, slow_motion=3），整体控制在单集约3秒
 10. 主画面描述严格按"主体+景别+视角+构图+氛围光感"撰写，方便AI出图和生视频
 11. 无需描述服装造型（已在资产库中定义），确保分镜适配AI元素的添加
+12. 遵守制作合规红线：无文字Logo品牌、医疗仅表现状态、人物原创虚构、无血腥暴力与未成年人
 
 请以 JSON 数组格式返回。`;
 

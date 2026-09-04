@@ -7,6 +7,7 @@ import { ConfigPanel } from '../StageScript/ConfigPanel';
 import { useProjectStore } from '../../stores/useProjectStore';
 import { useUIStore } from '../../stores/useUIStore';
 import { characterService, sceneService, propService } from '../../services/assetService';
+import apiClient from '../../services/apiClient';
 import { parseModelKey } from '../../types/model';
 import { useDefaultModels } from '../../hooks/useDefaultModels';
 import type { Character, Scene, Prop } from '../../types';
@@ -68,6 +69,17 @@ export function StageAssets() {
       loadProps(currentEpisodeId);
     }
   }, [currentEpisodeId]);
+
+  // 标记/取消线索道具（线索道具会作为参考图注入对应镜头，保证关键物件跨镜一致）
+  const togglePropClue = async (prop: Prop) => {
+    try {
+      await apiClient.put(`/props/${prop.id}`, { is_clue: prop.is_clue ? 0 : 1 });
+      setProps(prev => prev.map(p => p.id === prop.id ? { ...p, is_clue: p.is_clue ? 0 : 1 } : p));
+      showToast(prop.is_clue ? '已取消线索标记' : '已标记为线索道具：该道具将注入相关镜头参考图', 'success');
+    } catch {
+      showToast('线索标记保存失败', 'error');
+    }
+  };
 
   const handleExtractCharacters = async (params: { modelKey: string }) => {
     if (!currentEpisodeId) return;
@@ -519,6 +531,13 @@ export function StageAssets() {
                       <Badge variant="default" className="mt-1">
                         {PROP_CATEGORY_LABELS[prop.category || 'other'] || prop.category || '其他'}
                       </Badge>
+                      <button
+                        type="button"
+                        onClick={() => togglePropClue(prop)}
+                        className={`px-2 py-0.5 mt-1.5 rounded text-[10px] border transition-colors ${prop.is_clue ? 'bg-red-500/10 text-red-600 border-red-500/30' : 'text-[var(--ink-3)] border-[var(--border)] hover:bg-[var(--panel-2)]'}`}
+                      >
+                        {prop.is_clue ? '🔑 线索道具' : '标记为线索'}
+                      </button>
                       {prop.description && (
                         <p className="text-xs text-[var(--ink-3)] mt-2 line-clamp-2">{prop.description}</p>
                       )}

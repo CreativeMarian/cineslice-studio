@@ -1,20 +1,20 @@
 // 关键帧 DAO
-// v1.0
+// v1.1 - 增加九宫格候选字段 candidate_index / is_selected（frame_type='candidate'）
 
 import type { Database, ShotKeyframe } from '../types';
 import { generateId, now } from './index';
 
 export const ShotKeyframeDAO = {
-  create(db: Database, data: { user_id: string; shot_id: string; frame_type?: string; prompt?: string; negative_prompt?: string; image_url?: string; image_model_used?: string; reference_characters?: string; reference_scene?: string }): ShotKeyframe {
+  create(db: Database, data: { user_id: string; shot_id: string; frame_type?: string; prompt?: string; negative_prompt?: string; image_url?: string; image_model_used?: string; reference_characters?: string; reference_scene?: string; candidate_index?: number; is_selected?: number }): ShotKeyframe {
     const id = generateId('kf');
     db.prepare(`
-      INSERT INTO shot_keyframes (id, user_id, shot_id, frame_type, prompt, negative_prompt, image_url, image_model_used, reference_characters, reference_scene, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(id, data.user_id, data.shot_id, data.frame_type || 'first', data.prompt || '', data.negative_prompt || null, data.image_url || null, data.image_model_used || null, data.reference_characters || null, data.reference_scene || null, now());
+      INSERT INTO shot_keyframes (id, user_id, shot_id, frame_type, prompt, negative_prompt, image_url, image_model_used, reference_characters, reference_scene, candidate_index, is_selected, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(id, data.user_id, data.shot_id, data.frame_type || 'first', data.prompt || '', data.negative_prompt || null, data.image_url || null, data.image_model_used || null, data.reference_characters || null, data.reference_scene || null, data.candidate_index || 0, data.is_selected ?? 1, now());
     return this.getById(db, id)!;
   },
 
-  batchCreate(db: Database, keyframes: Array<{ user_id: string; shot_id: string; frame_type?: string; prompt?: string; negative_prompt?: string; image_url?: string; image_model_used?: string; reference_characters?: string; reference_scene?: string }>): ShotKeyframe[] {
+  batchCreate(db: Database, keyframes: Array<{ user_id: string; shot_id: string; frame_type?: string; prompt?: string; negative_prompt?: string; image_url?: string; image_model_used?: string; reference_characters?: string; reference_scene?: string; candidate_index?: number; is_selected?: number }>): ShotKeyframe[] {
     const results: ShotKeyframe[] = [];
     const transaction = db.transaction(() => {
       for (const kf of keyframes) {

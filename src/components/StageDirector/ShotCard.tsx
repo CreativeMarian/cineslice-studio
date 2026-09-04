@@ -57,6 +57,8 @@ export function ShotCard({ shot, index, isExpanded, onToggle, showToast }: ShotC
   const [pollingVideoId, setPollingVideoId] = useState<string | null>(null);
   const [elapsedTime, setElapsedTime] = useState(0);
   const [isDeletingVideo, setIsDeletingVideo] = useState(false);
+  const [useNextFirstFrame, setUseNextFirstFrame] = useState<boolean>(shot.use_next_first_frame !== 0);
+  const [isGeneratingCandidates, setIsGeneratingCandidates] = useState(false);
 
   // 当前视频模型的参数配置
   const videoConfig = selectedVideoModel ? getVideoModelConfig(selectedVideoModel) : null;
@@ -148,6 +150,8 @@ export function ShotCard({ shot, index, isExpanded, onToggle, showToast }: ShotC
   }, [pollingVideoId, showToast]);
 
   const firstKeyframe = keyframes.find(k => k.frame_type === 'first') || keyframes[0];
+  const candidates = keyframes.filter(k => k.frame_type === 'candidate' && k.image_url);
+  const endFrame = keyframes.find(k => k.frame_type === 'end' && k.image_url);
   const completedVideo = videos.find(v => v.status === 'completed');
   const processingVideo = videos.find(v => v.status === 'processing' || v.status === 'pending' || v.status === 'generating');
   const failedVideo = videos.find(v => v.status === 'failed');
@@ -247,6 +251,68 @@ export function ShotCard({ shot, index, isExpanded, onToggle, showToast }: ShotC
     }
   };
 
+  // 切换首尾帧衔接（下镜首帧作尾帧）——保存到镜头，后端视频生成时自动生效
+  const handleToggleUseNextFirstFrame = async (v: boolean) => {
+    setUseNextFirstFrame(v);
+    try {
+      await apiClient.put(`/shots/${shot.id}`, { use_next_first_frame: v ? 1 : 0 });
+      showToast(v ? '首尾帧衔接已开启：视频起止画面硬锁定' : '已关闭首尾帧衔接', 'success');
+    } catch {
+      showToast('首尾帧设置保存失败', 'error');
+    }
+  };
+
+  // 生成九宫格候选关键帧（BigBanana 方案：多视角候选选首帧）
+  const handleGenerateCandidates = async () => {
+    if (!selectedImageModel) {
+      showToast('请选择图像模型', 'error');
+      return;
+    }
+    const [provider, modelName] = selectedImageModel.split(':');
+    if (!provider || !modelName) {
+      showToast('模型格式错误', 'error');
+      return;
+    }
+    setIsGeneratingCandidates(true);
+    try {
+      const res = await apiClient.post<unknown, { success?: boolean; data?: ShotKeyframe[]; message?: string }>(`/shots/${shot.id}/keyframes/candidates`, {
+        provider,
+        modelName,
+        count: 4,
+      });
+      if (res.success && res.data) {
+        setKeyframes(prev => {
+          const newCands = res.data as unknown as ShotKeyframe[];
+          const existingIds = new Set(prev.map(k => k.id));
+          return [...prev, ...newCands.filter(k => !existingIds.has(k.id))];
+        });
+        showToast('已生成 4 个候选视角，点击缩略图选择为首帧', 'success');
+      } else {
+        showToast(res.message || '候选生成失败', 'error');
+      }
+    } catch (err: any) {
+      showToast(err?.response?.data?.message || '候选生成失败', 'error');
+    } finally {
+      setIsGeneratingCandidates(false);
+    }
+  };
+
+  // 选择候选帧升级为首帧
+  const handleSelectCandidate = async (kfId: string) => {
+    try {
+      const res = await apiClient.post<unknown, { success?: boolean; data?: ShotKeyframe; message?: string }>(`/keyframes/${kfId}/select`);
+      if (res.success && res.data) {
+        const kfRes = await videoService.getKeyframes(shot.id);
+        if (kfRes.success) setKeyframes(kfRes.data || []);
+        showToast('已选择该候选帧作为首帧', 'success');
+      } else {
+        showToast(res.message || '选择失败', 'error');
+      }
+    } catch (err: any) {
+      showToast(err?.response?.data?.message || '选择失败', 'error');
+    }
+  };
+
   return (
     <Card className="overflow-hidden">
       <div
@@ -325,6 +391,52 @@ export function ShotCard({ shot, index, isExpanded, onToggle, showToast }: ShotC
                   </div>
                 )}
               </div>
+
+              {/* 九宫格候选 + 显式尾帧 */}
+              <div className="mt-2 flex items-center gap-2 flex-wrap">
+                <button
+                  type="button"
+                  onClick={handleGenerateCandidates}
+                  disabled={isGeneratingCandidates}
+                  className={`flex items-center gap-1 px-2 py-1 rounded-md text-[10px] border transition-colors ${isGeneratingCandidates ? 'opacity-50 cursor-not-allowed' : 'hover:bg-[var(--panel-2)]'}`}
+                  style={{ borderColor: 'var(--border)', color: 'var(--ink-2)' }}
+                >
+                  {isGeneratingCandidates ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Image className="w-3 h-3" />}
+                  {isGeneratingCandidates ? '生成中...' : `候选×4${candidates.length > 0 ? `(${candidates.length})` : ''}`}
+                </button>
+                {endFrame && (
+                  <span className="px-2 py-1 rounded-md text-[10px] bg-purple-500/10 text-purple-600 border border-purple-500/20">
+                    尾帧✓
+                  </span>
+                )}
+                {useNextFirstFrame && (
+                  <span className="px-2 py-1 rounded-md text-[10px] bg-blue-500/10 text-blue-600 border border-blue-500/20">
+                    自动尾帧
+                  </span>
+                )}
+              </div>
+
+              {/* 候选帧选择行 */}
+              {candidates.length > 0 && (
+                <div className="mt-2">
+                  <p className="text-[10px] text-[var(--ink-3)] mb-1">候选视角（点击选用为首帧）</p>
+                  <div className="flex gap-2 overflow-x-auto pb-1">
+                    {candidates.map(kf => (
+                      <button
+                        key={kf.id}
+                        type="button"
+                        onClick={() => handleSelectCandidate(kf.id)}
+                        className="relative w-24 flex-shrink-0 aspect-video rounded-md overflow-hidden border-2 border-transparent hover:border-[var(--accent)] transition-colors"
+                      >
+                        <img src={kf.image_url ?? ''} alt="候选帧" className="w-full h-full object-cover" />
+                        <span className="absolute bottom-0 inset-x-0 bg-black/50 text-white text-[9px] text-center py-0.5">
+                          {kf.candidate_index ?? '候'}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* 视频区域 */}
@@ -387,6 +499,8 @@ export function ShotCard({ shot, index, isExpanded, onToggle, showToast }: ShotC
                   onSubtitlesChange={setVideoSubtitles}
                   motionPrompt={motionPrompt}
                   onMotionPromptChange={setMotionPrompt}
+                  useNextFirstFrame={useNextFirstFrame}
+                  onUseNextFirstFrameChange={handleToggleUseNextFirstFrame}
                 />
               )}
 

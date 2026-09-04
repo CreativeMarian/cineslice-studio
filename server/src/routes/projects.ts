@@ -13,11 +13,14 @@ import { createError, asyncHandler } from '../middleware/errorHandler';
 import { validateBody } from '../middleware/validate';
 import { novelUpload } from '../middleware/upload';
 import { parseNovel } from '../services/novelParser';
-import { aiProxy } from '../services/aiProxy';
 import { projectStorage } from '../services/projectStorage';
-import { novelToScriptPrompt } from '../services/prompts/novelToScript';
-import { parseAiJson } from '../utils/aiJsonParser';
 import { decodeFilename } from '../utils/filename';
+import {
+  detectMaxEpisodeMark,
+  calcBatchSize,
+  selectChaptersForRange,
+  generateEpisodeBatch,
+} from '../services/episodeGenerationService';
 import type { Database } from '../types';
 
 const router = Router();
@@ -292,38 +295,7 @@ function normalizeChapterRange(raw: any, episodeNum: number): string {
   return `第${episodeNum}集`;
 }
 
-// 辅助：解析 AI 返回的剧集数据，带重试和宽松解析
-function parseEpisodesData(rawContent: string): any[] {
-  // 第一次尝试：标准解析
-  const firstResult = parseAiJson<any>(rawContent);
-  if (firstResult.success && firstResult.data) {
-    return Array.isArray(firstResult.data) ? firstResult.data : [firstResult.data];
-  }
-
-  // 第二次尝试：尝试提取数组部分
-  const arrayMatch = rawContent.match(/\[[\s\S]*\]/);
-  if (arrayMatch) {
-    const secondResult = parseAiJson<any>(arrayMatch[0]);
-    if (secondResult.success && secondResult.data) {
-      return Array.isArray(secondResult.data) ? secondResult.data : [secondResult.data];
-    }
-  }
-
-  // 第三次尝试：尝试提取单个对象
-  const objMatch = rawContent.match(/\{[\s\S]*\}/);
-  if (objMatch) {
-    const thirdResult = parseAiJson<any>(objMatch[0]);
-    if (thirdResult.success && thirdResult.data) {
-      return Array.isArray(thirdResult.data) ? thirdResult.data : [thirdResult.data];
-    }
-  }
-
-  // 全部失败，抛出带预览的错误
-  const preview = rawContent.length > 2000 ? rawContent.slice(0, 2000) + '...' : rawContent;
-  throw new Error(`AI返回内容无法解析为JSON。返回内容预览：\n${preview}`);
-}
-
-// 生成剧集
+// 生成剧集（分集调度逻辑见 services/episodeGenerationService.ts）
 router.post('/:id/episodes/generate', validateBody(generateEpisodesSchema), asyncHandler(async (req: Request, res: Response) => {
   const db = getDb(req);
   const project = ProjectDAO.getByIdAndUser(db, req.params.id, req.user.id);
@@ -337,62 +309,47 @@ router.post('/:id/episodes/generate', validateBody(generateEpisodesSchema), asyn
   if (chapters.length === 0) throw createError(400, 'VALIDATION_ERROR', '没有可生成的章节内容');
 
   const novelContent = chapters.map(c => `【${c.title}】\n${c.content}`).join('\n\n');
+  const totalChars = chapters.reduce((sum, c) => sum + (c.content || '').length, 0);
 
-  // 判断是否需要分批生成（集数 > 10 或内容过长时）
-  const estimatedEpisodes = episodes_count || Math.max(1, Math.ceil(chapters.length / 2));
-  const needBatch = estimatedEpisodes > 10 || novelContent.length > 50000;
+  // ── 目标集数：显式指定 > 原文集标记（第X集/第X话） > 按章节数估算 ──
+  const explicitCount = episodes_count && episodes_count > 0 ? episodes_count : null;
+  const episodeMarkMax = detectMaxEpisodeMark(chapters);
+  const estimated = explicitCount ?? episodeMarkMax ?? Math.max(1, Math.ceil(chapters.length / 2));
+  // 每集至少对应一章：目标集数不超过章节数，避免无内容可改编的空集
+  const targetEpisodes = Math.min(estimated, chapters.length);
+  // 有明确目标（指定集数或原文有集标记）时按目标补全；自动且无标记时尊重 AI 划分，不强制
+  const enforceCount = explicitCount !== null || episodeMarkMax !== null;
+  // 分批条件：集数 > 10 或内容过长
+  const needBatch = targetEpisodes > 10 || totalChars > 50000;
+  const batchSize = calcBatchSize(totalChars, targetEpisodes);
+
+  console.log(`[GenerateEpisodes] 目标 ${targetEpisodes} 集（用户指定=${explicitCount ?? '否'}，集标记=${episodeMarkMax ?? '无'}，章节 ${chapters.length} 章 / ${totalChars} 字符），分批=${needBatch}，每批 ${batchSize} 集`);
 
   let allEpisodesData: any[] = [];
 
-  if (needBatch && episodes_count && episodes_count > 10) {
-    // 分批生成：每批5集
-    const batchSize = 5;
-    const totalBatches = Math.ceil(episodes_count / batchSize);
-    console.log(`[GenerateEpisodes] 分批生成模式：共${episodes_count}集，分${totalBatches}批，每批${batchSize}集`);
-
+  if (needBatch) {
+    const totalBatches = Math.ceil(targetEpisodes / batchSize);
     for (let batch = 0; batch < totalBatches; batch++) {
       const startEpisode = batch * batchSize + 1;
-      const batchCount = Math.min(batchSize, episodes_count - batch * batchSize);
-      console.log(`[GenerateEpisodes] 第${batch + 1}/${totalBatches}批：第${startEpisode}-${startEpisode + batchCount - 1}集`);
+      const batchCount = Math.min(batchSize, targetEpisodes - batch * batchSize);
+      const batchChapters = selectChaptersForRange(
+        chapters, startEpisode, startEpisode + batchCount - 1, targetEpisodes, episodeMarkMax !== null
+      );
+      const batchContent = batchChapters.map(c => `【${c.title}】\n${c.content}`).join('\n\n');
+      console.log(`[GenerateEpisodes] 第${batch + 1}/${totalBatches}批：第${startEpisode}-${startEpisode + batchCount - 1}集，使用${batchChapters.length}章`);
 
-      const { systemPrompt, prompt } = novelToScriptPrompt({
-        novelContent,
-        episodesCount: batchCount,
-        style,
-      });
-
-      // 在 prompt 中追加批次信息
-      const batchPrompt = prompt + `\n\n注意：本次只需生成第${startEpisode}到第${startEpisode + batchCount - 1}集（共${batchCount}集），episodeNumber 从${startEpisode}开始编号。`;
-
-      const result = await aiProxy.generateText({
-        db, userId: req.user.id, provider, modelName,
-        prompt: batchPrompt, systemPrompt, responseFormat: 'json', maxTokens: 32000,
-      });
-
-      // 记录 AI 返回内容到日志（前2000字符）
-      const contentPreview = result.content.length > 2000 ? result.content.slice(0, 2000) + '...[截断]' : result.content;
-      console.log(`[GenerateEpisodes] 第${batch + 1}批 AI返回内容长度: ${result.content.length}, 预览: ${contentPreview}`);
-
-      const batchData = parseEpisodesData(result.content);
+      const batchData = await generateEpisodeBatch(
+        db, req.user.id, provider, modelName, style, batchContent, startEpisode, batchCount, enforceCount
+      );
       allEpisodesData = allEpisodesData.concat(batchData);
     }
   } else {
-    // 单批生成
-    const { systemPrompt, prompt } = novelToScriptPrompt({ novelContent, episodesCount: episodes_count, style });
-
-    const result = await aiProxy.generateText({
-      db, userId: req.user.id, provider, modelName,
-      prompt, systemPrompt, responseFormat: 'json', maxTokens: 32000,
-    });
-
-    // 记录 AI 返回内容到日志（前2000字符）
-    const contentPreview = result.content.length > 2000 ? result.content.slice(0, 2000) + '...[截断]' : result.content;
-    console.log(`[GenerateEpisodes] AI返回内容长度: ${result.content.length}, 预览: ${contentPreview}`);
-
-    allEpisodesData = parseEpisodesData(result.content);
+    allEpisodesData = await generateEpisodeBatch(
+      db, req.user.id, provider, modelName, style, novelContent, 1, targetEpisodes, enforceCount
+    );
   }
 
-  console.log(`[GenerateEpisodes] 共解析出 ${allEpisodesData.length} 集数据`);
+  console.log(`[GenerateEpisodes] 共解析出 ${allEpisodesData.length} 集数据（目标 ${targetEpisodes} 集）`);
 
   // 删除旧剧集 + 插入新剧集必须在同一事务内：
   // novel_episodes 的子表（shots/keyframes/角色等）是 ON DELETE CASCADE，
@@ -420,6 +377,10 @@ router.post('/:id/episodes/generate', validateBody(generateEpisodesSchema), asyn
       });
     });
   })();
+
+  if (created.length === 0) {
+    throw createError(502, 'AI_CALL_FAILED', 'AI 未能生成任何剧集，请重试或更换模型');
+  }
 
   // 按 episode_number 排序
   created.sort((a, b) => a.episode_number - b.episode_number);

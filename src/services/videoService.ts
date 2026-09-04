@@ -29,6 +29,8 @@ export interface ShotKeyframe {
   image_model_used: string | null;
   reference_characters: string | null;
   reference_scene: string | null;
+  candidate_index?: number | null;
+  is_selected?: number | null;
   created_at: string;
 }
 

@@ -4,12 +4,12 @@ import {
   NovelEpisodeDAO,
   ShotDAO,
   ScriptCharacterDAO,
-  ScriptSceneDAO,
   ShotKeyframeDAO,
 } from '../../../models';
 import { aiProxy } from '../../aiProxy';
 import { directorPromptService } from '../../directorPromptService';
 import { aiPromptOptimizerService, type ScriptContextForAI } from '../../aiPromptOptimizerService';
+import { collectShotReferenceImages } from '../../shotConsistencyService';
 import type { AutoPipelineTask } from '../types';
 import { getFirstModel, getOrCreateScriptAnalysis, getProjectStylePreset, buildDirectorShotContext } from '../helpers';
 
@@ -24,11 +24,8 @@ export async function stageKeyframes(db: Database, task: AutoPipelineTask): Prom
   const model = getFirstModel(db, task.userId, 'image');
   if (!model) throw new Error('请先配置图像模型');
 
-  // 预加载所有角色和场景（避免循环内重复查询）
+  // 预加载所有角色（避免循环内重复查询）
   const allCharacters = ScriptCharacterDAO.listByEpisode(db, first.id);
-  const allScenes = ScriptSceneDAO.listByEpisode(db, first.id);
-  const characterMap = new Map(allCharacters.map(c => [c.id, c]));
-  const sceneMap = new Map(allScenes.map(s => [s.id, s]));
 
   // 统一风格前缀（从项目风格预设读取，保证全片画风一致）
   const stylePreset = getProjectStylePreset(db, task.projectId);
@@ -76,32 +73,11 @@ export async function stageKeyframes(db: Database, task: AutoPipelineTask): Prom
         }
       }
 
-      // 获取场景信息
-      const scene = shot.scene_id ? sceneMap.get(shot.scene_id) : null;
+      // 获取场景信息（场景参考图已由 collectShotReferenceImages 统一收集）
 
-      // 收集参考图：角色概念图 + 场景参考图
-      const referenceImages: string[] = [];
-      // 角色概念图
-      for (const charId of characterIds) {
-        const char = characterMap.get(charId);
-        if (char?.reference_image_url) {
-          referenceImages.push(char.reference_image_url);
-        }
-      }
-      // 场景参考图（从 concept_images JSON 中解析）
-      if (scene?.concept_images) {
-        try {
-          const sceneImages = JSON.parse(scene.concept_images);
-          if (Array.isArray(sceneImages) && sceneImages.length > 0) {
-            const sceneImgUrl = sceneImages[scene.selected_image_index || 0]?.url || sceneImages[0]?.url;
-            if (sceneImgUrl) {
-              referenceImages.push(sceneImgUrl);
-            }
-          }
-        } catch {
-          // 解析失败，跳过场景参考图
-        }
-      }
+      // 收集一致性参考图：角色定妆照 + 场景概念图 + 道具图
+      // 参考 ArcReel/BigBanana：每镜注入"当前角色+场景+道具"参考，显著降低人物/场景漂移
+      const referenceImages = collectShotReferenceImages(db, shot);
 
       // ═══════════════════════════════════════════════════════════
       // 导演级关键帧提示词生成（v2.0）

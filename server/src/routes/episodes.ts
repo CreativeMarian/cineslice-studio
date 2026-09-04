@@ -24,6 +24,12 @@ import {
   batchGenerateVideos,
   getEpisodeSubtitles,
 } from '../services/episodeProductionService';
+import {
+  generateKeyframeCandidates,
+  selectCandidateAsFirst,
+  generateEndFrameForShot,
+  collectShotReferenceImages,
+} from '../services/shotConsistencyService';
 import type { Database } from '../types';
 
 const router = Router();
@@ -186,6 +192,58 @@ router.post('/keyframes/:id/regenerate', validateBody(regenerateSchema), asyncHa
   res.json({ success: true, data: updated });
 }));
 
+// 生成九宫格候选关键帧（BigBanana 方案：多视角候选选首帧）
+const candidatesSchema = z.object({
+  provider: z.string(),
+  modelName: z.string(),
+  count: z.number().min(1).max(9).optional(),
+});
+router.post('/shots/:id/keyframes/candidates', validateBody(candidatesSchema), asyncHandler(async (req: Request, res: Response) => {
+  const db = getDb(req);
+  const shot = ShotDAO.getByIdAndUser(db, req.params.id, req.user.id);
+  if (!shot) throw createError(404, 'NOT_FOUND', '镜头不存在');
+  const candidates = await generateKeyframeCandidates(db, req.user.id, shot, {
+    provider: req.body.provider,
+    modelName: req.body.modelName,
+    count: req.body.count,
+    referenceImages: collectShotReferenceImages(db, shot),
+  });
+  res.json({ success: true, data: candidates });
+}));
+
+// 选择候选帧升级为首帧（旧首帧自动降级为候选保留对照）
+router.post('/keyframes/:id/select', asyncHandler(async (req: Request, res: Response) => {
+  const db = getDb(req);
+  const updated = selectCandidateAsFirst(db, req.user.id, req.params.id);
+  if (!updated) throw createError(404, 'NOT_FOUND', '关键帧不存在');
+  res.json({ success: true, data: updated });
+}));
+
+// 生成显式尾帧（frame_type='end'，配合首帧做首尾帧插值，动作/情绪转折镜头推荐）
+router.post('/shots/:id/keyframes/endframe', validateBody(regenerateSchema), asyncHandler(async (req: Request, res: Response) => {
+  const db = getDb(req);
+  const shot = ShotDAO.getByIdAndUser(db, req.params.id, req.user.id);
+  if (!shot) throw createError(404, 'NOT_FOUND', '镜头不存在');
+  const kf = await generateEndFrameForShot(db, req.user.id, shot, {
+    provider: req.body.provider,
+    modelName: req.body.modelName,
+    referenceImages: collectShotReferenceImages(db, shot),
+  });
+  res.json({ success: true, data: kf });
+}));
+
+// 更新镜头（如：首尾帧衔接开关 use_next_first_frame）
+const updateShotSchema = z.object({
+  use_next_first_frame: z.number().int().min(0).max(1).optional(),
+});
+router.put('/shots/:id', validateBody(updateShotSchema), asyncHandler(async (req: Request, res: Response) => {
+  const db = getDb(req);
+  const shot = ShotDAO.getByIdAndUser(db, req.params.id, req.user.id);
+  if (!shot) throw createError(404, 'NOT_FOUND', '镜头不存在');
+  const updated = ShotDAO.update(db, req.params.id, req.body);
+  res.json({ success: true, data: updated });
+}));
+
 // 删除关键帧
 router.delete('/keyframes/:id', asyncHandler(async (req: Request, res: Response) => {
   const db = getDb(req);
@@ -206,6 +264,8 @@ const generateVideoSchema = z.object({
   ratio: z.enum(['16:9', '9:16', '1:1', '4:3', '3:4', '21:9']).optional(),
   resolution: z.enum(['720p', '1080p', '2k', '4k']).optional(),
   subtitles: z.boolean().optional(),
+  endFrameId: z.string().optional(),       // 显式指定尾帧关键帧（首尾帧插值）
+  referenceImages: z.array(z.string()).optional(), // 一致性参考图，未传则自动收集
 });
 
 // 生成视频
@@ -220,6 +280,8 @@ router.post('/shots/:id/video/generate', validateBody(generateVideoSchema), asyn
     ratio: req.body.ratio,
     resolution: req.body.resolution,
     subtitles: req.body.subtitles,
+    endFrameId: req.body.endFrameId,
+    referenceImages: req.body.referenceImages,
   });
   res.json({ success: true, data: result });
 }));
@@ -266,6 +328,7 @@ const batchKeyframesSchema = z.object({
   provider: z.string(),
   modelName: z.string(),
   shotIds: z.array(z.string()).optional(), // 不传则全部
+  candidatesPerShot: z.number().min(1).max(9).optional(), // >1 时生成九宫格候选（不选首帧，待用户挑选）
 });
 
 // 批量生成首帧关键帧
@@ -275,6 +338,7 @@ router.post('/episodes/:id/keyframes/batch', validateBody(batchKeyframesSchema),
     provider: req.body.provider,
     modelName: req.body.modelName,
     shotIds: req.body.shotIds,
+    candidatesPerShot: req.body.candidatesPerShot,
   });
   res.json({ success: true, data });
 }));

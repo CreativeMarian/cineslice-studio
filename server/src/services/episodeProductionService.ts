@@ -23,6 +23,11 @@ import { scriptAnalysisService } from './scriptAnalysisService';
 import { promptOptimizationService } from './promptOptimizationService';
 import { getProjectStylePreset } from './autoPipeline/helpers';
 import { directorPromptService } from './directorPromptService';
+import {
+  resolveLastFrameForShot,
+  collectShotReferenceImages,
+  generateKeyframeCandidates,
+} from './shotConsistencyService';
 import type { Database } from '../types';
 
 const DEFAULT_STYLE_OBJ = {
@@ -205,7 +210,7 @@ export async function generateShotsForEpisode(
 
   const result = await aiProxy.generateText({
     db, userId, provider: textProvider, modelName: textModel,
-    prompt, systemPrompt, responseFormat: 'json', maxTokens: 8192,
+    prompt, systemPrompt, responseFormat: 'json', maxTokens: 16000,
   });
 
   let shots: any[];
@@ -444,6 +449,7 @@ export async function regenerateKeyframe(
     negativePrompt: finalNegativePrompt,
     count: 1, size: '2560x1440',
     saveSubDir: 'keyframes',
+    referenceImages: collectShotReferenceImages(db, shot!),
   });
 
   return ShotKeyframeDAO.update(db, keyframe.id, {
@@ -547,18 +553,50 @@ export async function generateVideoForShot(
     ratio?: '16:9' | '9:16' | '1:1' | '4:3' | '3:4' | '21:9';
     resolution?: '720p' | '1080p' | '2k' | '4k';
     subtitles?: boolean;
+    endFrameId?: string;       // 显式指定尾帧关键帧
+    referenceImages?: string[]; // 一致性参考图（角色/场景/道具），未传则自动收集
   }
 ) {
   const shot = ShotDAO.getByIdAndUser(db, shotId, userId);
   if (!shot) throw createError(404, 'NOT_FOUND', '镜头不存在');
 
-  const { provider, modelName, keyframeId, motionPrompt, duration, ratio, resolution, subtitles } = opts;
+  const { provider, modelName, keyframeId, motionPrompt, duration, ratio, resolution, subtitles, endFrameId, referenceImages } = opts;
 
   // 获取剧集信息（用于提示词优化和项目ID）
   const episode = NovelEpisodeDAO.getById(db, shot.episode_id);
 
   // 获取首帧
   const { firstFrameUrl, startFrameId } = resolveFirstFrame(db, userId, shot.id, keyframeId);
+
+  // ═══════════════════════════════════════════════════════════
+  // 首尾帧衔接（低抽卡核心）：显式尾帧 > 下一镜首帧（use_next_first_frame=1）
+  // 尾帧硬锁定 → 视频模型只做中间插值，起止落点完全可控
+  // ═══════════════════════════════════════════════════════════
+  let lastFrameImageUrl: string | undefined;
+  let resolvedEndFrameId: string | null = null;
+  try {
+    if (endFrameId) {
+      const kf = ShotKeyframeDAO.getById(db, endFrameId);
+      if (kf?.image_url) {
+        lastFrameImageUrl = imageToDataUrl(kf.image_url);
+        resolvedEndFrameId = kf.id;
+      }
+    } else {
+      const allShots = ShotDAO.listByEpisode(db, shot.episode_id);
+      const lastFrame = resolveLastFrameForShot(db, shot, allShots);
+      if (lastFrame) {
+        lastFrameImageUrl = imageToDataUrl(lastFrame.imageUrl);
+        resolvedEndFrameId = lastFrame.keyframeId;
+      }
+    }
+  } catch (err) {
+    console.warn('[Video] 尾帧解析失败，退化为单首帧生成:', (err as Error).message);
+  }
+
+  // 一致性参考图（未显式传入时自动收集角色/场景/道具图）
+  const shotReferenceImages = referenceImages && referenceImages.length > 0
+    ? referenceImages
+    : collectShotReferenceImages(db, shot);
 
   // 将相对路径的首帧图片转换为 base64 data URL（豆包 API 需要可访问的图片）
   const firstFrameImageForApi = imageToDataUrl(firstFrameUrl);
@@ -627,6 +665,7 @@ export async function generateVideoForShot(
     user_id: userId,
     shot_id: shot.id,
     start_frame_id: startFrameId,
+    end_frame_id: resolvedEndFrameId || undefined,
     duration_seconds: duration || 5,
     motion_prompt: finalMotionPrompt,
     video_model_used: `${provider}/${modelName}`,
@@ -644,6 +683,8 @@ export async function generateVideoForShot(
       provider,
       modelName,
       firstFrameImageUrl: firstFrameImageForApi,
+      lastFrameImageUrl,
+      referenceImages: shotReferenceImages.length > 0 ? shotReferenceImages : undefined,
       motion: finalMotionPrompt || shot.action_description || '',
       duration: duration || 5,
       ratio,
@@ -752,12 +793,14 @@ export async function batchGenerateKeyframes(
   db: Database,
   userId: string,
   episodeId: string,
-  opts: { provider: string; modelName: string; shotIds?: string[] }
+  opts: { provider: string; modelName: string; shotIds?: string[]; candidatesPerShot?: number }
 ) {
   const episode = NovelEpisodeDAO.getByIdAndUser(db, episodeId, userId);
   if (!episode) throw createError(404, 'NOT_FOUND', '剧集不存在');
 
-  const { provider, modelName, shotIds } = opts;
+  const { provider, modelName, shotIds, candidatesPerShot } = opts;
+  const candidateCount = Math.min(Math.max(candidatesPerShot || 1, 1), 9);
+
   let shots = ShotDAO.listByEpisode(db, episode.id);
   if (shotIds && shotIds.length > 0) {
     shots = shots.filter(s => shotIds.includes(s.id));
@@ -771,6 +814,19 @@ export async function batchGenerateKeyframes(
     // 旧逻辑先删后生成，一旦生成失败（限流/Key 失效），镜头唯一的首帧永久丢失，
     // 下游视频生成会因"无首帧关键帧"跳过该镜头
     try {
+      // 九宫格候选模式：生成 N 个视角候选（frame_type='candidate'），不删除旧首帧，
+      // 用户挑选满意的一张后经"选择为首帧"接口升级（BigBanana 九宫格方案）
+      if (candidateCount > 1) {
+        const candidates = await generateKeyframeCandidates(db, userId, shot, {
+          provider,
+          modelName,
+          count: candidateCount,
+          referenceImages: collectShotReferenceImages(db, shot),
+        });
+        results.push({ shotId: shot.id, success: true, mode: 'candidates', candidates });
+        continue;
+      }
+
       const { prompt, negativePrompt } = keyframePrompt({
         shotDescription: shot.action_description,
         frameType: 'first',
@@ -781,6 +837,7 @@ export async function batchGenerateKeyframes(
         provider, modelName, prompt, negativePrompt,
         count: 1, size: '2560x1440',
         saveSubDir: 'keyframes',
+        referenceImages: collectShotReferenceImages(db, shot),
       });
 
       // 新帧落库成功后再移除旧帧
@@ -852,6 +909,21 @@ export async function batchGenerateVideos(
       continue;
     }
 
+    // ═══════════════════════════════════════════════════════════
+    // 首尾帧衔接（低抽卡核心）：下一镜首帧作尾帧（VideoClaw 方案）
+    // + 一致性参考图注入（角色/场景/道具，防漂移）
+    // ═══════════════════════════════════════════════════════════
+    let lastFrameImageUrl: string | undefined;
+    let resolvedEndFrameId: string | null = null;
+    try {
+      const lastFrame = resolveLastFrameForShot(db, shot, shots);
+      if (lastFrame) {
+        lastFrameImageUrl = imageToDataUrl(lastFrame.imageUrl);
+        resolvedEndFrameId = lastFrame.keyframeId;
+      }
+    } catch { /* 尾帧解析失败，退化为单首帧生成 */ }
+    const shotReferenceImages = collectShotReferenceImages(db, shot);
+
     // 检查是否已有处理中的视频（清理超时超过2分钟的任务）
     const existingVideos = ShotVideoIntervalDAO.listByShot(db, shot.id);
     const TWO_MINUTES = 2 * 60 * 1000;
@@ -914,6 +986,7 @@ export async function batchGenerateVideos(
         user_id: userId,
         shot_id: shot.id,
         start_frame_id: firstFrame.id,
+        end_frame_id: resolvedEndFrameId || undefined,
         duration_seconds: duration || 5,
         motion_prompt: finalMotionPrompt,
         video_model_used: `${provider}/${modelName}`,
@@ -923,6 +996,8 @@ export async function batchGenerateVideos(
         db, userId, projectId: episode.project_id,
         provider, modelName,
         firstFrameImageUrl: firstFrameImageForApi,
+        lastFrameImageUrl,
+        referenceImages: shotReferenceImages.length > 0 ? shotReferenceImages : undefined,
         motion: finalMotionPrompt,
         duration: duration || 5,
         ratio, resolution,

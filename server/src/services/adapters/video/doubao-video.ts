@@ -1,5 +1,5 @@
 // 字节豆包视频适配器（火山引擎 Seedance）
-// v1.0
+// v1.1 - 支持一致性参考图注入（角色定妆照/场景/道具）+ 首尾帧插值
 // API 文档: https://www.volcengine.com/docs/82379/1399438
 
 import type { VideoAdapter, VideoGenerateParams, VideoGenerateResult } from '../base';
@@ -39,6 +39,17 @@ if (combinedPrompt) { content.push({ type: 'text', text: combinedPrompt }); }
     // 首帧图片（图生视频）
     const isR2V = !!params.firstFrameImageUrl;
     if (isR2V) {
+      // 一致性参考图（角色定妆照/场景/道具）：先注入参考约束，再注入首帧。
+      // 多参考图会显著降低人物/场景漂移（参考 ArcReel/BigBanana 资产约束方案）。
+      // 限制最多 2 张参考图，避免超出 Seedance 单任务图片数上限。
+      const refImages = (params.referenceImages || []).slice(0, 2);
+      for (const refUrl of refImages) {
+        content.push({
+          type: 'image_url',
+          image_url: { url: refUrl },
+          role: 'reference_image',
+        });
+      }
       content.push({
         type: 'image_url',
         image_url: { url: params.firstFrameImageUrl },

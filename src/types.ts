@@ -189,6 +189,8 @@ export interface Prop extends BaseEntity {
   category: PropCategory;
   description: string;
   concept_images: ConceptImage[];
+  is_clue?: number;
+  keywords?: string;
 }
 
 // ---------- 镜头 ----------
@@ -215,11 +217,12 @@ export interface Shot extends BaseEntity {
   mood?: string | null;
   transition?: string | null;
   pace?: string | null;
+  use_next_first_frame?: number;
 }
 
 // ---------- 关键帧 ----------
 
-export type FrameType = 'first' | 'last' | 'middle';
+export type FrameType = 'first' | 'last' | 'middle' | 'end' | 'candidate';
 
 export interface Keyframe extends BaseEntity {
   user_id: string;

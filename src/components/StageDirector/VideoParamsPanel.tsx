@@ -1,4 +1,5 @@
 // 视频参数设置面板（纯展示组件，状态由 ShotCard 管理）
+// v1.1 - 增加首尾帧衔接开关（下镜首帧作尾帧，低抽卡核心选项）
 import { Video } from 'lucide-react';
 import { ModelSelector } from '../ModelConfig/ModelSelector';
 import type { VideoModelParamConfig } from '../../config/videoModelConfig';
@@ -20,6 +21,8 @@ interface VideoParamsPanelProps {
   onSubtitlesChange: (v: boolean) => void;
   motionPrompt: string;
   onMotionPromptChange: (v: string) => void;
+  useNextFirstFrame: boolean;
+  onUseNextFirstFrameChange: (v: boolean) => void;
 }
 
 export function VideoParamsPanel({
@@ -36,6 +39,8 @@ export function VideoParamsPanel({
   onSubtitlesChange,
   motionPrompt,
   onMotionPromptChange,
+  useNextFirstFrame,
+  onUseNextFirstFrameChange,
 }: VideoParamsPanelProps) {
   return (
     <div className="mt-3 p-3 bg-[var(--panel-2)] rounded-lg border border-[var(--border)] space-y-3">
@@ -104,6 +109,18 @@ export function VideoParamsPanel({
             </select>
           </div>
         )}
+        <div>
+          <label className="block text-[10px] text-[var(--ink-3)] mb-1">首尾帧衔接</label>
+          <select
+            value={useNextFirstFrame ? 'on' : 'off'}
+            onChange={(e) => onUseNextFirstFrameChange(e.target.value === 'on')}
+            className="w-full px-2 py-1.5 text-xs rounded-md border border-[var(--border)] bg-[var(--bg)] text-[var(--ink-1)] focus:outline-none focus:border-[var(--accent)]"
+          >
+            <option value="on">开启 · 下镜首帧作尾帧</option>
+            <option value="off">关闭 · 仅首帧</option>
+          </select>
+          <p className="text-[10px] text-[var(--ink-3)] mt-0.5">开启后视频起止画面硬锁定，大幅减少抽卡</p>
+        </div>
       </div>
       <div>
         <label className="block text-[10px] text-[var(--ink-3)] mb-1">运动描述（可选）</label>

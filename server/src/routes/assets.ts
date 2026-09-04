@@ -455,6 +455,7 @@ router.post('/episodes/:id/props/extract', validateBody(extractSchema), asyncHan
 - category: 类别（weapon武器/clothing服装/tool工具/electronic电子/food食物/document文书/decoration装饰/other其他）
 - description: 道具外观、材质、功能描述（用于后续生成概念图）
 - importance: 重要程度（key关键道具/supporting辅助道具/background背景道具）
+- is_clue: 是否为贯穿剧情的核心线索道具（0或1）。线索道具指推动剧情、承载悬念、跨多镜头反复出现的关键物件（如关键信件、玉佩、凶器、地图碎片、证据照片等），务必准确识别
 
 只返回 JSON，不要其他文字。`;
 
@@ -466,6 +467,7 @@ ${episode.script_content}
 2. description 要详细，包含外观、材质、颜色、尺寸、特殊功能
 3. 按重要程度排序，关键道具在前
 4. 同类道具合并
+5. 准确标记 is_clue：推动剧情、反复出现或承载悬念的物件标 1，其余标 0
 
 请以 JSON 数组格式返回。`;
 
@@ -492,6 +494,9 @@ ${episode.script_content}
     name: p.name || '未命名道具',
     category: p.category || 'other',
     description: p.description || '',
+    // 线索道具：AI 显式标记，或 importance=key 且名称含关键/重要/核心字样时兜底
+    is_clue: (p.is_clue === 1 || p.is_clue === true || (p.importance === 'key' && /关键|重要|核心/.test(p.name || ''))) ? 1 : 0,
+    keywords: Array.isArray(p.keywords) ? p.keywords.join(',') : (p.keywords || ''),
   }));
 
   res.json({ success: true, data: created });

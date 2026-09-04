@@ -54,6 +54,24 @@ export async function stageAudio(db: Database, task: AutoPipelineTask): Promise<
     const char = characterNameMap.get(charName);
     if (!char) return { voice: 'zh_female_qingxin', speed: 1.0 }; // 默认
 
+    // ═══════════════════════════════════════════════════════════
+    // 角色音色档案优先（NovelReel 方案）：voice_profile 为固定音色，
+    // 同一角色跨镜头/跨集声音始终一致；未配置时回退动态分配
+    // ═══════════════════════════════════════════════════════════
+    if (char.voice_profile) {
+      try {
+        const profile = JSON.parse(char.voice_profile);
+        if (profile && profile.voice) {
+          return {
+            voice: profile.voice,
+            speed: typeof profile.speed === 'number' ? profile.speed : 1.0,
+          };
+        }
+      } catch {
+        // 音色档案解析失败，回退动态分配
+      }
+    }
+
     const gender = char.gender || 'other';
     const roleType = char.role_type || 'supporting';
     const personality = (char.personality || '').toLowerCase();

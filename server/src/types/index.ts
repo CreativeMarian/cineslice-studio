@@ -165,6 +165,7 @@ export interface ScriptCharacter {
   age?: string;
   appearance?: string;
   personality?: string;
+  voice_profile?: string; // 音色档案 JSON：{ voice, speed }，跨镜头/跨集声音一致
   created_at: string;
   updated_at: string;
 }
@@ -215,6 +216,8 @@ export interface ScriptProp {
   category: PropCategory;
   description: string;
   concept_images: string | null;
+  is_clue: number;      // 线索标记：跨镜头保持视觉连贯（ArcReel clue tracking）
+  keywords: string;     // 关键词（逗号分隔），用于镜头匹配道具
   created_at: string;
 }
 
@@ -255,13 +258,14 @@ export interface Shot {
   mood: string | null;
   transition: string | null;
   pace: string | null;
+  use_next_first_frame: number; // 1=视频生成时自动用下一镜首帧作尾帧（首尾帧插值）
   created_at: string;
   updated_at: string;
 }
 
 // ============ 关键帧 ============
 
-export type FrameType = 'first' | 'last' | 'middle';
+export type FrameType = 'first' | 'last' | 'middle' | 'end' | 'candidate';
 
 export interface ShotKeyframe {
   id: string;
@@ -274,6 +278,8 @@ export interface ShotKeyframe {
   image_model_used: string | null;
   reference_characters: string | null;
   reference_scene: string | null;
+  candidate_index?: number; // 九宫格候选序号（frame_type='candidate' 时）
+  is_selected?: number;     // 候选是否被选中升级为首帧
   created_at: string;
 }
 

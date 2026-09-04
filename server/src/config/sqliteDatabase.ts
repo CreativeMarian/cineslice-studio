@@ -90,11 +90,54 @@ export function runMigrations(db: SQLiteDatabase, migrationsDir: string): void {
     console.log(`[DB] 执行迁移: ${file}`);
 
     const runMigration = db.transaction(() => {
-      db.exec(sql);
+      // 逐语句执行：SQLite 不支持 ADD COLUMN IF NOT EXISTS，
+      // 列已存在时整文件执行会因 duplicate column name 回滚，导致迁移永远无法记录。
+      // 这里对"列已存在"做幂等跳过，让文件内其余语句（如索引重建）继续生效。
+      for (const stmt of splitSqlStatements(sql)) {
+        try {
+          db.exec(stmt);
+        } catch (err) {
+          if (isDuplicateColumnError(err) && isColumnExists(db, stmt)) {
+            console.warn(`[DB] ${file}: 列已存在，跳过重复 DDL 语句`);
+            continue;
+          }
+          throw err;
+        }
+      }
       insertMigration.run(file);
     });
     runMigration();
   }
 
   console.log('[DB] 迁移完成');
+}
+
+// 迁移文件均为简单 DDL（无触发器/BEGIN 块，字符串字面量不含分号），可按 ';' 安全拆分
+function splitSqlStatements(sql: string): string[] {
+  return sql
+    .split(';')
+    .map(s => s.trim())
+    .filter(s => s.length > 0);
+}
+
+// 匹配 ALTER TABLE ... ADD COLUMN 语句（表名/列名限定为常见标识符）
+const ALTER_ADD_COLUMN_RE =
+  /^\s*ALTER\s+TABLE\s+["'`]?([A-Za-z_][\w$]*)["'`]?\s+ADD\s+COLUMN\s+["'`]?([A-Za-z_][\w$]*)["'`]?/i;
+
+function isDuplicateColumnError(err: unknown): boolean {
+  return /duplicate column name/i.test(String((err as Error)?.message ?? ''));
+}
+
+// 剥离语句段开头的 SQL 注释行，便于后续正则锚定语句关键词
+function stripLeadingSqlComments(sql: string): string {
+  return sql.replace(/^(?:\s*--[^\n]*\n?)+/, '');
+}
+
+// 校验 ADD COLUMN 的目标列是否已存在于表中，存在则说明该 DDL 已生效，可安全跳过
+function isColumnExists(db: SQLiteDatabase, stmt: string): boolean {
+  const m = stripLeadingSqlComments(stmt).match(ALTER_ADD_COLUMN_RE);
+  if (!m) return false;
+  const [, table, column] = m;
+  const columns = db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[];
+  return columns.some(c => c.name === column);
 }

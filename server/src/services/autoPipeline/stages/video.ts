@@ -13,6 +13,11 @@ import { downloadToFile } from '../../../utils/download';
 import { projectStorage } from '../../projectStorage';
 import { directorPromptService } from '../../directorPromptService';
 import { aiPromptOptimizerService, type ScriptContextForAI } from '../../aiPromptOptimizerService';
+import {
+  resolveLastFrameForShot,
+  collectShotReferenceImages,
+  imageToDataUrl,
+} from '../../shotConsistencyService';
 import type { ScriptAnalysisResult } from '../../scriptAnalysisService';
 import type { AutoPipelineTask } from '../types';
 import { getFirstModel, getOrCreateScriptAnalysis, getProjectStylePreset, buildDirectorShotContext } from '../helpers';
@@ -120,6 +125,24 @@ export async function stageVideo(db: Database, task: AutoPipelineTask): Promise<
       }
 
       // ═══════════════════════════════════════════════════════════
+      // 首尾帧衔接（低抽卡核心）：下一镜首帧作尾帧（VideoClaw 方案）
+      // 尾帧硬锁定 → 视频模型只做中间插值，起止落点可控，镜头间不连戏问题缓解
+      // ═══════════════════════════════════════════════════════════
+      let lastFrameImageForApi: string | undefined;
+      let resolvedEndFrameId: string | null = null;
+      try {
+        const lastFrame = resolveLastFrameForShot(db, shot, shots);
+        if (lastFrame) {
+          lastFrameImageForApi = imageToDataUrl(lastFrame.imageUrl);
+          resolvedEndFrameId = lastFrame.keyframeId;
+        }
+      } catch { /* 尾帧解析失败，退化为单首帧生成 */ }
+
+      // 一致性参考图（角色定妆照/场景/道具），注入视频生成防漂移
+      const shotReferenceImages = collectShotReferenceImages(db, shot)
+        .map(imageToDataUrl);
+
+      // ═══════════════════════════════════════════════════════════
       // 导演级提示词生成（v2.0）
       // 包含：时序控制、动作分解、表情细节、心理活动、环境交互、连贯性、真实性校验
       // 解决：打电话点屏幕、无厘头耳光、角色突然消失、剧情不连贯等问题
@@ -189,6 +212,7 @@ export async function stageVideo(db: Database, task: AutoPipelineTask): Promise<
             user_id: task.userId,
             shot_id: shot.id,
             start_frame_id: firstFrame.id,
+            end_frame_id: resolvedEndFrameId || undefined,
             duration_seconds: shot.duration_seconds || 5,
             motion_prompt: videoMotionPrompt,
             video_model_used: `${model.provider}/${model.modelName}`,
@@ -199,6 +223,8 @@ export async function stageVideo(db: Database, task: AutoPipelineTask): Promise<
             db, userId: task.userId, projectId: task.projectId,
             provider: model.provider, modelName: model.modelName,
             firstFrameImageUrl: firstFrameImageForApi,
+            lastFrameImageUrl: lastFrameImageForApi,
+            referenceImages: shotReferenceImages.length > 0 ? shotReferenceImages : undefined,
             motion: videoMotionPrompt,
             duration: shot.duration_seconds || 5,
             ratio: '16:9',
