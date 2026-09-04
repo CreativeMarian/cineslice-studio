@@ -160,6 +160,7 @@ export interface Character extends BaseEntity {
   concept_images: ConceptImage[];
   four_view_images?: ConceptImage[];
   selected_image_index: number;
+  voice_profile?: string;
 }
 
 // ---------- 场景 ----------
@@ -191,6 +192,20 @@ export interface Prop extends BaseEntity {
   concept_images: ConceptImage[];
   is_clue?: number;
   keywords?: string;
+}
+
+// ---------- 衣橱（多套造型） ----------
+
+export interface CharacterOutfit {
+  id: string;
+  user_id: string;
+  character_id: string;
+  name: string;
+  description: string;
+  image_url: string | null;
+  is_default: number;
+  created_at: string;
+  updated_at: string;
 }
 
 // ---------- 镜头 ----------

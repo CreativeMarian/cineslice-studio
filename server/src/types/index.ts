@@ -170,6 +170,20 @@ export interface ScriptCharacter {
   updated_at: string;
 }
 
+// ============ 角色衣橱（多套造型，BigBanana Base Look 方案） ============
+
+export interface CharacterOutfit {
+  id: string;
+  user_id: string;
+  character_id: string;
+  name: string;
+  description: string;
+  image_url: string | null;
+  is_default: number;
+  created_at: string;
+  updated_at: string;
+}
+
 // ============ 角色变体（P1） ============
 
 export interface CharacterVariation {

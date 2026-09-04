@@ -8,15 +8,40 @@ import {
   LayoutGrid,
   Edit3,
   Trash2,
+  Plus,
+  Shirt,
+  Mic2,
+  Star,
 } from 'lucide-react';
 import { Modal, Button, Input, Textarea, Badge } from '../ui';
 import { ConfigPanel } from '../StageScript/ConfigPanel';
 import { characterService } from '../../services/assetService';
+import apiClient from '../../services/apiClient';
 import { useUIStore } from '../../stores/useUIStore';
 import { useModelStore } from '../../stores/useModelStore';
 import { parseModelKey } from '../../types/model';
 import { ROLE_TYPE_LABELS, GENDER_LABELS } from '../../utils';
-import type { Character } from '../../types';
+import type { Character, CharacterOutfit } from '../../types';
+
+// 豆包 TTS 8 音色（与后端 VOICE_LIBRARY 对齐，NovelReel 式角色声音档案）
+const VOICE_OPTIONS = [
+  { value: 'zh_female_qingxin', label: '清新女声 · 年轻女主角' },
+  { value: 'zh_female_wener', label: '温柔女声 · 温柔/成熟女性' },
+  { value: 'zh_female_tianmei', label: '甜美女声 · 可爱/少女角色' },
+  { value: 'zh_female_shenhou', label: '深厚女声 · 成熟/威严女性' },
+  { value: 'zh_male_qianhou', label: '浑厚男声 · 成熟男主角' },
+  { value: 'zh_male_xiaoshen', label: '小生男声 · 年轻/阴险角色' },
+  { value: 'zh_male_yangguang', label: '阳光男声 · 开朗/正义角色' },
+  { value: 'zh_male_chenwen', label: '沉稳男声 · 中年/权威角色' },
+];
+
+const SPEED_OPTIONS = [
+  { value: 0.8, label: '0.8x 慢' },
+  { value: 0.9, label: '0.9x 稍慢' },
+  { value: 1.0, label: '1.0x 正常' },
+  { value: 1.1, label: '1.1x 稍快' },
+  { value: 1.2, label: '1.2x 快' },
+];
 
 interface CharacterDetailProps {
   character: Character | null;
@@ -39,6 +64,26 @@ export function CharacterDetail({ character, onClose, onUpdate }: CharacterDetai
   const [imagePrompt, setImagePrompt] = useState('');
   const [fourViewPrompt, setFourViewPrompt] = useState('');
 
+  // 音色档案（NovelReel 式：跨镜头/跨集声音一致）
+  const [voice, setVoice] = useState<string>('');
+  const [speed, setSpeed] = useState<number>(1.0);
+
+  // 衣橱（BigBanana Base Look 方案）
+  const [outfits, setOutfits] = useState<CharacterOutfit[]>([]);
+  const [outfitModalOpen, setOutfitModalOpen] = useState(false);
+  const [newOutfitName, setNewOutfitName] = useState('');
+  const [newOutfitDesc, setNewOutfitDesc] = useState('');
+  const [outfitGenTarget, setOutfitGenTarget] = useState<CharacterOutfit | null>(null);
+  const [isGeneratingOutfitImage, setIsGeneratingOutfitImage] = useState(false);
+
+  const loadOutfits = async (characterId: string) => {
+    try {
+      const res = await apiClient.get<unknown, { success?: boolean; data?: CharacterOutfit[] }>(`/characters/${characterId}/outfits`);
+      if (res.success && res.data) setOutfits(res.data);
+    } catch {
+      setOutfits([]);
+    }
+  };
   // 生成默认概念图提示词（正位站立，严谨描述，可用于视频生成）
   const generateDefaultImagePrompt = useCallback(() => {
     const genderText = character?.gender === 'male' ? '男性' : character?.gender === 'female' ? '女性' : '人物';
@@ -60,7 +105,18 @@ export function CharacterDetail({ character, onClose, onUpdate }: CharacterDetai
       setSelectedImageIndex(character.selected_image_index);
       setImagePrompt(generateDefaultImagePrompt());
       setFourViewPrompt(generateDefaultFourViewPrompt());
+      // 解析音色档案
+      try {
+        const p = character.voice_profile ? JSON.parse(character.voice_profile) : null;
+        setVoice(p?.voice || '');
+        setSpeed(typeof p?.speed === 'number' ? p.speed : 1.0);
+      } catch {
+        setVoice('');
+        setSpeed(1.0);
+      }
     }
+    if (character) loadOutfits(character.id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [character, generateDefaultImagePrompt, generateDefaultFourViewPrompt]);
 
   // 外貌描述变化时更新提示词
@@ -80,14 +136,17 @@ export function CharacterDetail({ character, onClose, onUpdate }: CharacterDetai
     return '';
   })();
 
+
   if (!character) return null;
 
   const handleSave = async () => {
     try {
+      const voiceProfile = voice ? JSON.stringify({ voice, speed }) : undefined;
       const res = await characterService.update(character.id, {
         name,
         description,
         visual_description: visualDescription,
+        voice_profile: voiceProfile,
       });
       if (res.success && res.data) {
         onUpdate(res.data);
@@ -164,6 +223,77 @@ export function CharacterDetail({ character, onClose, onUpdate }: CharacterDetai
       console.error('[FourView] 生成失败:', err);
     } finally {
       setIsGeneratingFourView(false);
+    }
+  };
+
+  // ============ 衣橱操作 ============
+
+  const handleAddOutfit = async () => {
+    if (!newOutfitName.trim()) {
+      showToast('请输入造型名称', 'error');
+      return;
+    }
+    try {
+      const res = await apiClient.post<unknown, { success?: boolean; data?: CharacterOutfit; message?: string }>(`/characters/${character.id}/outfits`, {
+        name: newOutfitName.trim(),
+        description: newOutfitDesc.trim(),
+      });
+      if (res.success && res.data) {
+        setOutfits(prev => [...prev, res.data!]);
+        setNewOutfitName('');
+        setNewOutfitDesc('');
+        setOutfitModalOpen(false);
+        showToast('造型已添加', 'success');
+      } else {
+        showToast(res.message || '添加失败', 'error');
+      }
+    } catch (err: any) {
+      showToast(err?.response?.data?.message || '添加失败', 'error');
+    }
+  };
+
+  const handleSetDefaultOutfit = async (outfit: CharacterOutfit) => {
+    try {
+      const res = await apiClient.put<unknown, { success?: boolean; data?: CharacterOutfit }>(`/outfits/${outfit.id}/default`);
+      if (res.success && res.data) {
+        setOutfits(prev => prev.map(o => ({ ...o, is_default: o.id === outfit.id ? 1 : 0 })));
+        showToast(`已将「${outfit.name}」设为默认造型，将作为角色参考图注入镜头`, 'success');
+      }
+    } catch {
+      showToast('设置默认造型失败', 'error');
+    }
+  };
+
+  const handleDeleteOutfit = async (outfit: CharacterOutfit) => {
+    try {
+      await apiClient.delete(`/outfits/${outfit.id}`);
+      setOutfits(prev => prev.filter(o => o.id !== outfit.id));
+      showToast('造型已删除', 'success');
+    } catch {
+      showToast('删除失败', 'error');
+    }
+  };
+
+  const handleGenerateOutfitImage = async (params: { modelKey: string }) => {
+    if (!outfitGenTarget) return;
+    setIsGeneratingOutfitImage(true);
+    try {
+      const { provider, modelName } = parseModelKey(params.modelKey);
+      const res = await apiClient.post<unknown, { success?: boolean; data?: CharacterOutfit; message?: string }>(`/outfits/${outfitGenTarget.id}/generate-image`, {
+        provider,
+        modelName,
+      });
+      if (res.success && res.data) {
+        setOutfits(prev => prev.map(o => o.id === res.data!.id ? res.data! : o));
+        showToast('造型图生成成功（保持面容一致，仅换装）', 'success');
+      } else {
+        showToast(res.message || '造型图生成失败', 'error');
+      }
+    } catch (err: any) {
+      showToast(err?.response?.data?.message || '造型图生成失败', 'error');
+    } finally {
+      setIsGeneratingOutfitImage(false);
+      setOutfitGenTarget(null);
     }
   };
 
@@ -320,6 +450,116 @@ export function CharacterDetail({ character, onClose, onUpdate }: CharacterDetai
               placeholder="详细的外貌特征描述，用于 AI 图像生成"
             />
 
+            {/* 音色档案（NovelReel 式） */}
+            <div className="p-3 rounded-[var(--radius-control)] bg-[var(--panel-2)] border border-[var(--border)]">
+              <p className="text-xs font-medium text-[var(--ink-2)] mb-2 flex items-center gap-1">
+                <Mic2 className="w-3 h-3" /> 角色声音档案
+              </p>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-[10px] text-[var(--ink-3)] mb-1">音色（跨镜头/跨集固定）</label>
+                  <select
+                    value={voice}
+                    onChange={(e) => setVoice(e.target.value)}
+                    className="w-full px-2 py-1.5 text-xs rounded-md border border-[var(--border)] bg-[var(--bg)] text-[var(--ink-1)] focus:outline-none focus:border-[var(--accent)]"
+                  >
+                    <option value="">自动分配（按性别/性格）</option>
+                    {VOICE_OPTIONS.map(v => (
+                      <option key={v.value} value={v.value}>{v.label}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[10px] text-[var(--ink-3)] mb-1">语速</label>
+                  <select
+                    value={speed}
+                    onChange={(e) => setSpeed(Number(e.target.value))}
+                    className="w-full px-2 py-1.5 text-xs rounded-md border border-[var(--border)] bg-[var(--bg)] text-[var(--ink-1)] focus:outline-none focus:border-[var(--accent)]"
+                  >
+                    {SPEED_OPTIONS.map(s => (
+                      <option key={s.value} value={s.value}>{s.label}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+              <p className="text-[10px] text-[var(--ink-3)] mt-1.5">保存后该角色台词将始终使用此音色，配音不再漂移</p>
+            </div>
+
+            {/* 衣橱 / 多套造型（BigBanana Base Look） */}
+            <div className="p-3 rounded-[var(--radius-control)] bg-[var(--panel-2)] border border-[var(--border)]">
+              <div className="flex items-center justify-between mb-2">
+                <p className="text-xs font-medium text-[var(--ink-2)] flex items-center gap-1">
+                  <Shirt className="w-3 h-3" /> 衣橱 / 多套造型
+                </p>
+                <Button variant="outline" size="sm" leftIcon={<Plus className="w-3 h-3" />} onClick={() => setOutfitModalOpen(true)}>
+                  新增造型
+                </Button>
+              </div>
+              <p className="text-[10px] text-[var(--ink-3)] mb-2">默认造型图会作为角色参考图注入镜头生成，保证跨镜服装一致</p>
+              {outfits.length === 0 ? (
+                <div className="rounded-lg border border-dashed border-[var(--border)] py-4 text-center">
+                  <p className="text-xs text-[var(--ink-3)]">还没有造型。新增造型后可生成换装图（保持面容一致，仅更换服装）</p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-3 gap-2">
+                  {outfits.map(o => (
+                    <div key={o.id} className={`rounded-lg overflow-hidden border ${o.is_default ? 'border-[var(--accent)] ring-1 ring-[var(--accent)]/30' : 'border-[var(--border)]'}`}>
+                      <div className="aspect-[3/4] bg-[var(--panel-3)] relative group">
+                        {o.image_url ? (
+                          <img src={o.image_url} alt={o.name} className="w-full h-full object-cover" />
+                        ) : (
+                          <div className="w-full h-full flex items-center justify-center">
+                            <Shirt className="w-6 h-6 text-[var(--ink-3)] opacity-50" />
+                          </div>
+                        )}
+                        {o.is_default === 1 && (
+                          <span className="absolute top-1 left-1 flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-[var(--accent)] text-white text-[9px]">
+                            <Star className="w-2.5 h-2.5" /> 默认
+                          </span>
+                        )}
+                      </div>
+                      <div className="p-1.5">
+                        <p className="text-[10px] text-[var(--ink-1)] truncate">{o.name}</p>
+                        {o.image_url ? (
+                          <button
+                            onClick={() => setOutfitGenTarget(o)}
+                            className="mt-1 w-full px-1 py-0.5 rounded text-[9px] text-[var(--accent)] border border-[var(--accent)]/30 hover:bg-[var(--accent)]/10 transition-colors"
+                          >
+                            <Sparkles className="w-2.5 h-2.5 inline mr-0.5" />
+                            重新生成换装图
+                          </button>
+                        ) : (
+                          <button
+                            onClick={() => setOutfitGenTarget(o)}
+                            className="mt-1 w-full px-1 py-0.5 rounded text-[9px] text-[var(--accent)] border border-[var(--accent)]/30 hover:bg-[var(--accent)]/10 transition-colors"
+                          >
+                            <Sparkles className="w-2.5 h-2.5 inline mr-0.5" />
+                            生成造型图
+                          </button>
+                        )}
+                        <div className="mt-1 flex gap-1">
+                          {o.is_default !== 1 && (
+                            <button
+                              onClick={() => handleSetDefaultOutfit(o)}
+                              className="flex-1 px-1 py-0.5 rounded text-[9px] text-[var(--ink-2)] border border-[var(--border)] hover:bg-[var(--panel-3)] transition-colors"
+                            >
+                              设为默认
+                            </button>
+                          )}
+                          <button
+                            onClick={() => handleDeleteOutfit(o)}
+                            className="flex-1 px-1 py-0.5 rounded text-[9px] text-red-500 border border-red-500/30 hover:bg-red-500/10 transition-colors"
+                          >
+                            删除
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
             {/* 概念图提示词编辑 */}
             <div className="p-3 rounded-[var(--radius-control)] bg-[var(--panel-2)] border border-[var(--border)]">
               <div className="flex items-center justify-between mb-2">
@@ -387,6 +627,51 @@ export function CharacterDetail({ character, onClose, onUpdate }: CharacterDetai
         modelType="image"
         onGenerate={handleGenerateFourView}
         isLoading={isGeneratingFourView}
+        defaultModelKey={defaultImageModelKey}
+      />
+
+      {/* 新增造型弹窗 */}
+      <Modal
+        open={outfitModalOpen}
+        onOpenChange={setOutfitModalOpen}
+        title="新增造型"
+        size="md"
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setOutfitModalOpen(false)}>
+              取消
+            </Button>
+            <Button onClick={handleAddOutfit}>添加造型</Button>
+          </>
+        }
+      >
+        <div className="space-y-3">
+          <Input
+            label="造型名称"
+            value={newOutfitName}
+            onChange={(e) => setNewOutfitName(e.target.value)}
+            placeholder="如：便装 / 晚礼服 / 古装 / 战斗服"
+          />
+          <Textarea
+            label="造型描述（用于生成换装图）"
+            value={newOutfitDesc}
+            onChange={(e) => setNewOutfitDesc(e.target.value)}
+            rows={3}
+            placeholder="如：黑色西装的正式着装，深蓝色领带，皮鞋；或 浅蓝色汉服长裙，发髻..."
+          />
+          <p className="text-[10px] text-[var(--ink-3)]">添加后点击「生成造型图」，将保持角色面容一致、仅更换服装</p>
+        </div>
+      </Modal>
+
+      {/* 生成造型图（用角色定妆照作参考换装） */}
+      <ConfigPanel
+        open={!!outfitGenTarget}
+        onOpenChange={(open) => !open && setOutfitGenTarget(null)}
+        title={`生成造型图：${outfitGenTarget?.name || ''}`}
+        description={`保持「${character.name}」面部、体型、发型一致，仅更换为：${outfitGenTarget?.description || outfitGenTarget?.name || ''}`}
+        modelType="image"
+        onGenerate={handleGenerateOutfitImage}
+        isLoading={isGeneratingOutfitImage}
         defaultModelKey={defaultImageModelKey}
       />
     </>

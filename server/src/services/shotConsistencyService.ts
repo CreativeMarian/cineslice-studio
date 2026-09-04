@@ -15,6 +15,7 @@ import {
   ScriptSceneDAO,
   ScriptPropDAO,
   NovelEpisodeDAO,
+  CharacterOutfitDAO,
 } from '../models';
 import { projectStorage } from './projectStorage';
 import { keyframePrompt } from './prompts/keyframePrompt';
@@ -49,7 +50,10 @@ export function parseShotPropIds(shot: Shot): string[] {
 }
 
 /** 解析概念图 JSON 数组，返回图片 URL 列表 */
-export function parseConceptImages(raw: string | null): string[] {
+export function parseConceptImages(raw: string | null | any[]): string[] {
+  if (Array.isArray(raw)) {
+    return raw.map((img: any) => (typeof img === 'string' ? img : img?.url)).filter(Boolean);
+  }
   if (!raw) return [];
   try {
     const parsed = JSON.parse(raw);
@@ -71,21 +75,40 @@ export function parseConceptImages(raw: string | null): string[] {
 export function collectShotReferenceImages(db: Database, shot: Shot): string[] {
   const refs: string[] = [];
 
-  // 1. 角色参考图（定妆照/概念图）
+  // 1. 角色参考图（衣橱默认造型图优先，BigBanana Base Look：服装一致）
+  // characters_in_shot 可能存角色 id 或角色名（兼容两种历史数据），统一解析
   const charIds = parseShotCharacterIds(shot);
-  if (charIds.length > 0) {
-    const chars = ScriptCharacterDAO.getByIds(db, charIds);
-    for (const char of chars) {
-      if (!char) continue;
-      if (char.reference_image_url) {
-        refs.push(char.reference_image_url);
-      } else {
-        const concepts = parseConceptImages(char.concept_images);
-        const selected = char.selected_image_index != null && concepts[char.selected_image_index]
-          ? concepts[char.selected_image_index]
-          : concepts[0];
-        if (selected) refs.push(selected);
+  const chars = charIds.length > 0
+    ? ScriptCharacterDAO.getByIds(db, charIds).filter(Boolean)
+    : [];
+  if (chars.length < charIds.length) {
+    // 有按 id 未命中的项 → 按角色名匹配当前剧集角色
+    const episodeChars = ScriptCharacterDAO.listByEpisode(db, shot.episode_id);
+    for (const ref of charIds) {
+      if (!chars.some(c => c.id === ref)) {
+        const matched = episodeChars.find(c => c.name === ref);
+        if (matched && !chars.some(c => c.id === matched.id)) chars.push(matched);
       }
+    }
+  }
+  for (const char of chars) {
+    if (!char) continue;
+    let img: string | null = null;
+    // 默认造型图（面容一致 + 服装一致）
+    const outfit = CharacterOutfitDAO.getDefaultForCharacter(db, char.id);
+    if (outfit?.image_url) {
+      img = outfit.image_url;
+    } else if (char.reference_image_url) {
+      img = char.reference_image_url;
+    } else {
+      const concepts = parseConceptImages(char.concept_images);
+      const selected = char.selected_image_index != null && concepts[char.selected_image_index]
+        ? concepts[char.selected_image_index]
+        : concepts[0];
+      if (selected) img = selected;
+    }
+    if (img) {
+      refs.push(img);
       if (refs.length >= 2) break;
     }
   }
@@ -103,10 +126,20 @@ export function collectShotReferenceImages(db: Database, shot: Shot): string[] {
   }
 
   // 3. 道具参考图（线索道具优先，保证跨镜视觉连贯）
+  // props_in_shot 同样可能存道具 id 或名称
   if (refs.length < 3) {
     const propIds = parseShotPropIds(shot);
     if (propIds.length > 0) {
-      const props = ScriptPropDAO.getByIds ? ScriptPropDAO.getByIds(db, propIds) : [];
+      const props = ScriptPropDAO.getByIds(db, propIds).filter(Boolean);
+      if (props.length < propIds.length) {
+        const episodeProps = ScriptPropDAO.listByEpisode(db, shot.episode_id);
+        for (const ref of propIds) {
+          if (!props.some(p => p.id === ref)) {
+            const matched = episodeProps.find(p => p.name === ref);
+            if (matched && !props.some(p => p.id === matched.id)) props.push(matched);
+          }
+        }
+      }
       for (const prop of props) {
         if (!prop) continue;
         const propImgs = parseConceptImages(prop.concept_images);

@@ -59,6 +59,7 @@ export function ShotCard({ shot, index, isExpanded, onToggle, showToast }: ShotC
   const [isDeletingVideo, setIsDeletingVideo] = useState(false);
   const [useNextFirstFrame, setUseNextFirstFrame] = useState<boolean>(shot.use_next_first_frame !== 0);
   const [isGeneratingCandidates, setIsGeneratingCandidates] = useState(false);
+  const [isGeneratingEndFrame, setIsGeneratingEndFrame] = useState(false);
 
   // 当前视频模型的参数配置
   const videoConfig = selectedVideoModel ? getVideoModelConfig(selectedVideoModel) : null;
@@ -313,6 +314,39 @@ export function ShotCard({ shot, index, isExpanded, onToggle, showToast }: ShotC
     }
   };
 
+  // 生成显式尾帧（End Frame，动作/情绪转折镜头推荐）：之后该镜视频首尾帧插值
+  const handleGenerateEndFrame = async () => {
+    if (!selectedImageModel) {
+      showToast('请选择图像模型', 'error');
+      return;
+    }
+    const [provider, modelName] = selectedImageModel.split(':');
+    if (!provider || !modelName) {
+      showToast('模型格式错误', 'error');
+      return;
+    }
+    setIsGeneratingEndFrame(true);
+    try {
+      const res = await apiClient.post<unknown, { success?: boolean; data?: ShotKeyframe; message?: string }>(`/shots/${shot.id}/keyframes/endframe`, {
+        provider,
+        modelName,
+      });
+      if (res.success && res.data) {
+        setKeyframes(prev => {
+          const exists = prev.some(k => k.id === res.data!.id);
+          return exists ? prev : [...prev, res.data as unknown as ShotKeyframe];
+        });
+        showToast('尾帧已生成：该镜视频将做首尾帧插值', 'success');
+      } else {
+        showToast(res.message || '尾帧生成失败', 'error');
+      }
+    } catch (err: any) {
+      showToast(err?.response?.data?.message || '尾帧生成失败', 'error');
+    } finally {
+      setIsGeneratingEndFrame(false);
+    }
+  };
+
   return (
     <Card className="overflow-hidden">
       <div
@@ -409,6 +443,16 @@ export function ShotCard({ shot, index, isExpanded, onToggle, showToast }: ShotC
                     尾帧✓
                   </span>
                 )}
+                <button
+                  type="button"
+                  onClick={handleGenerateEndFrame}
+                  disabled={isGeneratingEndFrame}
+                  className={`flex items-center gap-1 px-2 py-1 rounded-md text-[10px] border transition-colors ${isGeneratingEndFrame ? 'opacity-50 cursor-not-allowed' : 'hover:bg-[var(--panel-2)]'}`}
+                  style={{ borderColor: 'var(--border)', color: 'var(--ink-2)' }}
+                >
+                  {isGeneratingEndFrame ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Image className="w-3 h-3" />}
+                  {isGeneratingEndFrame ? '生成中...' : '生成尾帧'}
+                </button>
                 {useNextFirstFrame && (
                   <span className="px-2 py-1 rounded-md text-[10px] bg-blue-500/10 text-blue-600 border border-blue-500/20">
                     自动尾帧

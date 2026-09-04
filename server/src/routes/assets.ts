@@ -9,6 +9,7 @@ import {
   ScriptCharacterDAO,
   ScriptSceneDAO,
   ScriptPropDAO,
+  CharacterOutfitDAO,
 } from '../models';
 import { createError, asyncHandler } from '../middleware/errorHandler';
 import { validateBody } from '../middleware/validate';
@@ -18,7 +19,7 @@ import { characterExtractPrompt } from '../services/prompts/characterExtract';
 import { sceneExtractPrompt } from '../services/prompts/sceneExtract';
 import { characterConceptPrompt, sceneConceptPrompt, characterFourViewPrompt } from '../services/prompts/keyframePrompt';
 import { parseAiJsonOrThrow } from '../utils/aiJsonParser';
-import type { Database } from '../types';
+import type { Database, CharacterOutfit } from '../types';
 
 const router = Router();
 
@@ -59,6 +60,7 @@ const updateCharacterSchema = z.object({
   description: z.string().optional(),
   visual_description: z.string().optional(),
   selected_image_index: z.number().int().optional(),
+  voice_profile: z.string().optional(), // 音色档案 JSON：{ voice, speed }
 });
 
 const updateSceneSchema = z.object({
@@ -286,6 +288,120 @@ router.delete('/characters/:id', asyncHandler(async (req: Request, res: Response
   if (!character) throw createError(404, 'NOT_FOUND', '角色不存在');
   ScriptCharacterDAO.delete(db, req.params.id);
   res.json({ success: true, data: { message: '角色已删除' } });
+}));
+
+// ============ 衣橱（多套造型，BigBanana Base Look 方案） ============
+
+const outfitCreateSchema = z.object({
+  name: z.string().min(1),
+  description: z.string().optional(),
+  imageUrl: z.string().optional(),
+});
+
+const outfitUpdateSchema = z.object({
+  name: z.string().min(1).optional(),
+  description: z.string().optional(),
+  is_default: z.number().int().min(0).max(1).optional(),
+});
+
+/** 校验造型归属：造型 → 角色 → 剧集 → 项目 → 用户 */
+function requireOutfitOwnership(db: Database, req: Request, outfitId: string): CharacterOutfit {
+  const outfit = CharacterOutfitDAO.getById(db, outfitId);
+  if (!outfit) throw createError(404, 'NOT_FOUND', '造型不存在');
+  const character = ScriptCharacterDAO.getById(db, outfit.character_id);
+  if (!character) throw createError(404, 'NOT_FOUND', '造型不存在');
+  const episode = NovelEpisodeDAO.getById(db, character.episode_id);
+  if (!episode) throw createError(404, 'NOT_FOUND', '造型不存在');
+  const project = ProjectDAO.getByIdAndUser(db, episode.project_id, req.user.id);
+  if (!project) throw createError(404, 'NOT_FOUND', '造型不存在');
+  return outfit;
+}
+
+// 角色造型列表
+router.get('/characters/:id/outfits', asyncHandler(async (req: Request, res: Response) => {
+  const db = getDb(req);
+  const character = ScriptCharacterDAO.getByIdAndUser(db, req.params.id, req.user.id);
+  if (!character) throw createError(404, 'NOT_FOUND', '角色不存在');
+  const outfits = CharacterOutfitDAO.listByCharacter(db, character.id);
+  res.json({ success: true, data: outfits });
+}));
+
+// 新建造型（手工录入，可先无图，稍后生成造型图）
+router.post('/characters/:id/outfits', validateBody(outfitCreateSchema), asyncHandler(async (req: Request, res: Response) => {
+  const db = getDb(req);
+  const character = ScriptCharacterDAO.getByIdAndUser(db, req.params.id, req.user.id);
+  if (!character) throw createError(404, 'NOT_FOUND', '角色不存在');
+  const existing = CharacterOutfitDAO.listByCharacter(db, character.id);
+  const outfit = CharacterOutfitDAO.create(db, {
+    user_id: req.user.id,
+    character_id: character.id,
+    name: req.body.name,
+    description: req.body.description || '',
+    image_url: req.body.imageUrl || undefined,
+    is_default: existing.length === 0 ? 1 : 0, // 首个造型自动设为默认
+  });
+  res.json({ success: true, data: outfit });
+}));
+
+// 更新造型（名称/描述/默认标记）
+router.put('/outfits/:id', validateBody(outfitUpdateSchema), asyncHandler(async (req: Request, res: Response) => {
+  const db = getDb(req);
+  requireOutfitOwnership(db, req, req.params.id);
+  const updated = CharacterOutfitDAO.update(db, req.params.id, req.body);
+  res.json({ success: true, data: updated });
+}));
+
+// 设为默认造型（同时清除同角色其他默认）
+router.put('/outfits/:id/default', asyncHandler(async (req: Request, res: Response) => {
+  const db = getDb(req);
+  const outfit = requireOutfitOwnership(db, req, req.params.id);
+  const updated = CharacterOutfitDAO.setDefault(db, outfit.id, outfit.character_id);
+  res.json({ success: true, data: updated });
+}));
+
+// 删除造型
+router.delete('/outfits/:id', asyncHandler(async (req: Request, res: Response) => {
+  const db = getDb(req);
+  const outfit = requireOutfitOwnership(db, req, req.params.id);
+  CharacterOutfitDAO.delete(db, outfit.id);
+  res.json({ success: true, data: { message: '造型已删除' } });
+}));
+
+// 生成造型图：用角色定妆照做参考，保持面容/体型一致，仅更换服装
+router.post('/outfits/:id/generate-image', validateBody(generateImageSchema), asyncHandler(async (req: Request, res: Response) => {
+  const db = getDb(req);
+  const outfit = requireOutfitOwnership(db, req, req.params.id);
+  const character = ScriptCharacterDAO.getById(db, outfit.character_id)!;
+  const episode = NovelEpisodeDAO.getById(db, character.episode_id)!;
+  const { provider, modelName, prompt: customPrompt } = req.body;
+
+  // 参考图：角色定妆照（reference_image_url 优先，否则选中概念图）
+  let refImage: string | null = character.reference_image_url;
+  if (!refImage && character.concept_images) {
+    try {
+      const imgs = JSON.parse(character.concept_images);
+      if (Array.isArray(imgs) && imgs.length > 0) {
+        const idx = Math.min(character.selected_image_index || 0, imgs.length - 1);
+        refImage = imgs[idx]?.url || imgs[0]?.url || null;
+      }
+    } catch { /* 解析失败跳过 */ }
+  }
+
+  const defaultPrompt = `角色换装设定图，${character.name}，保持面部特征、体型、发型、发色与参考图完全一致，仅更换服装：${outfit.description || outfit.name}。正面全身站立姿势，双臂自然下垂，正视镜头，中性表情，纯白色背景，角色居中，完整全身像，服装面料与细节清晰，高质量，电影级光影，8K分辨率，角色一致性参考图`;
+
+  const result = await aiProxy.generateImage({
+    db, userId: req.user.id, projectId: episode.project_id,
+    provider, modelName,
+    prompt: customPrompt || defaultPrompt,
+    count: 1, size: '2048x2048',
+    referenceImages: refImage ? [refImage] : undefined,
+    saveSubDir: 'outfits',
+  });
+
+  const url = result.images[0]?.url;
+  if (!url) throw createError(500, 'IMAGE_GEN_FAILED', '造型图生成失败');
+  const updated = CharacterOutfitDAO.update(db, outfit.id, { image_url: url });
+  res.json({ success: true, data: updated });
 }));
 
 // ============ 场景 ============

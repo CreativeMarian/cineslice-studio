@@ -6,6 +6,7 @@ export * from './project';
 export * from './novelChapter';
 export * from './novelEpisode';
 export * from './scriptCharacter';
+export * from './characterOutfit';
 export * from './characterVariation';
 export * from './scriptScene';
 export * from './scriptProp';

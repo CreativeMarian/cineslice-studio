@@ -13,7 +13,7 @@ export const characterService = {
   list: (episodeId: string) =>
     apiClient.get<unknown, ApiResponse<Character[]>>(`/episodes/${episodeId}/characters`),
 
-  update: (id: string, data: Partial<Pick<Character, 'name' | 'description' | 'visual_description' | 'gender' | 'role_type'>>) =>
+  update: (id: string, data: Partial<Pick<Character, 'name' | 'description' | 'visual_description' | 'gender' | 'role_type' | 'voice_profile'>>) =>
     apiClient.put<unknown, ApiResponse<Character>>(`/characters/${id}`, data),
 
   generateImage: (
