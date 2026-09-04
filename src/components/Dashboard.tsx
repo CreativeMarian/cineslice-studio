@@ -454,7 +454,7 @@ export function Dashboard() {
                 <Card
                   key={project.id}
                   hover={!isArchived}
-                  className={`p-0 overflow-hidden group ${isArchived ? 'opacity-80' : 'cursor-pointer'}`}
+                  className={`p-0 overflow-hidden group ${isArchived ? 'opacity-80' : 'cursor-pointer'} ${menuOpenId === project.id ? 'z-20' : ''}`}
                   onClick={isArchived ? undefined : () => navigate(`/projects/${project.id}`)}
                 >
                   {/* 封面区域 */}
