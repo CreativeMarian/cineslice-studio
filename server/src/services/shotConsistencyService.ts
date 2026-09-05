@@ -151,22 +151,53 @@ export function collectShotReferenceImages(db: Database, shot: Shot): string[] {
       }
     }
   }
+  // 造型调度：从镜头的 character_outfits 字段读取该镜头各角色应穿的造型
+  // 格式：{"角色名": "造型名"}，由分镜AI根据剧情场景判断（卧室→睡衣，办公室→职业装）
+  let shotOutfits: Record<string, string> | null = null;
+  try {
+    if (shot.character_outfits && typeof shot.character_outfits === 'object') {
+      shotOutfits = shot.character_outfits as Record<string, string>;
+    } else if (typeof shot.character_outfits === 'string') {
+      shotOutfits = JSON.parse(shot.character_outfits);
+    }
+  } catch { shotOutfits = null; }
+
   for (const char of chars) {
     if (!char) continue;
     let img: string | null = null;
-    // 默认造型图（面容一致 + 服装一致）
-    const outfit = CharacterOutfitDAO.getDefaultForCharacter(db, char.id);
-    if (outfit?.image_url) {
-      img = outfit.image_url;
-    } else if (char.reference_image_url) {
+
+    // 1. 优先按镜头指定的造型匹配定妆照（剧情驱动的服装一致性）
+    if (shotOutfits) {
+      const outfitName = shotOutfits[char.name];
+      if (outfitName) {
+        const allOutfits = CharacterOutfitDAO.listByCharacter(db, char.id);
+        const matched = allOutfits.find(o =>
+          o.name === outfitName || o.name.includes(outfitName) || outfitName.includes(o.name)
+        );
+        if (matched?.image_url) {
+          img = matched.image_url;
+        }
+      }
+    }
+
+    // 2. fallback：默认造型图
+    if (!img) {
+      const outfit = CharacterOutfitDAO.getDefaultForCharacter(db, char.id);
+      if (outfit?.image_url) img = outfit.image_url;
+    }
+
+    // 3. fallback：角色概念图
+    if (!img && char.reference_image_url) {
       img = char.reference_image_url;
-    } else {
+    }
+    if (!img) {
       const concepts = parseConceptImages(char.concept_images);
       const selected = char.selected_image_index != null && concepts[char.selected_image_index]
         ? concepts[char.selected_image_index]
         : concepts[0];
       if (selected) img = selected;
     }
+
     if (img) {
       refs.push(img);
       if (refs.length >= 2) break;

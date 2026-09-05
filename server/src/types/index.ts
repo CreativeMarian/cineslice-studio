@@ -272,6 +272,7 @@ export interface Shot {
   mood: string | null;
   transition: string | null;
   pace: string | null;
+  character_outfits: string | null; // 造型调度：该镜头各角色应穿的造型，JSON {"角色名":"造型名"}
   use_next_first_frame: number; // 1=视频生成时自动用下一镜首帧作尾帧（首尾帧插值）
   created_at: string;
   updated_at: string;
@@ -336,6 +337,21 @@ export interface GenerationTask {
   created_at: string;
   started_at: string | null;
   completed_at: string | null;
+}
+
+// ============ 字幕 ============
+
+export interface Subtitle {
+  id: string;
+  user_id: string;
+  episode_id: string;
+  shot_id: string | null;
+  start_time: number;
+  end_time: number;
+  text: string;
+  speaker: string | null;
+  style: string;
+  created_at: string;
 }
 
 // ============ 渲染日志 ============

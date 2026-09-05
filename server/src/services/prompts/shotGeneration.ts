@@ -106,6 +106,7 @@ ${DIRECTOR_COMPLIANCE_RULES}
 - 前后镜头角色位置、动作状态要连贯
 - 上一镜头角色在左边，下一镜头不能突然到右边（除非有移动动作描述）
 - 角色服装、发型在连续镜头中保持一致
+- 【造型调度】根据剧情上下文判断每个镜头中角色的服装造型：如刚起床穿睡衣、上班穿职业装、晚宴穿礼服、运动穿运动装、洗澡后穿浴袍。场景切换或时间跳变时服装应相应变化
 - 每个镜头必须标注 subject（镜头主体角色名），对话场景中说话者必须是主体
 - 每个镜头必须标注 sceneName（该镜头所属场景名）：同一场戏的连续镜头 sceneName 必须一致，场景切换必须发生在剧情明确的转场处
 
@@ -130,6 +131,7 @@ ${params.sceneNames.join('、')}` : ''}
 - transition: 转场方式（cut/fade/dissolve/wipe/match_cut）
 - durationSeconds: 预估时长（秒，根据pace自动匹配：fast=2, normal=4, slow=6, slow_motion=3, fast_motion=4, long_take=8）
 - charactersInShot: 镜头中出现的角色名数组
+- characterOutfits: 该镜头中各角色的服装造型，JSON对象 {角色名: 造型名}，如 {"主角": "睡衣", "配角": "职业装"}。根据剧情场景判断（卧室/起床→睡衣，办公室→职业装，晚宴→礼服，运动→运动装），无特殊造型时填"默认造型"
 - propsInShot: 镜头中出现的关键道具名数组（无则为空数组，只列对剧情/画面有实质影响的道具）
 - notes: 备注（可选）
 

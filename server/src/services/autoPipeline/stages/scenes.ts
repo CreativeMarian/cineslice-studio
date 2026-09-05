@@ -1,6 +1,6 @@
 // 阶段5：场景提取
 import type { Database } from '../../../types';
-import { NovelEpisodeDAO, ScriptSceneDAO, ProjectDAO } from '../../../models';
+import { NovelEpisodeDAO, ScriptSceneDAO, ScriptPropDAO, ProjectDAO } from '../../../models';
 import { aiProxy } from '../../aiProxy';
 import { sceneExtractPrompt } from '../../prompts/sceneExtract';
 import { parseAiJsonOrThrow } from '../../../utils/aiJsonParser';
@@ -154,16 +154,24 @@ export async function stageScenes(db: Database, task: AutoPipelineTask): Promise
         }
 
         if (propImagesGenerated > 0) {
-          // 将道具资产保存到项目 metadata
+          // 将道具资产存入 script_props 表（关键帧生成时 collectShotReferenceImages 从这里取道具参考图）
           try {
-            const project = ProjectDAO.getById(db, task.projectId);
-            if (project) {
-              const metadata = project.metadata ? JSON.parse(JSON.stringify(project.metadata)) : {};
-              metadata.propAssets = propAssets;
-              ProjectDAO.update(db, task.projectId, { metadata: metadata as any });
+            for (const pa of propAssets) {
+              // 避免重复创建同名道具
+              const existing = ScriptPropDAO.listByEpisode(db, first.id).find(p => p.name === pa.name);
+              if (!existing) {
+                ScriptPropDAO.create(db, {
+                  user_id: task.userId,
+                  episode_id: first.id,
+                  name: pa.name,
+                  description: 'AI 自动提取的关键道具',
+                  concept_images: JSON.stringify([{ url: pa.url, model: imageModel.modelName, prompt: '' }]),
+                });
+              }
             }
-          } catch (metaErr) {
-            console.error('[AutoPipeline] 保存道具资产到 metadata 失败:', (metaErr as Error).message);
+            console.log(`[AutoPipeline] 道具资产已存入 script_props 表: ${propAssets.length} 个`);
+          } catch (propErr) {
+            console.error('[AutoPipeline] 保存道具资产到 script_props 失败:', (propErr as Error).message);
           }
 
           const prevProgress = task.stageProgress['scenes'] || `提取 ${created.length} 个场景`;

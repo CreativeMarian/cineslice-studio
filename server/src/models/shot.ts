@@ -80,6 +80,14 @@ export function parsePropsInShot(value: any): string[] {
   return [];
 }
 
+/** 安全解析 character_outfits JSON */
+export function parseCharacterOutfits(value: any): Record<string, string> | null {
+  if (!value) return null;
+  if (typeof value === 'object') return value;
+  try { return JSON.parse(value); } catch { return null; }
+}
+const safeParseOutfits = parseCharacterOutfits;
+
 /** 将 SQL 行解析为前端/API 期望的 Shot（characters_in_shot / props_in_shot 转为数组） */
 export function mapShotRow(row: any): Shot {
   if (!row) return row;
@@ -87,6 +95,7 @@ export function mapShotRow(row: any): Shot {
     ...row,
     characters_in_shot: row.characters_in_shot ? parseCharactersInShot(row.characters_in_shot) : null,
     props_in_shot: row.props_in_shot ? parsePropsInShot(row.props_in_shot) : null,
+    character_outfits: row.character_outfits ? safeParseOutfits(row.character_outfits) : null,
   };
 }
 
@@ -103,11 +112,12 @@ export const ShotDAO = {
     camera_movement?: string; grid_position?: string; duration_seconds?: number;
     characters_in_shot?: string; props_in_shot?: string; notes?: string;
     subject?: string; lighting?: string; mood?: string; transition?: string; pace?: string;
+    character_outfits?: string;
   }): Shot {
     const id = generateId('shot');
     db.prepare(`
-      INSERT INTO shots (id, user_id, episode_id, scene_id, shot_number, shot_size, action_description, dialogue, camera_movement, grid_position, duration_seconds, characters_in_shot, props_in_shot, notes, subject, lighting, mood, transition, pace, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO shots (id, user_id, episode_id, scene_id, shot_number, shot_size, action_description, dialogue, camera_movement, grid_position, duration_seconds, characters_in_shot, props_in_shot, notes, subject, lighting, mood, transition, pace, character_outfits, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       id, data.user_id, data.episode_id, data.scene_id || null,
       data.shot_number, data.shot_size || 'medium', data.action_description || '',
@@ -116,6 +126,7 @@ export const ShotDAO = {
       data.props_in_shot || null, data.notes || null,
       data.subject || null, data.lighting || null, data.mood || null,
       data.transition || 'cut', data.pace || 'normal',
+      data.character_outfits || null,
       now(), now(),
     );
     return this.getById(db, id)!;

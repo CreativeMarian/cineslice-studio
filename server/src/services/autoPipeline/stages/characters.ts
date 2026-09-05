@@ -1,6 +1,6 @@
 // 阶段4：角色提取
 import type { Database } from '../../../types';
-import { NovelEpisodeDAO, ScriptCharacterDAO } from '../../../models';
+import { NovelEpisodeDAO, ScriptCharacterDAO, CharacterOutfitDAO } from '../../../models';
 import { aiProxy } from '../../aiProxy';
 import { characterExtractPrompt } from '../../prompts/characterExtract';
 import { parseAiJsonOrThrow } from '../../../utils/aiJsonParser';
@@ -101,6 +101,76 @@ export async function stageCharacters(db: Database, task: AutoPipelineTask): Pro
 
     if (characterImagesGenerated > 0) {
       task.stageProgress['characters'] = `提取 ${created.length} 个角色，生成 ${characterImagesGenerated} 张角色概念图`;
+    }
+
+    // P0 造型调度：AI 分析每个角色在剧本中的服装变化，自动创建多套造型
+    // 第一套用角色概念图作为默认定妆照，其他套等用户手动生成或分镜阶段按需生成
+    let totalOutfits = 0;
+    for (const character of created) {
+      try {
+        const existingOutfits = CharacterOutfitDAO.listByCharacter(db, character.id);
+        if (existingOutfits.length > 0) continue;
+
+        const outfitPrompt = `分析以下剧本中角色「${character.name}」的服装变化。
+角色外貌：${character.visual_description || character.description}
+剧本内容：${first.script_content?.slice(0, 3000) || ''}
+
+请判断该角色在剧情中需要几套不同造型（如日常装、职业装、睡衣、礼服、运动装等），每套造型给出名称和详细服装描述。
+只输出 JSON 数组，格式：[{"name":"日常装","description":"白色衬衫，黑色西裤，皮鞋"},{"name":"睡衣","description":"浅蓝色棉质睡衣套装"}]
+最多5套，最少1套。`;
+
+        const outfitResult = await aiProxy.generateText({
+          db, userId: task.userId, provider: model.provider, modelName: model.modelName,
+          prompt: outfitPrompt, systemPrompt: '你是影视服装设计师，根据剧情场景判断角色需要的服装造型。只输出JSON，不要解释。',
+          responseFormat: 'json', maxTokens: 2048,
+        });
+
+        let outfits: any[] = [];
+        try {
+          const parsed = JSON.parse(outfitResult.content);
+          outfits = Array.isArray(parsed) ? parsed : (parsed.outfits || parsed.data || []);
+        } catch { outfits = []; }
+
+        if (outfits.length === 0) {
+          outfits = [{ name: '默认造型', description: character.visual_description || '角色默认服装' }];
+        }
+
+        for (let i = 0; i < outfits.length; i++) {
+          const o = outfits[i];
+          const isFirst = i === 0;
+          // 第一套用角色概念图作为定妆照（面容一致）
+          const imgUrl = isFirst ? (character.reference_image_url || undefined) : undefined;
+          CharacterOutfitDAO.create(db, {
+            user_id: task.userId,
+            character_id: character.id,
+            name: o.name || `造型${i + 1}`,
+            description: o.description || '',
+            image_url: imgUrl,
+            is_default: isFirst ? 1 : 0,
+          });
+          totalOutfits++;
+        }
+        console.log(`[AutoPipeline] 角色 ${character.name} 自动创建 ${outfits.length} 套造型`);
+      } catch (err: any) {
+        console.error(`[AutoPipeline] 角色 ${character.name} 造型分析失败:`, err.message);
+        // 失败时至少创建一套默认造型
+        try {
+          const existing = CharacterOutfitDAO.listByCharacter(db, character.id);
+          if (existing.length === 0) {
+            CharacterOutfitDAO.create(db, {
+              user_id: task.userId, character_id: character.id,
+              name: '默认造型', description: character.visual_description || '',
+              image_url: character.reference_image_url || undefined, is_default: 1,
+            });
+            totalOutfits++;
+          }
+        } catch { /* 忽略 */ }
+      }
+    }
+
+    if (totalOutfits > 0) {
+      const prev = task.stageProgress['characters'];
+      task.stageProgress['characters'] = `${prev}，自动分析 ${totalOutfits} 套造型`;
     }
   }
 }

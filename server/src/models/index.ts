@@ -23,6 +23,7 @@ export * from './visualStyle';
 export * from './stylePreset';
 export * from './aiCache';
 export * from './costRecord';
+export * from './subtitle';
 export * from './autoPipelineTask';
 
 // 通用工具

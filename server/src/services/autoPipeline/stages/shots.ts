@@ -94,6 +94,7 @@ export async function stageShots(db: Database, task: AutoPipelineTask): Promise<
       mood: s.mood || null,
       transition: s.transition || 'cut',
       pace: s.pace || 'normal',
+      character_outfits: s.characterOutfits ? JSON.stringify(s.characterOutfits) : null,
     })));
   })();
 

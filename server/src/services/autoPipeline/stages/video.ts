@@ -7,6 +7,7 @@ import {
   ShotDAO,
   ShotKeyframeDAO,
   ShotVideoIntervalDAO,
+  SubtitleDAO,
 } from '../../../models';
 import { aiProxy } from '../../aiProxy';
 import { downloadToFile } from '../../../utils/download';
@@ -329,4 +330,52 @@ export async function stageVideo(db: Database, task: AutoPipelineTask): Promise<
     throw new Error('视频生成全部失败');
   }
   task.stageProgress['video'] = `生成 ${generated} 个，跳过 ${skipped} 个，失败 ${failed} 个`;
+
+  // 字幕生成：从分镜 dialogue 提取字幕，计算时间轴，生成 SRT
+  try {
+    const allShots = ShotDAO.listByEpisode(db, first.id);
+    const existingSubs = SubtitleDAO.listByEpisode(db, first.id);
+    if (existingSubs.length === 0 && allShots.length > 0) {
+      let currentTime = 0;
+      let subtitleCount = 0;
+      for (const shot of allShots) {
+        const duration = shot.duration_seconds && shot.duration_seconds > 0 ? shot.duration_seconds : 3;
+        if (shot.dialogue && shot.dialogue.trim()) {
+          // 对话可能包含"角色名：台词"格式，提取说话人和台词
+          let speaker: string | undefined;
+          let text = shot.dialogue.trim();
+          const match = text.match(/^([^：:]{1,20})[：:](.+)$/);
+          if (match) {
+            speaker = match[1].trim();
+            text = match[2].trim();
+          }
+          SubtitleDAO.create(db, {
+            user_id: task.userId,
+            episode_id: first.id,
+            shot_id: shot.id,
+            start_time: currentTime,
+            end_time: currentTime + duration,
+            text,
+            speaker,
+          });
+          subtitleCount++;
+        }
+        currentTime += duration;
+      }
+
+      // 生成 SRT 文件
+      if (subtitleCount > 0) {
+        const subs = SubtitleDAO.listByEpisode(db, first.id);
+        const srtContent = SubtitleDAO.toSRT(subs);
+        const saveDir = path.resolve(projectStorage.getDataDir(task.projectId), 'subtitles');
+        projectStorage.ensureDir(saveDir);
+        const srtPath = path.resolve(saveDir, `episode_${first.id}.srt`);
+        fs.writeFileSync(srtPath, srtContent, 'utf8');
+        console.log(`[AutoPipeline] 字幕生成完成: ${subtitleCount} 条，SRT 已保存`);
+        task.stageProgress['video'] += `，字幕 ${subtitleCount} 条`;
+      }
+    }
+  } catch (subErr: any) {
+    console.error('[AutoPipeline] 字幕生成失败:', subErr.message);
+  }
 }

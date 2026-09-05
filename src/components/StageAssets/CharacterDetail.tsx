@@ -158,6 +158,7 @@ export function CharacterDetail({ character, onClose, onUpdate }: CharacterDetai
   };
 
   const handleGenerateImage = async (params: { modelKey: string }) => {
+    if (!character?.id) { showToast('角色数据未加载，请重新选择角色', 'error'); return; }
     setIsGeneratingImage(true);
     try {
       const { provider, modelName } = parseModelKey(params.modelKey);
@@ -204,6 +205,7 @@ export function CharacterDetail({ character, onClose, onUpdate }: CharacterDetai
   };
 
   const handleGenerateFourView = async (params: { modelKey: string }) => {
+    if (!character?.id) { showToast('角色数据未加载，请重新选择角色', 'error'); return; }
     setIsGeneratingFourView(true);
     try {
       const { provider, modelName } = parseModelKey(params.modelKey);
