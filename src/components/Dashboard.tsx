@@ -334,7 +334,7 @@ export function Dashboard() {
 
         {/* 指标卡 */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-          <div className="glass-panel glass-hover rounded-[var(--radius-card)] p-5 marquee-border overflow-hidden">
+          <div className="glass-panel glass-hover rounded-[var(--radius-card)] p-5 marquee-border">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-xs font-medium text-[var(--ink-2)]">总项目数</p>
@@ -346,7 +346,7 @@ export function Dashboard() {
               </div>
             </div>
           </div>
-          <div className="glass-panel glass-hover rounded-[var(--radius-card)] p-5 marquee-border overflow-hidden">
+          <div className="glass-panel glass-hover rounded-[var(--radius-card)] p-5 marquee-border">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-xs font-medium text-[var(--ink-2)]">流水线阶段</p>
@@ -358,7 +358,7 @@ export function Dashboard() {
               </div>
             </div>
           </div>
-          <div className="glass-panel glass-hover rounded-[var(--radius-card)] p-5 marquee-border overflow-hidden">
+          <div className="glass-panel glass-hover rounded-[var(--radius-card)] p-5 marquee-border">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-xs font-medium text-[var(--ink-2)]">AI 模型</p>
@@ -370,7 +370,7 @@ export function Dashboard() {
               </div>
             </div>
           </div>
-          <div className="glass-panel glass-hover rounded-[var(--radius-card)] p-5 marquee-border overflow-hidden">
+          <div className="glass-panel glass-hover rounded-[var(--radius-card)] p-5 marquee-border">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-xs font-medium text-[var(--ink-2)]">运行模式</p>
