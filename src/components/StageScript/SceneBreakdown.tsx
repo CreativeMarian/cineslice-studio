@@ -21,7 +21,7 @@ import {
   Info,
   MapPin,
 } from 'lucide-react';
-import { Button, Card, EmptyState, Badge, Modal, Textarea, Input, Select } from '../ui';
+import { Button, Card, EmptyState, Badge, Modal, Textarea, Input, Select, GenerationProgress } from '../ui';
 import { ConfigPanel } from './ConfigPanel';
 import { useProjectStore } from '../../stores/useProjectStore';
 import { useUIStore } from '../../stores/useUIStore';
@@ -242,6 +242,15 @@ export function SceneBreakdown() {
         </div>
       </Card>
 
+      {/* 生成分镜进度条 */}
+      <GenerationProgress
+        isGenerating={isGenerating}
+        stage="AI 正在分析剧本并生成分镜..."
+        modelName={lastShotModel ? parseModelKey(lastShotModel).modelName : ""}
+        meta="根据剧本内容拆分镜头，包含景别/运动/画面/对话/时长"
+        className="mb-4"
+      />
+
       {shots.length === 0 ? (
         <Card>
           <EmptyState
@@ -458,7 +467,7 @@ export function SceneBreakdown() {
         size="sm"
         footer={
           <>
-            <Button variant="secondary" onClick={() => setAssetWarningOpen(false)}>
+            <Button variant="secondary" onClick={() => { setAssetWarningOpen(false); setConfigOpen(true); }}>
               仍要生成分镜
             </Button>
             <Button

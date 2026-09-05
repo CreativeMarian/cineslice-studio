@@ -73,7 +73,7 @@ function getLocalIP(): string {
 
 export default defineConfig(async () => {
   // 前端端口检测
-  const frontendPort = await getAvailablePort(parseInt(process.env.VITE_PORT || '5173', 10));
+  const frontendPort = await getAvailablePort(parseInt(process.env.VITE_PORT || '9090', 10));
   // 后端端口（用于代理），默认 3000，可通过环境变量覆盖
   const backendPort = parseInt(process.env.BACKEND_PORT || '3000', 10);
 
