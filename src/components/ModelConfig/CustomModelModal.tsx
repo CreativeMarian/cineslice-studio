@@ -241,6 +241,7 @@ export function CustomModelModal({ isOpen, onClose, onSave, defaultType = 'text'
         apiKey: apiKey.trim(),
         baseURL: endpointUrl.trim().replace(/\/$/, ''),
         timeout: 10000, // 10秒超时
+        dangerouslyAllowBrowser: true, // 本地工具，允许浏览器环境调用
       });
 
       // 文本模型：调用 chat.completions 测试
