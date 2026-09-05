@@ -30,11 +30,13 @@ export class OpenAICompatibleTextAdapter implements TextAdapter {
     this.timeout = timeout ?? 120000; // 默认120秒超时（文本生成可能需要较长时间）
 
     // 使用官方 OpenAI SDK 初始化客户端
+    // dangerouslyAllowBrowser: 后端 Node.js 环境中某些全局变量可能导致 SDK 误判为浏览器环境，显式允许
     this.client = new OpenAI({
       apiKey: this.apiKey,
       baseURL: this.baseUrl,
       timeout: this.timeout,
       maxRetries: 0, // 不在 SDK 层重试，由 aiProxy 层统一处理重试
+      dangerouslyAllowBrowser: true,
     });
   }
 
