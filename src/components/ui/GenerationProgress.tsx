@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Sparkles, AlertCircle, Clock, CheckCircle2 } from 'lucide-react';
 import { Card } from './Card';
 import { cn } from '../../utils';
-import { DEFAULT_STAGES, calculateProgress } from '../../hooks/useGenerationProgress';
+// 进度条：传入 progress 显示真实百分比；不传则 indeterminate 模式（CSS 动画，不模拟数据）
 
 export interface GenerationProgressProps {
   /** 是否正在生成 */
@@ -27,8 +27,6 @@ export interface GenerationProgressProps {
   compact?: boolean;
   /** 自定义 className */
   className?: string;
-  /** 分阶段配置，用于自动模拟进度 */
-  stages?: Array<{ label: string; startAt: number; duration: number }>;
 }
 
 export function GenerationProgress({
@@ -43,7 +41,6 @@ export function GenerationProgress({
   icon,
   compact = false,
   className,
-  stages = DEFAULT_STAGES,
 }: GenerationProgressProps) {
   const [autoElapsed, setAutoElapsed] = useState(0);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -63,10 +60,10 @@ export function GenerationProgress({
 
   const elapsed = elapsedProp !== undefined ? elapsedProp : autoElapsed;
 
-  // 自动计算进度和阶段
-  const autoCalc = calculateProgress(elapsed, stages);
-  const progress = progressProp !== undefined ? progressProp : autoCalc.progress;
-  const stage = stageProp || autoCalc.stage;
+  // 进度：传入真实 progress 则显示百分比；不传则 indeterminate 模式（不模拟数据）
+  const progress = progressProp;
+  const isIndeterminate = progress === undefined;
+  const stage = stageProp || '正在处理...';
 
   const isError = !!error;
   const isSuccess = !!success && !isGenerating;
@@ -111,18 +108,22 @@ export function GenerationProgress({
           <p className={cn('text-xs font-medium flex-1 truncate', isError ? 'text-red-600 dark:text-red-400' : isSuccess ? 'text-green-600 dark:text-green-400' : 'text-[var(--ink-1)]')}>
             {displayStage}
           </p>
-          {!isError && !isSuccess && (
+          {!isError && !isSuccess && !isIndeterminate && (
             <span className="text-[10px] text-[var(--ink-3)] flex-shrink-0">
               {Math.round(progress)}%
             </span>
           )}
         </div>
         {!isError && !isSuccess && (
-          <div className="w-full h-1 bg-[var(--panel-2)] rounded-full overflow-hidden">
-            <div
-              className={cn('h-full rounded-full transition-all duration-500 ease-out', barColor)}
-              style={{ width: `${progress}%` }}
-            />
+          <div className="w-full h-1 bg-[var(--panel-2)] rounded-full overflow-hidden relative">
+            {isIndeterminate ? (
+              <div className={cn('h-full rounded-full progress-indeterminate', barColor)} />
+            ) : (
+              <div
+                className={cn('h-full rounded-full transition-all duration-500 ease-out', barColor)}
+                style={{ width: `${progress}%` }}
+              />
+            )}
           </div>
         )}
       </div>
@@ -157,7 +158,7 @@ export function GenerationProgress({
                   已用时 {elapsed}s
                 </span>
                 <span>·</span>
-                <span>{Math.round(progress)}%</span>
+                {!isIndeterminate && <span>{Math.round(progress)}%</span>}
               </>
             )}
           </p>
@@ -169,11 +170,15 @@ export function GenerationProgress({
         )}
       </div>
       {!isError && !isSuccess && (
-        <div className="w-full h-2 bg-[var(--panel-2)] rounded-full overflow-hidden">
-          <div
-            className={cn('h-full rounded-full transition-all duration-500 ease-out', barColor)}
-            style={{ width: `${progress}%` }}
-          />
+        <div className="w-full h-2 bg-[var(--panel-2)] rounded-full overflow-hidden relative">
+          {isIndeterminate ? (
+            <div className={cn('h-full rounded-full progress-indeterminate', barColor)} />
+          ) : (
+            <div
+              className={cn('h-full rounded-full transition-all duration-500 ease-out', barColor)}
+              style={{ width: `${progress}%` }}
+            />
+          )}
         </div>
       )}
     </Card>

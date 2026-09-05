@@ -852,3 +852,17 @@ input, textarea, select, [contenteditable="true"] { cursor: text; }
 @keyframes spin {
   to { transform: rotate(360deg); }
 }
+
+
+/* 不确定进度条（无真实进度时使用，不模拟百分比） */
+.progress-indeterminate {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 40%;
+  animation: progress-indeterminate 1.4s ease-in-out infinite;
+}
+@keyframes progress-indeterminate {
+  0% { left: -40%; }
+  100% { left: 100%; }
+}

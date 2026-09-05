@@ -38,7 +38,7 @@ export function calculateProgress(elapsed: number, stages: Array<{ label: string
 export function useGenerationProgress(defaultStages?: Array<{ label: string; startAt: number; duration: number }>) {
   const [isGenerating, setIsGenerating] = useState(false);
   const [stage, setStage] = useState('');
-  const [progress, setProgress] = useState(0);
+  const [progress, setProgress] = useState<number | undefined>(undefined);
   const [elapsed, setElapsed] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
@@ -50,20 +50,15 @@ export function useGenerationProgress(defaultStages?: Array<{ label: string; sta
     setIsGenerating(true);
     setError(null);
     setSuccess(null);
-    setProgress(5);
+    setProgress(undefined);
     setElapsed(0);
-    setStage(initialStage || '正在连接 AI 服务...');
+    setStage(initialStage || '正在处理...');
 
     const startTime = Date.now();
-    const stages = defaultStages || DEFAULT_STAGES;
-
+    // 只计时，不模拟进度百分比（真实进度由外部 setProgress 设置）
     timerRef.current = setInterval(() => {
-      const e = Math.floor((Date.now() - startTime) / 1000);
-      setElapsed(e);
-      const calc = calculateProgress(e, stages);
-      setProgress(calc.progress);
-      setStage(calc.stage);
-    }, 500);
+      setElapsed(Math.floor((Date.now() - startTime) / 1000));
+    }, 1000);
   }, [defaultStages]);
 
   const finish = useCallback((successMsg?: string) => {
