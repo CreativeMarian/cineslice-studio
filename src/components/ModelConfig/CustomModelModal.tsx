@@ -198,6 +198,7 @@ export function CustomModelModal({ isOpen, onClose, onSave, defaultType = 'text'
     else if (url.includes('replicate.com')) setAutoDetectedProvider('Replicate');
     else if (url.includes('huggingface.co') || url.includes('hf.co')) setAutoDetectedProvider('HuggingFace');
     // ========== 本地部署 ==========
+    else if (url.includes('localhost:8188') || url.includes('127.0.0.1:8188') || url.includes(':8188')) setAutoDetectedProvider('ComfyUI 本地');
     else if (url.includes('localhost:11434') || url.includes('127.0.0.1:11434')) setAutoDetectedProvider('Ollama 本地');
     else if (url.includes('localhost') || url.includes('127.0.0.1')) setAutoDetectedProvider('本地部署');
     else setAutoDetectedProvider('自定义 OpenAI 兼容');
@@ -323,7 +324,7 @@ export function CustomModelModal({ isOpen, onClose, onSave, defaultType = 'text'
             </div>
             <div>
               <h3 className="font-bold text-[var(--ink-1)] text-lg">添加自定义模型</h3>
-              <p className="text-xs text-[var(--ink-3)]">使用官方 OpenAI SDK，支持所有 OpenAI 兼容接口</p>
+              <p className="text-xs text-[var(--ink-3)]">{autoDetectedProvider.includes('ComfyUI') ? 'ComfyUI 本地工作流模式：填入工作流文件名即可' : '使用官方 OpenAI SDK，支持所有 OpenAI 兼容接口'}</p>
             </div>
           </div>
           <button

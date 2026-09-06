@@ -44,6 +44,7 @@ import './video/minimax-video';
 import './video/happyhorse-video';
 import './video/agnes-video';
 import './video/custom-openai-video';
+import './video/comfyui';
 
 // 音频适配器
 import './audio/openai-audio';
