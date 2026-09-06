@@ -779,9 +779,11 @@ export async function getVideoStatus(db: Database, userId: string, videoId: stri
   if ((video.status === 'pending' || video.status === 'processing') && video.created_at) {
     const createdTime = new Date(video.created_at).getTime();
     const isLocalComfy = (video.video_model_used || '').startsWith('comfyui');
-    const timeoutMs = isLocalComfy ? 45 * 60 * 1000 : 10 * 60 * 1000;
+    // ComfyUI 本地任务由队列顺序渲染，排队时间计入等待，不设主动超时；
+    // 真正失败由轮询 /history 的 status_str=error 捕获，避免排队任务被误判超时
+    const timeoutMs = isLocalComfy ? 24 * 60 * 60 * 1000 : 10 * 60 * 1000;
     if (Date.now() - createdTime > timeoutMs) {
-      const msg = isLocalComfy ? '任务超时（ComfyUI本地渲染超过45分钟）' : '任务超时（超过10分钟）';
+      const msg = isLocalComfy ? '任务超时（ComfyUI本地渲染超过24小时）' : '任务超时（超过10分钟）';
       ShotVideoIntervalDAO.update(db, video.id, { status: 'failed', error_message: msg });
       return { ...video, status: 'failed', error_message: msg };
     }

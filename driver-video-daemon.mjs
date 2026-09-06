@@ -6,8 +6,18 @@ const require = createRequire(import.meta.url);
 
 const API = 'http://127.0.0.1:3000';
 const LOG = 'data/pipeline-videos.log';
+const TRIGGER_FILE = 'data/daemon-triggered.json';
 const EPISODES = ['ep_4b6d11ae648c4072', 'ep_18949d7acef23797', 'ep_616c947d8c961ac4',
   'ep_9c3aca88e739293e', 'ep_867345690693f3ae', 'ep_056f23c717c51c42', 'ep_3e067041cec2e6fd'];
+
+// 已触发标记（防重复触发；重启后从文件恢复）
+let triggered = new Set();
+try { triggered = new Set(JSON.parse(fs.readFileSync(TRIGGER_FILE, 'utf-8'))); } catch {}
+
+function markTriggered(key) {
+  triggered.add(key);
+  fs.writeFileSync(TRIGGER_FILE, JSON.stringify([...triggered]), 'utf-8');
+}
 
 function log(msg) {
   const line = `[${new Date().toISOString()}] ${msg}`;
@@ -62,12 +72,15 @@ async function tryCompose() {
       const processing = videos.filter(v => v.status === 'pending' || v.status === 'processing');
       if (processing.length === 0 && finished.length > 0) {
         const pNum = phase === 'default' ? 1 : Number(phase);
+        const tKey = `phase|${epId}|${pNum}`;
+        if (triggered.has(tKey)) continue;
         try {
           const r = await api(`/api/episodes/${epId}/compose`, {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ phase: pNum, byPhase: true }),
           });
           log(`[守护] 阶段合成已触发 ep=${epId} phase=${pNum} clips=${finished.length} task=${r.data.taskId}`);
+          markTriggered(tKey);
         } catch (e) { log(`[守护] 阶段合成失败 ep=${epId} phase=${pNum}: ${e.message}`); }
       }
     }
@@ -92,11 +105,14 @@ async function main() {
           ).get(epId).c;
           if (total > 0 && completedVideos === total) {
             // 每镜都有视频 → 整集合成
+            const tKey = `episode|${epId}`;
+            if (triggered.has(tKey)) continue;
             const r = await api(`/api/episodes/${epId}/compose`, {
               method: 'POST', headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ byPhase: true }),
             });
             log(`[守护] 整集合成已触发 ep=${epId} task=${r.data.taskId}`);
+            markTriggered(tKey);
           }
         }
         db.close();
