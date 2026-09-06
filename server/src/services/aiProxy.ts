@@ -89,8 +89,25 @@ export const aiProxy = {
         const cacheKey = sha256(`text:${userId}:${params.provider}:${params.modelName}:${params.prompt}:${params.temperature ?? 0.7}:${params.systemPrompt || ''}`);
         const cached = AiCacheDAO.get(db, cacheKey);
         if (cached) {
-          console.log('[AI Proxy] 文本缓存命中');
-          return JSON.parse(cached) as TextGenerateResult;
+          const cachedText = (JSON.parse(cached) as TextGenerateResult)?.content;
+          if (typeof cachedText !== 'string' || cachedText.trim() === '') {
+            // 坏缓存（空内容）——删除并继续真实调用
+            try { AiCacheDAO.delete(db, cacheKey); } catch { /* ignore */ }
+            console.error('[AI Proxy] 文本缓存为空，已清除并重新调用');
+          } else if (params.responseFormat === 'json') {
+            // JSON 格式缓存必须可解析，否则视为坏缓存
+            try {
+              JSON.parse(cachedText);
+              console.log('[AI Proxy] 文本缓存命中');
+              return JSON.parse(cached) as TextGenerateResult;
+            } catch {
+              try { AiCacheDAO.delete(db, cacheKey); } catch { /* ignore */ }
+              console.error('[AI Proxy] 文本缓存JSON非法，已清除并重新调用');
+            }
+          } else {
+            console.log('[AI Proxy] 文本缓存命中');
+            return JSON.parse(cached) as TextGenerateResult;
+          }
         }
       } catch (cacheErr) {
         console.error('[AI Proxy] 缓存读取失败（跳过）:', (cacheErr as Error).message);
@@ -98,7 +115,7 @@ export const aiProxy = {
     }
 
     // 3. 获取适配器（支持模型名覆盖，如火山方舟接入点ID）
-    const actualModelName = resolveModelName(modelConfig, params.modelName);
+    const actualModelName = resolveModelName(modelConfig || { config: null }, params.modelName);
     const adapter = getTextAdapter(params.provider, actualModelName, modelConfig.api_key, modelConfig.endpoint_url || undefined);
 
     // 4. 重试调用
@@ -132,7 +149,17 @@ export const aiProxy = {
     if (params.responseFormat === 'json') {
       try {
         const cacheKey = sha256(`text:${userId}:${params.provider}:${params.modelName}:${params.prompt}:${params.temperature ?? 0.7}:${params.systemPrompt || ''}`);
-        AiCacheDAO.set(db, cacheKey, JSON.stringify(result), 'text', 3600);
+        // 只缓存有效 JSON（防截断/坏内容污染缓存）
+        if (result?.content && typeof result.content === 'string' && result.content.trim() !== '') {
+          if (params.responseFormat === 'json') {
+            try {
+              JSON.parse(result.content);
+              AiCacheDAO.set(db, cacheKey, JSON.stringify(result), 'text', 3600);
+            } catch { /* 截断或非法 JSON 不缓存 */ }
+          } else {
+            AiCacheDAO.set(db, cacheKey, JSON.stringify(result), 'text', 3600);
+          }
+        }
       } catch (cacheErr) {
         console.error('[AI Proxy] 缓存写入失败（跳过）:', (cacheErr as Error).message);
       }
@@ -322,13 +349,16 @@ export const aiProxy = {
 
     // 1. 查API Key
     const modelConfig = ModelRegistryDAO.getByUserAndModel(db, userId, params.provider, params.modelName);
-    if (!modelConfig?.api_key) {
+    // ComfyUI 本地无需 API Key；其他云端模型必须配置
+    if (!modelConfig?.api_key && params.provider !== 'comfyui') {
       throw createError(400, 'MODEL_NOT_CONFIGURED', `请先配置模型 ${params.provider}/${params.modelName} 的 API Key`);
     }
+    const apiKey = modelConfig?.api_key || '';
+    const endpointUrl = modelConfig?.endpoint_url || (params.provider === 'comfyui' ? 'http://127.0.0.1:8188' : undefined);
 
     // 2. 获取适配器
-    const actualModelName = resolveModelName(modelConfig, params.modelName);
-    const adapter = getVideoAdapter(params.provider, actualModelName, modelConfig.api_key, modelConfig.endpoint_url || undefined);
+    const actualModelName = resolveModelName(modelConfig || { config: null }, params.modelName);
+    const adapter = getVideoAdapter(params.provider, actualModelName, apiKey, endpointUrl);
 
     // 3. 调用生成（异步任务）
     // 注意：视频任务是计费任务，超时/5xx 重试会重复扣费且丢失首个 taskId，
@@ -369,12 +399,15 @@ export const aiProxy = {
     const { db, userId } = params;
 
     const modelConfig = ModelRegistryDAO.getByUserAndModel(db, userId, params.provider, params.modelName);
-    if (!modelConfig?.api_key) {
+    // ComfyUI 本地无需 API Key；其他云端模型必须配置
+    if (!modelConfig?.api_key && params.provider !== 'comfyui') {
       throw createError(400, 'MODEL_NOT_CONFIGURED', '模型 API Key 未配置');
     }
+    const apiKey = modelConfig?.api_key || '';
+    const endpointUrl = modelConfig?.endpoint_url || (params.provider === 'comfyui' ? 'http://127.0.0.1:8188' : undefined);
 
-    const actualModelName = resolveModelName(modelConfig, params.modelName);
-    const adapter = getVideoAdapter(params.provider, actualModelName, modelConfig.api_key, modelConfig.endpoint_url || undefined);
+    const actualModelName = resolveModelName(modelConfig || { config: null }, params.modelName);
+    const adapter = getVideoAdapter(params.provider, actualModelName, apiKey, endpointUrl);
 
     if (!adapter.getTask) {
       throw createError(400, 'NOT_SUPPORTED', '该视频模型不支持任务查询');

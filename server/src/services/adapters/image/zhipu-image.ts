@@ -18,10 +18,20 @@ export class ZhipuImageAdapter implements ImageAdapter {
   }
 
   async generate(params: ImageGenerateParams): Promise<ImageGenerateResult> {
+    // CogView limit: side 512-2880, multiple of 16, total px <= 2^21
+    const clampSize = (raw: string | undefined): string => {
+      const size = raw || '1024x1024';
+      const [w, h] = size.split('x').map(Number);
+      if (!w || !h || w * h <= 2097152) return size;
+      const scale = Math.sqrt(2097152 / (w * h));
+      const nw = Math.max(512, Math.min(2880, Math.floor((w * scale) / 16) * 16));
+      const nh = Math.max(512, Math.min(2880, Math.floor((h * scale) / 16) * 16));
+      return nw + 'x' + nh;
+    };
     const body: Record<string, unknown> = {
       model: this.modelName,
       prompt: params.prompt,
-      size: params.size || '1024x1024',
+      size: clampSize(params.size),
       n: params.count || 1,
     };
 

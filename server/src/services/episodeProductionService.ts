@@ -18,7 +18,7 @@ import { shotGenerationPrompt } from './prompts/shotGeneration';
 import { keyframePrompt } from './prompts/keyframePrompt';
 import { projectStorage } from './projectStorage';
 import { downloadToFile } from '../utils/download';
-import { parseAiJsonOrThrow, parseAiJson } from '../utils/aiJsonParser';
+import { parseAiJsonOrThrow, parseAiJson , parseShotListArray } from '../utils/aiJsonParser';
 import { scriptAnalysisService } from './scriptAnalysisService';
 import { promptOptimizationService } from './promptOptimizationService';
 import { getProjectStylePreset } from './autoPipeline/helpers';
@@ -81,7 +81,7 @@ function imageToDataUrl(imageUrl: string): string {
 }
 
 /** 获取镜头的首帧关键帧（指定 keyframeId 或自动取第一个首帧） */
-function resolveFirstFrame(db: Database, userId: string, shotId: string, keyframeId?: string): {
+function resolveFirstFrame(db: Database, userId: string, shotId: string, keyframeId?: string, allowNoKeyframe?: boolean): {
   firstFrameUrl: string;
   startFrameId: string;
 } {
@@ -98,6 +98,7 @@ function resolveFirstFrame(db: Database, userId: string, shotId: string, keyfram
       return { firstFrameUrl: firstFrame.image_url, startFrameId: firstFrame.id };
     }
   }
+  if (allowNoKeyframe) return { firstFrameUrl: '', startFrameId: '' };
   throw createError(400, 'NO_KEYFRAME', '请先生成首帧关键帧，再生成视频');
 }
 
@@ -139,7 +140,7 @@ export async function regenerateEpisodeScript(
 
   const result = await aiProxy.generateText({
     db, userId, provider, modelName,
-    prompt, systemPrompt, responseFormat: 'json', maxTokens: 16000,
+    prompt, systemPrompt, responseFormat: 'json', maxTokens: 32000,
   });
 
   const contentPreview = result.content.length > 2000 ? result.content.slice(0, 2000) + '...[截断]' : result.content;
@@ -174,7 +175,7 @@ export async function polishEpisodeScript(
 
   const result = await aiProxy.generateText({
     db, userId, provider, modelName,
-    prompt, systemPrompt, responseFormat: 'json', maxTokens: 16000,
+    prompt, systemPrompt, responseFormat: 'json', maxTokens: 32000,
   });
 
   const contentPreview = result.content.length > 2000 ? result.content.slice(0, 2000) + '...[截断]' : result.content;
@@ -252,13 +253,13 @@ export async function generateShotsForEpisode(
 
   const result = await aiProxy.generateText({
     db, userId, provider: textProvider, modelName: textModel,
-    prompt, systemPrompt, responseFormat: 'json', maxTokens: 16000,
+    prompt, systemPrompt, responseFormat: 'json', maxTokens: 32000,
   });
 
   let shots: any[];
   try {
-    const parsed = parseAiJsonOrThrow<any[]>(result.content);
-    shots = Array.isArray(parsed) ? parsed : [parsed];
+    // 容错解析：支持 {shots:[...]} 包裹结构 + 中文键名
+    shots = parseShotListArray<any[]>(result.content).map(normalizeShotValues);
   } catch (err) {
     throw createError(502, 'AI_CALL_FAILED', (err as Error).message);
   }
@@ -316,7 +317,7 @@ export async function generateShotsForEpisode(
       phase: s.phase ?? null,
       phase_name: s.phaseName || null,
     })));
-  });
+  })();
 }
 
 // ============ 关键帧 ============
@@ -627,7 +628,7 @@ export async function generateVideoForShot(
   const episode = NovelEpisodeDAO.getById(db, shot.episode_id);
 
   // 获取首帧
-  const { firstFrameUrl, startFrameId } = resolveFirstFrame(db, userId, shot.id, keyframeId);
+  const { firstFrameUrl, startFrameId } = resolveFirstFrame(db, userId, shot.id, keyframeId, provider === 'comfyui');
 
   // ═══════════════════════════════════════════════════════════
   // 首尾帧衔接（低抽卡核心）：显式尾帧 > 下一镜首帧（use_next_first_frame=1）
@@ -773,13 +774,16 @@ export async function getVideoStatus(db: Database, userId: string, videoId: stri
     throw createError(404, 'NOT_FOUND', '视频不存在');
   }
 
-  // 超时清理：供应商侧视频任务通常 1-10 分钟出片（适配器预估 60-120s），
-  // 旧值 2 分钟会把健康任务误判失败、诱导用户重复付费；放宽到 10 分钟
+  // 超时清理：云端供应商通常 1-10 分钟出片；ComfyUI 本地渲染（MiniMaxH3 等）可长达 30 分钟以上，
+  // 按 provider 区分超时窗口，避免把健康任务误判失败
   if ((video.status === 'pending' || video.status === 'processing') && video.created_at) {
     const createdTime = new Date(video.created_at).getTime();
-    if (Date.now() - createdTime > 10 * 60 * 1000) {
-      ShotVideoIntervalDAO.update(db, video.id, { status: 'failed', error_message: '任务超时（超过10分钟）' });
-      return { ...video, status: 'failed', error_message: '任务超时（超过10分钟）' };
+    const isLocalComfy = (video.video_model_used || '').startsWith('comfyui');
+    const timeoutMs = isLocalComfy ? 45 * 60 * 1000 : 10 * 60 * 1000;
+    if (Date.now() - createdTime > timeoutMs) {
+      const msg = isLocalComfy ? '任务超时（ComfyUI本地渲染超过45分钟）' : '任务超时（超过10分钟）';
+      ShotVideoIntervalDAO.update(db, video.id, { status: 'failed', error_message: msg });
+      return { ...video, status: 'failed', error_message: msg };
     }
   }
 
@@ -1172,4 +1176,97 @@ export function getEpisodeSubtitles(db: Database, userId: string, episodeId: str
     srtContent,
     count: subtitles.length,
   };
+}
+
+
+// ============ 分镜字段归一化 ============
+
+/** 中文景别 → 英文枚举 */
+const SHOT_SIZE_MAP: Record<string, string> = {
+  '大远景': 'extreme_wide', '远景': 'long', '全景': 'full', '中景': 'medium',
+  '近景': 'medium_closeup', '特写': 'closeup', '大特写': 'extreme_closeup',
+};
+/** 中文运镜 → 英文枚举 */
+const CAMERA_MOVEMENT_MAP: Record<string, string> = {
+  '推镜': 'push_in', '拉镜': 'pull_out', '摇镜': 'pan', '移镜': 'truck',
+  '升降镜': 'crane', '升降': 'crane', '手持': 'handheld', '稳定器': 'steadicam', '固定': 'static', '固定镜头': 'static',
+};
+/** 中文节奏 → 英文枚举 */
+const PACE_MAP: Record<string, string> = {
+  '快': 'fast', '快节奏': 'fast', '快速剪辑': 'fast', '中': 'normal', '中速': 'normal', '中速剪辑': 'normal',
+  '慢': 'slow', '慢速': 'slow', '慢速镜头': 'slow', '慢动作': 'slow_motion', '快动作': 'fast_motion', '长镜头': 'long_take',
+};
+/** 中文转场 → 英文枚举 */
+const TRANSITION_MAP: Record<string, string> = {
+  '硬切': 'cut', '切': 'cut', '淡入淡出': 'fade', '淡入': 'fade', '淡出': 'fade', '叠化': 'dissolve', '划像': 'wipe', '匹配剪辑': 'match_cut',
+};
+/** 中文阶段 → 数字 */
+const PHASE_MAP: Record<string, number> = {
+  '一': 1, '1': 1, '开场引入': 1, '铺垫': 1, '引入': 1,
+  '二': 2, '2': 2, '矛盾升级': 2, '发展': 2, '展开': 2,
+  '三': 3, '3': 3, '高潮爆发': 3, '高潮': 3, '爆发': 3,
+  '四': 4, '4': 4, '收束悬念': 4, '收束': 4, '结局': 4, '尾声': 4,
+};
+
+/** 分镜字段归一化：中文枚举/字符串数字 → 标准值 */
+function normalizeShotValues(shot: any): any {
+  if (!shot || typeof shot !== 'object') return shot;
+  const out = { ...shot };
+  // 景别
+  if (out.shotSize && SHOT_SIZE_MAP[String(out.shotSize).trim()]) out.shotSize = SHOT_SIZE_MAP[String(out.shotSize).trim()];
+  else if (out.shotSize && !/^(extreme_wide|long|full|medium|medium_closeup|closeup|extreme_closeup)$/.test(String(out.shotSize))) {
+    // 带前后缀（如"中景镜头"）尝试匹配
+    const v = String(out.shotSize);
+    for (const [k, en] of Object.entries(SHOT_SIZE_MAP)) if (v.includes(k)) { out.shotSize = en; break; }
+  }
+  // 运镜
+  if (out.cameraMovement && CAMERA_MOVEMENT_MAP[String(out.cameraMovement).trim()]) out.cameraMovement = CAMERA_MOVEMENT_MAP[String(out.cameraMovement).trim()];
+  else if (out.cameraMovement && !/^(push_in|pull_out|pan|truck|crane|handheld|steadicam|static)$/.test(String(out.cameraMovement))) {
+    const v = String(out.cameraMovement);
+    for (const [k, en] of Object.entries(CAMERA_MOVEMENT_MAP)) if (v.includes(k)) { out.cameraMovement = en; break; }
+  }
+  // 节奏
+  if (out.pace && PACE_MAP[String(out.pace).trim()]) out.pace = PACE_MAP[String(out.pace).trim()];
+  else if (out.pace && !/^(fast|normal|slow|slow_motion|fast_motion|long_take)$/.test(String(out.pace))) {
+    const v = String(out.pace);
+    for (const [k, en] of Object.entries(PACE_MAP)) if (v.includes(k)) { out.pace = en; break; }
+  }
+  // 转场
+  if (out.transition && TRANSITION_MAP[String(out.transition).trim()]) out.transition = TRANSITION_MAP[String(out.transition).trim()];
+  else if (out.transition && !/^(cut|fade|dissolve|wipe|match_cut)$/.test(String(out.transition))) {
+    const v = String(out.transition);
+    for (const [k, en] of Object.entries(TRANSITION_MAP)) if (v.includes(k)) { out.transition = en; break; }
+  }
+  // 阶段
+  if (out.phase !== undefined && out.phase !== null) {
+    const key = String(out.phase).trim();
+    if (PHASE_MAP[key]) out.phase = PHASE_MAP[key];
+    else if (/^\d+$/.test(key)) out.phase = Number(key);
+    else out.phase = 1;
+  }
+  if (out.phaseName && !/^(开场引入|矛盾升级|高潮爆发|收束悬念)$/.test(String(out.phaseName))) {
+    const v = String(out.phaseName);
+    if (v.includes('开场') || v.includes('引入') || v.includes('铺垫')) out.phaseName = '开场引入';
+    else if (v.includes('矛盾') || v.includes('升级') || v.includes('发展')) out.phaseName = '矛盾升级';
+    else if (v.includes('高潮') || v.includes('爆发')) out.phaseName = '高潮爆发';
+    else if (v.includes('收束') || v.includes('悬念') || v.includes('结局') || v.includes('尾声')) out.phaseName = '收束悬念';
+  }
+  // 数字字段
+  for (const k of ['shotNumber', 'durationSeconds']) {
+    if (out[k] !== undefined && out[k] !== null && typeof out[k] !== 'number') {
+      const n = Number(String(out[k]).replace(/[^\d.]/g, ''));
+      out[k] = Number.isFinite(n) ? n : (k === 'durationSeconds' ? 4 : 1);
+    }
+  }
+  // 数组字段
+  for (const k of ['charactersInShot', 'propsInShot']) {
+    if (out[k] && typeof out[k] === 'string') {
+      out[k] = String(out[k]).split(/[,，、]/).map((x: string) => x.trim()).filter(Boolean);
+    }
+  }
+  // subject 兜底：空时取 charactersInShot 第一个
+  if (!out.subject && Array.isArray(out.charactersInShot) && out.charactersInShot.length > 0) {
+    out.subject = out.charactersInShot[0];
+  }
+  return out;
 }

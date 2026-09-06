@@ -27,7 +27,7 @@ export class OpenAICompatibleTextAdapter implements TextAdapter {
     this.modelName = modelName;
     this.apiKey = apiKey;
     this.baseUrl = baseUrl.replace(/\/$/, '');
-    this.timeout = timeout ?? 120000; // 默认120秒超时（文本生成可能需要较长时间）
+    this.timeout = timeout ?? 600000; // 默认300秒超时（长文/分镜JSON生成可能需要2-3分钟）
 
     // 使用官方 OpenAI SDK 初始化客户端
     // dangerouslyAllowBrowser: 后端 Node.js 环境中某些全局变量可能导致 SDK 误判为浏览器环境，显式允许

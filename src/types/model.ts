@@ -950,6 +950,14 @@ const VIDEO_MODELS: ModelMeta[] = [
     configHint: '使用Agnes AI API Key，支持图生视频和关键帧动画，当前免费',
     docsUrl: 'https://wiki.agnes-ai.com/zh-Hans/docs/agnes-video-v20',
   },
+  {
+    provider: 'comfyui', providerName: 'ComfyUI 本地',
+    modelName: 'minimax-h3-video.json', displayName: 'MiniMax H3（ComfyUI 本地）',
+    modelType: 'video', description: '本地 ComfyUI 跑 MiniMax H3 图生视频工作流，免费无限量，首帧=关键帧保人物一致',
+    supports: { referenceImage: true, customEndpoint: true, audio: false },
+    costEstimate: { perVideo: 0 },
+    configHint: 'Endpoint 填 ComfyUI 地址（如 http://127.0.0.1:8188），无需 API Key。工作流模板放 data/comfyui-workflows/',
+  },
 ];
 
 // ---------- 音频模型（8个） ----------
@@ -1220,6 +1228,7 @@ const PROVIDER_SIGNUP_URLS: Record<string, string> = {
   hailuo: 'https://platform.minimaxi.com/',
   'minimax-video': 'https://platform.minimaxi.com/user-center/basic-information/interface-key',
   happyhorse: 'https://dashscope.console.aliyun.com/apiKey',
+  agnes: 'https://api.agnes-ai.cn',
   // 音频模型
   elevenlabs: 'https://elevenlabs.io/app/settings/api-keys',
   azure: 'https://portal.azure.com/#view/Microsoft_Azure_ProjectOxford/CognitiveServicesHub/~/SpeechServices',
@@ -1227,6 +1236,7 @@ const PROVIDER_SIGNUP_URLS: Record<string, string> = {
   // 自定义/本地
   'custom-openai': '', // 用户自定义端点
   ollama: 'https://ollama.com/download', // 本地部署
+  comfyui: '', // 本地 ComfyUI（无需 API Key）
 };
 
 // ---------- 视觉理解模型（VLM：视频质量门 / 一致性 Critic） ----------

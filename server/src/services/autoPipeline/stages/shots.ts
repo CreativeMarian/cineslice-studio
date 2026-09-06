@@ -5,7 +5,7 @@ import { NovelEpisodeDAO, ShotDAO, ScriptCharacterDAO } from '../../../models';
 import { aiProxy } from '../../aiProxy';
 import { shotGenerationPrompt } from '../../prompts/shotGeneration';
 import { promptOptimizationService } from '../../promptOptimizationService';
-import { parseAiJsonOrThrow } from '../../../utils/aiJsonParser';
+import { parseShotListArray, normalizeZhKeys } from '../../../utils/aiJsonParser';
 import { buildShotSceneMap } from '../../shotConsistencyService';
 import type { AutoPipelineTask } from '../types';
 import { getFirstModel, getOrCreateScriptAnalysis } from '../helpers';
@@ -52,10 +52,10 @@ export async function stageShots(db: Database, task: AutoPipelineTask): Promise<
 
   const result = await aiProxy.generateText({
     db, userId: task.userId, provider: model.provider, modelName: model.modelName,
-    prompt: finalPrompt, systemPrompt, responseFormat: 'json', maxTokens: 8192,
+    prompt: finalPrompt, systemPrompt, responseFormat: 'json', maxTokens: 32000,
   });
 
-  const shots = parseAiJsonOrThrow<any[]>(result.content);
+  const shots = parseShotListArray<any[]>(result.content).map((sh: any) => normalizeShotValueSafe(sh));
   const list = Array.isArray(shots) ? shots : [shots];
 
   // 删除旧镜头 + 创建新镜头在同一事务内：分镜子表（关键帧/视频区间）是
@@ -112,4 +112,35 @@ export async function stageShots(db: Database, task: AutoPipelineTask): Promise<
   })();
 
   task.stageProgress['shots'] = `生成 ${created.length} 个镜头`;
+}
+
+const _SHOT_SIZE_MAP: Record<string, string> = { '大远景': 'extreme_wide', '远景': 'long', '全景': 'full', '中景': 'medium', '近景': 'medium_closeup', '特写': 'closeup', '大特写': 'extreme_closeup' };
+const _CAMERA_MAP: Record<string, string> = { '推镜': 'push_in', '拉镜': 'pull_out', '摇镜': 'pan', '移镜': 'truck', '升降镜': 'crane', '升降': 'crane', '手持': 'handheld', '稳定器': 'steadicam', '固定': 'static', '固定镜头': 'static' };
+const _PACE_MAP: Record<string, string> = { '快': 'fast', '快节奏': 'fast', '中': 'normal', '中速': 'normal', '慢': 'slow', '慢速': 'slow', '慢动作': 'slow_motion', '快动作': 'fast_motion', '长镜头': 'long_take' };
+const _TRANS_MAP: Record<string, string> = { '硬切': 'cut', '切': 'cut', '淡入淡出': 'fade', '淡入': 'fade', '淡出': 'fade', '叠化': 'dissolve', '划像': 'wipe', '匹配剪辑': 'match_cut' };
+const _PHASE_MAP: Record<string, number> = { '一': 1, '1': 1, '开场引入': 1, '铺垫': 1, '引入': 1, '二': 2, '2': 2, '矛盾升级': 2, '发展': 2, '三': 3, '3': 3, '高潮爆发': 3, '高潮': 3, '四': 4, '4': 4, '收束悬念': 4, '收束': 4, '结局': 4, '尾声': 4 };
+function normalizeShotValueSafe(shot: any): any {
+  if (!shot || typeof shot !== 'object') return shot;
+  const out = { ...shot };
+  if (out.shotSize && _SHOT_SIZE_MAP[String(out.shotSize).trim()]) out.shotSize = _SHOT_SIZE_MAP[String(out.shotSize).trim()];
+  if (out.cameraMovement && _CAMERA_MAP[String(out.cameraMovement).trim()]) out.cameraMovement = _CAMERA_MAP[String(out.cameraMovement).trim()];
+  if (out.pace && _PACE_MAP[String(out.pace).trim()]) out.pace = _PACE_MAP[String(out.pace).trim()];
+  if (out.transition && _TRANS_MAP[String(out.transition).trim()]) out.transition = _TRANS_MAP[String(out.transition).trim()];
+  if (out.phase !== undefined && out.phase !== null) {
+    const key = String(out.phase).trim();
+    if (_PHASE_MAP[key]) out.phase = _PHASE_MAP[key];
+    else if (/^\d+$/.test(key)) out.phase = Number(key);
+    else out.phase = 1;
+  }
+  for (const k of ['shotNumber', 'durationSeconds']) {
+    if (out[k] !== undefined && out[k] !== null && typeof out[k] !== 'number') {
+      const n = Number(String(out[k]).replace(/[^\d.]/g, ''));
+      out[k] = Number.isFinite(n) ? n : (k === 'durationSeconds' ? 4 : 1);
+    }
+  }
+  for (const k of ['charactersInShot', 'propsInShot']) {
+    if (out[k] && typeof out[k] === 'string') out[k] = String(out[k]).split(/[,，、]/).map((x: string) => x.trim()).filter(Boolean);
+  }
+  if (!out.subject && Array.isArray(out.charactersInShot) && out.charactersInShot.length > 0) out.subject = out.charactersInShot[0];
+  return out;
 }

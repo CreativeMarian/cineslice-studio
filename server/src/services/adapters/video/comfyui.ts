@@ -46,15 +46,19 @@ export class ComfyUIVideoAdapter implements VideoAdapter {
         .replace(/\{\{SEED\}\}/g, String(seed))
         .replace(/\{\{WIDTH\}\}/g, String(width))
         .replace(/\{\{HEIGHT\}\}/g, String(height))
+        .replace(/\{\{DURATION_SECONDS\}\}/g, String(params.duration || 5))
         .replace(/\{\{FPS\}\}/g, String(params.duration && params.duration <= 3 ? 16 : 8));
 
       const filledWorkflow = JSON.parse(workflowStr);
 
-      // 3. 上传首帧（图生视频）
+      // 3. 首帧处理：有首帧走图生视频；无首帧移除 LoadImage 节点走文生视频
       if (params.firstFrameImageUrl) {
         const imageName = await this.uploadFirstFrame(params.firstFrameImageUrl);
         this.injectImageToWorkflow(filledWorkflow, imageName);
         console.log(`[ComfyUI] 首帧已上传: ${imageName}`);
+      } else {
+        this.removeImageNodes(filledWorkflow);
+        console.log('[ComfyUI] 无首帧，已切换为文生视频模式');
       }
 
       // 4. 提交工作流
@@ -189,10 +193,42 @@ export class ComfyUIVideoAdapter implements VideoAdapter {
   }
 
   private injectImageToWorkflow(workflow: any, imageName: string): void {
+    let loadImageId: string | null = null;
     for (const nodeId of Object.keys(workflow)) {
       const node = workflow[nodeId];
       if (node.class_type === 'LoadImage' && node.inputs) {
         node.inputs.image = imageName;
+        loadImageId = nodeId;
+      }
+    }
+    // 将首帧连接到 ImageToVideo 类节点的 first_frame 输入
+    // （MiniMaxH3ImageToVideo / WanImageToVideo 等）
+    if (loadImageId) {
+      for (const nodeId of Object.keys(workflow)) {
+        const node = workflow[nodeId];
+        if (node.class_type && /ImageToVideo|Image2Video|I2V/i.test(node.class_type) && node.inputs) {
+          if (node.inputs.first_frame === undefined || node.inputs.first_frame === null) {
+            node.inputs.first_frame = [loadImageId, 0];
+          }
+        }
+      }
+    }
+  }
+
+  private removeImageNodes(workflow: any): void {
+    const loadImageIds = new Set<string>();
+    for (const nodeId of Object.keys(workflow)) {
+      if (workflow[nodeId].class_type === 'LoadImage') loadImageIds.add(nodeId);
+    }
+    for (const nodeId of loadImageIds) delete workflow[nodeId];
+    for (const nodeId of Object.keys(workflow)) {
+      const node = workflow[nodeId];
+      if (!node || !node.inputs) continue;
+      for (const key of Object.keys(node.inputs)) {
+        const v = node.inputs[key];
+        if (Array.isArray(v) && v.length === 2 && loadImageIds.has(String(v[0]))) {
+          delete node.inputs[key];
+        }
       }
     }
   }

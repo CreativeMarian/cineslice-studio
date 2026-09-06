@@ -113,3 +113,81 @@ export function parseAiJsonOrThrow<T = unknown>(raw: string): T {
   }
   return result.data as T;
 }
+
+// ---------- 分镜/剧本等结构化数据的容错解析 ----------
+
+/** 常见中文键名 → 英文键名（分镜场景） */
+const ZH_KEY_MAP: Record<string, string> = {
+  镜号: 'shotNumber', 序号: 'shotNumber', 镜头号: 'shotNumber',
+  阶段: 'phase', 阶段名: 'phaseName', 阶段名称: 'phaseName',
+  场景: 'sceneName', 场景名: 'sceneName', 场景名称: 'sceneName',
+  景别: 'shotSize', 镜头运动: 'cameraMovement', 运镜: 'cameraMovement',
+  节奏: 'pace', 主体: 'subject', 镜头主体: 'subject',
+  动作: 'actionDescription', 画面: 'actionDescription', 主画面: 'actionDescription', 动作描述: 'actionDescription',
+  台词: 'dialogue', 对话: 'dialogue',
+  构图: 'composition', 光影: 'lighting', 灯光: 'lighting',
+  情绪: 'mood', 氛围: 'mood', 氛围情绪: 'mood',
+  转场: 'transition', 时长: 'durationSeconds', 预估时长: 'durationSeconds',
+  出场角色: 'charactersInShot', 角色: 'charactersInShot', 角色列表: 'charactersInShot',
+  造型: 'characterOutfits', 服装造型: 'characterOutfits', 服装: 'characterOutfits',
+  道具: 'propsInShot', 关键道具: 'propsInShot',
+  备注: 'notes',
+};
+
+/** 中文键名递归替换为英文键名 */
+export function normalizeZhKeys<T = unknown>(input: T): T {
+  if (Array.isArray(input)) return input.map((v) => normalizeZhKeys(v)) as unknown as T;
+  if (input && typeof input === 'object') {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(input as Record<string, unknown>)) {
+      const mapped = ZH_KEY_MAP[k] ?? k;
+      out[mapped] = normalizeZhKeys(v);
+    }
+    return out as T;
+  }
+  return input;
+}
+
+/**
+ * 解析"镜头/分镜"类 AI 输出：
+ * 1. 兼容 {shots:[...]} / {storyboards:[...]} / {分镜表:[...]} / {镜头:[...]} 包裹结构
+ * 2. 兼容中文键名 → 英文键名
+ * 3. 兼容单对象（自动包装为数组）
+ */
+export function parseShotListArray<T = any>(raw: string): T[] {
+  const data = parseAiJsonOrThrow<unknown>(raw);
+  let arr: unknown[] | null = null;
+  if (Array.isArray(data)) {
+    arr = data;
+  } else if (data && typeof data === 'object') {
+    const obj = data as Record<string, unknown>;
+    for (const key of ['shots', 'storyboards', 'storyboard', '分镜表', '分镜', '镜头', 'shotsList', 'data', 'result', 'results', 'list', 'items']) {
+      if (Array.isArray(obj[key])) {
+        arr = obj[key];
+        break;
+      }
+    }
+    if (!arr && ('shotNumber' in obj || '镜号' in obj || 'actionDescription' in obj || '动作' in obj)) {
+      arr = [data];
+    }
+  }
+    if (!arr) {
+    // 深度兜底：任意层级扫描第一个含镜头字段的数组
+    const walk = (o: any, depth = 0): any[] | null => {
+      if (!o || typeof o !== 'object' || depth > 6) return null;
+      if (Array.isArray(o)) {
+        if (o.length > 0 && typeof o[0] === 'object' && o[0] !== null && ('shotNumber' in o[0] || 'shot_number' in o[0] || '镜号' in o[0] || 'actionDescription' in o[0] || '动作' in o[0])) return o;
+        for (const item of o) { const r = walk(item, depth + 1); if (r) return r; }
+        return null;
+      }
+      for (const k of Object.keys(o)) {
+        const r = walk(o[k], depth + 1);
+        if (r) return r;
+      }
+      return null;
+    };
+    arr = walk(data);
+  }
+  if (!arr) throw Object.assign(new Error('AI 返回内容不是镜头数组'), { name: 'AI_JSON_PARSE_ERROR' });
+  return normalizeZhKeys(arr) as unknown as T[];
+}
