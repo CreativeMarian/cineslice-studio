@@ -1229,6 +1229,21 @@ const PROVIDER_SIGNUP_URLS: Record<string, string> = {
   ollama: 'https://ollama.com/download', // 本地部署
 };
 
+// ---------- 视觉理解模型（VLM：视频质量门 / 一致性 Critic） ----------
+// 需要支持图片输入（多模态）的文本模型，用于：
+// 1. 视频质量门：检查生成视频首尾帧主体一致性、幻觉多脸、字幕残留
+// 2. 一致性 Critic：对镜头间角色/场景连续性打分，低分自动重渲染
+
+const VISION_MODELS: ModelMeta[] = [
+  { provider: 'doubao', providerName: '字节豆包', modelName: 'doubao-1-5-vision-pro-32k-250115', displayName: '豆包视觉 Pro', modelType: 'vision', description: '多模态视觉理解模型，图像识别与描述，视频质量门推荐', supports: { jsonOutput: true, customEndpoint: true }, costEstimate: { perImage: 0.005 } },
+  { provider: 'doubao', providerName: '字节豆包', modelName: 'doubao-seed-1-6-vision-250815', displayName: '豆包 Seed 视觉', modelType: 'vision', description: '新一代多模态模型，细粒度图像理解，视频帧一致性评分', supports: { jsonOutput: true, customEndpoint: true }, costEstimate: { perImage: 0.004 } },
+  { provider: 'qwen', providerName: '阿里通义', modelName: 'qwen-vl-max-latest', displayName: '通义千问 VL Max', modelType: 'vision', description: '阿里旗舰视觉语言模型，图像理解与跨帧分析', supports: { jsonOutput: true, customEndpoint: true }, costEstimate: { perImage: 0.008 } },
+  { provider: 'qwen', providerName: '阿里通义', modelName: 'qwen-vl-plus-latest', displayName: '通义千问 VL Plus', modelType: 'vision', description: '性价比视觉理解模型，适合批量质量门', supports: { jsonOutput: true, customEndpoint: true }, costEstimate: { perImage: 0.003 } },
+  { provider: 'zhipu', providerName: '智谱 AI', modelName: 'glm-4v-plus', displayName: '智谱 GLM-4V Plus', modelType: 'vision', description: '多模态理解模型，图像内容与一致性分析', supports: { jsonOutput: true, customEndpoint: true }, costEstimate: { perImage: 0.006 } },
+  { provider: 'openai', providerName: 'OpenAI', modelName: 'gpt-4o-mini', displayName: 'GPT-4o mini', modelType: 'vision', description: 'OpenAI 多模态模型，视觉理解能力强（需模型支持图片输入）', supports: { jsonOutput: true, customEndpoint: true }, costEstimate: { perImage: 0.002 } },
+  { provider: 'custom-openai', providerName: '自定义 OpenAI 兼容', modelName: 'custom-vision', displayName: '自定义视觉模型', modelType: 'vision', description: '任选支持图片输入的 OpenAI 兼容视觉模型，在端点配置中填入模型名', supports: { jsonOutput: true, customEndpoint: true }, costEstimate: { perImage: 0.003 } },
+];
+
 // ---------- 全量注册表 ----------
 
 const RAW_REGISTRY: ModelMeta[] = [
@@ -1236,6 +1251,7 @@ const RAW_REGISTRY: ModelMeta[] = [
   ...IMAGE_MODELS,
   ...VIDEO_MODELS,
   ...AUDIO_MODELS,
+  ...VISION_MODELS,
 ];
 
 // 根据模型名和描述自动推断适用场景（导出供测试）

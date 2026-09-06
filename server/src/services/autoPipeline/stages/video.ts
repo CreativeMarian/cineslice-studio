@@ -23,6 +23,7 @@ import type { ScriptAnalysisResult } from '../../scriptAnalysisService';
 import type { AutoPipelineTask } from '../types';
 import { getFirstModel, getOrCreateScriptAnalysis, getProjectStylePreset, buildDirectorShotContext } from '../helpers';
 import { saveTask } from '../taskStore';
+import { assessVideoClip } from '../../videoQualityGate';
 
 export async function stageVideo(db: Database, task: AutoPipelineTask): Promise<void> {
   const episodes = NovelEpisodeDAO.listByProject(db, task.projectId);
@@ -278,6 +279,40 @@ export async function stageVideo(db: Database, task: AutoPipelineTask): Promise<
                   video_url: localUrl,
                   completed_at: new Date().toISOString(),
                 });
+
+                // ═══════════════════════════════════════════════════════
+                // VLM 视频质量门（Story Claw/Continuum 方案）：
+                // 抽首/中/尾帧 + 角色参考图，交给视觉模型打分；
+                // 主体漂移/幻觉多脸/字幕残留 → 不合格，自动重渲染
+                // （未配置视觉模型或调用失败时静默放行，不阻断生产）
+                // ═══════════════════════════════════════════════════════
+                try {
+                  const quality = await assessVideoClip({
+                    db,
+                    userId: task.userId,
+                    videoPath: localPath,
+                    shot,
+                  });
+                  if (!quality.skipped && !quality.passed) {
+                    lastError = `质量门未通过(score=${quality.score}): ${quality.issues.join('；') || '主体一致性/画面异常'}`;
+                    ShotVideoIntervalDAO.updateStatus(db, videoInterval.id, 'failed', lastError);
+                    console.warn(`[AutoPipeline] video shot=${shot.shot_number} ${lastError}，进入第${attempt + 1}次重试`);
+                    completed = true; // 本轮结束，交给外层 attempt 循环重试
+                    break;
+                  }
+                  if (!quality.skipped) {
+                    // 质量门结果落库（quality_check 列）
+                    ShotVideoIntervalDAO.update(db, videoInterval.id, {
+                      quality_check: quality.passed ? 'passed' : 'failed',
+                      quality_score: quality.score,
+                      quality_issues: quality.issues.slice(0, 5).join('；'),
+                    });
+                    console.log(`[AutoPipeline] video shot=${shot.shot_number} 质量门通过 score=${quality.score}`);
+                  }
+                } catch (qErr) {
+                  console.warn('[AutoPipeline] 质量门执行失败（跳过）:', (qErr as Error).message);
+                }
+
                 generated++;
                 completed = true;
                 shotSuccess = true;

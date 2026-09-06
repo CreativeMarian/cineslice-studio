@@ -151,7 +151,12 @@ export function ShotCard({ shot, index, isExpanded, onToggle, showToast, sceneNa
           });
           if (res.data.status === 'completed' || res.data.status === 'failed') {
             setPollingVideoId(null);
-            showToast(res.data.status === 'completed' ? '视频生成完成。下一步：进入「导出」阶段合成成片' : '视频生成失败', res.data.status === 'completed' ? 'success' : 'error');
+            if (res.data.status === 'completed') {
+              showToast('视频生成完成。下一步：进入「导出」阶段合成成片', 'success');
+            } else {
+              const qMsg = (res.data as any)?.error_message || '视频生成失败';
+              showToast(qMsg, 'error');
+            }
           }
         }
       } catch {

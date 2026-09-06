@@ -46,6 +46,7 @@ export interface UserPreferences {
   default_image_model?: string;
   default_video_model?: string;
   default_audio_model?: string;
+  default_vision_model?: string;
   preferences?: Record<string, unknown>;
 }
 
@@ -268,6 +269,9 @@ export interface VideoInterval extends BaseEntity {
   motion_prompt?: string;
   status: VideoStatus;
   error_message?: string;
+  quality_check?: 'passed' | 'failed' | null;
+  quality_score?: number | null;
+  quality_issues?: string | null;
   completed_at?: string;
 }
 
@@ -329,7 +333,7 @@ export interface VisualStyle extends BaseEntity {
 
 // ---------- 模型配置 ----------
 
-export type ModelType = 'text' | 'image' | 'video' | 'audio';
+export type ModelType = 'text' | 'image' | 'video' | 'audio' | 'vision';
 export type TestStatus = 'success' | 'failed' | 'untested';
 
 export interface ModelConfig extends BaseEntity {

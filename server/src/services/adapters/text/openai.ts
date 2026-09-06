@@ -45,7 +45,19 @@ export class OpenAICompatibleTextAdapter implements TextAdapter {
     if (params.systemPrompt) {
       messages.push({ role: 'system', content: params.systemPrompt });
     }
-    messages.push({ role: 'user', content: params.prompt });
+    // 多模态：带图片时构造 image_url 数组（VLM 视频质量门用）
+    if (params.images && params.images.length > 0) {
+      const contentParts: ChatCompletionMessageParam['content'] = [
+        { type: 'text', text: params.prompt },
+        ...params.images.map(url => ({
+          type: 'image_url' as const,
+          image_url: { url },
+        })),
+      ];
+      messages.push({ role: 'user', content: contentParts });
+    } else {
+      messages.push({ role: 'user', content: params.prompt });
+    }
 
     try {
       // 使用官方 SDK 调用 chat.completions.create

@@ -31,6 +31,7 @@ import {
 } from './shotConsistencyService';
 import { parseSpeaker, stripSpeakerPrefix } from './voiceAssignment';
 import type { Database } from '../types';
+import { assessVideoClip } from './videoQualityGate';
 
 const DEFAULT_STYLE_OBJ = {
   visualStyle: '电影级写实风格，cinematic lighting，高细节，8k分辨率，统一色调',
@@ -813,6 +814,38 @@ export async function getVideoStatus(db: Database, userId: string, videoId: stri
             video_url: localUrl,
             completed_at: new Date().toISOString(),
           });
+
+          // VLM 视频质量门：抽帧 + 视觉模型打分（主体漂移/幻觉/字幕残留）
+          // 不合格 → 标记 failed 并给出具体原因，前端可直接重生成该镜头
+          // （未配置视觉模型或调用失败时静默放行，不阻断生产）
+          try {
+            if (shot) {
+              const quality = await assessVideoClip({
+                db,
+                userId,
+                videoPath: localPath,
+                shot,
+              });
+              if (!quality.skipped && !quality.passed) {
+                const qMsg = `[质量门] score=${quality.score}：${quality.issues.join('；') || '主体一致性/画面异常'}`;
+                ShotVideoIntervalDAO.updateStatus(db, video.id, 'failed', qMsg);
+                console.warn(`[VideoStatus] 镜头 ${shot.shot_number} ${qMsg}`);
+                return { ...video, status: 'failed', error_message: qMsg };
+              }
+              if (!quality.skipped) {
+                // 质量门结果落库（quality_check 列）
+                ShotVideoIntervalDAO.update(db, video.id, {
+                  quality_check: quality.passed ? 'passed' : 'failed',
+                  quality_score: quality.score,
+                  quality_issues: quality.issues.slice(0, 5).join('；'),
+                });
+                console.log(`[VideoStatus] 镜头 ${shot.shot_number} 质量门通过 score=${quality.score}`);
+              }
+            }
+          } catch (qErr) {
+            console.warn('[VideoStatus] 质量门执行失败（跳过）:', (qErr as Error).message);
+          }
+
           return { ...video, status: 'completed', video_url: localUrl };
         } catch {
           // 下载失败，保留远程 URL

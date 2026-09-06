@@ -9,9 +9,10 @@ interface DefaultModels {
   image: string;
   video: string;
   audio: string;
+  vision: string;
 }
 
-const emptyModels: DefaultModels = { text: '', image: '', video: '', audio: '' };
+const emptyModels: DefaultModels = { text: '', image: '', video: '', audio: '', vision: '' };
 
 function loadFromStorage(): DefaultModels {
   try {
@@ -39,6 +40,7 @@ export function useDefaultModels() {
           image: res.data.default_image_model || '',
           video: res.data.default_video_model || '',
           audio: res.data.default_audio_model || '',
+          vision: res.data.default_vision_model || '',
         };
         setModels(loaded);
         try {

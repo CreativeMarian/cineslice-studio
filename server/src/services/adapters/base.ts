@@ -1,5 +1,5 @@
 // AI 适配器基类接口定义
-// v1.0
+// v1.1 - 文本适配器支持多模态图片输入（VLM 视频质量门用）
 
 export interface TextGenerateParams {
   prompt: string;
@@ -8,6 +8,8 @@ export interface TextGenerateParams {
   maxTokens?: number;
   topP?: number;
   responseFormat?: 'text' | 'json';
+  /** 多模态图片输入：data URL 或可访问 URL，供视觉理解模型（视频质量门/Critic 用） */
+  images?: string[];
 }
 
 export interface TextGenerateResult {

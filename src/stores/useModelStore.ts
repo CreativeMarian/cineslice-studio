@@ -25,10 +25,7 @@ interface ModelState {
 }
 
 const emptyConfigs: Record<ModelType, ModelConfig[]> = {
-  text: [],
-  image: [],
-  video: [],
-  audio: [],
+  text: [], image: [], video: [], audio: [], vision: [],
 };
 
 export const useModelStore = create<ModelState>((set, get) => ({

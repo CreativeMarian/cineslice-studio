@@ -21,6 +21,7 @@ const preferenceSchema = z.object({
   default_image_model: z.string().optional(),
   default_video_model: z.string().optional(),
   default_audio_model: z.string().optional(),
+default_vision_model: z.string().optional(),
   preferences: z.string().optional(),
 });
 

@@ -9,6 +9,7 @@ export interface UserPreferences {
   default_image_model: string | null;
   default_video_model: string | null;
   default_audio_model: string | null;
+  default_vision_model: string | null;
   preferences: string | null;
   created_at: string;
   updated_at: string;

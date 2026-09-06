@@ -1,5 +1,5 @@
 ﻿import { useEffect, useMemo, useState, useRef } from 'react';
-import { Cpu, Type, Image, Video, Volume2, ArrowLeft, Server, CheckCircle2, ExternalLink, Zap, Loader2, Search, X, ChevronDown, ChevronRight, ChevronsDownUp, ChevronsUpDown, Plus } from 'lucide-react';
+import { Cpu, Type, Image, Video, Volume2, ArrowLeft, Server, CheckCircle2, ExternalLink, Zap, Loader2, Search, X, ChevronDown, ChevronRight, ChevronsDownUp, ChevronsUpDown, Plus, Eye } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { Tabs, LoadingState, EmptyState, Badge, Card, Input } from '../ui';
 import { ModelCard } from './ModelCard';
@@ -18,6 +18,7 @@ const typeConfig: Array<{
   { key: 'image', label: '图像模型', icon: Image, desc: '角色概念图、场景图、关键帧' },
   { key: 'video', label: '视频模型', icon: Video, desc: '镜头视频片段生成' },
   { key: 'audio', label: '音频模型', icon: Volume2, desc: '配音、旁白、音效生成' },
+  { key: 'vision', label: '视觉模型', icon: Eye, desc: '视频质量门、一致性评分（VLM）' },
 ];
 
 interface ProviderGroup {

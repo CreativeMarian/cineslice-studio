@@ -277,6 +277,10 @@ export const aiProxy = {
         if (!result.taskId) {
           throw new Error('视频任务创建失败：未返回任务ID');
         }
+      } else if (params.modelType === 'vision') {
+        const actualModelName = resolveModelName(modelConfig, params.modelName);
+        const adapter = getTextAdapter(params.provider, actualModelName, modelConfig.api_key, modelConfig.endpoint_url || undefined);
+        await adapter.generate({ prompt: 'Hi', maxTokens: 5, temperature: 0 });
       } else if (params.modelType === 'audio') {
         const actualModelName = resolveModelName(modelConfig, params.modelName);
         const adapter = getAudioAdapter(
@@ -377,6 +381,62 @@ export const aiProxy = {
     }
 
     return adapter.getTask(params.taskId);
+  },
+
+  // 视觉理解（VLM 视频质量门 / 一致性 Critic）：
+  // 传入图片（data URL 或 URL）+ 文本，要求模型返回 JSON 结构化评分。
+  // 走文本适配器（多模态），不支持图片的模型会报错，由调用方回退跳过质量门。
+  async generateVision(params: {
+    db: Database;
+    userId: string;
+    provider: string;
+    modelName: string;
+    prompt: string;
+    systemPrompt?: string;
+    images: string[];
+    temperature?: number;
+    maxTokens?: number;
+  }): Promise<TextGenerateResult> {
+    const { db, userId } = params;
+
+    // 1. 查API Key
+    const modelConfig = ModelRegistryDAO.getByUserAndModel(db, userId, params.provider, params.modelName);
+    if (!modelConfig?.api_key) {
+      throw createError(400, 'MODEL_NOT_CONFIGURED', `请先配置模型 ${params.provider}/${params.modelName} 的 API Key`);
+    }
+
+    // 2. 获取适配器（支持模型名覆盖，如火山方舟接入点ID）
+    const actualModelName = resolveModelName(modelConfig, params.modelName);
+    const adapter = getTextAdapter(params.provider, actualModelName, modelConfig.api_key, modelConfig.endpoint_url || undefined);
+
+    // 3. 重试调用（视觉评分可重试）
+    let result: TextGenerateResult;
+    try {
+      result = await withRetry(() => adapter.generate({
+        prompt: params.prompt,
+        systemPrompt: params.systemPrompt,
+        temperature: params.temperature ?? 0.2,
+        maxTokens: params.maxTokens ?? 1024,
+        responseFormat: 'json',
+        images: params.images,
+      }), { maxRetries: 2, baseDelay: 1000 });
+    } catch (err) {
+      const parsed = parseAIError(err);
+      console.error(`[AI Proxy] 视觉理解失败 ${formatAIErrorForLog(err, params.provider, params.modelName)}`);
+      throw new AIError(parsed.code as 'AI_CALL_FAILED' | 'AI_RATE_LIMITED', `${parsed.message}${parsed.suggestion ? `。${parsed.suggestion}` : ''}`);
+    }
+
+    // 4. 记录成本
+    await costTracker.record(db, userId, params.provider, params.modelName, 'text', result.usage.totalTokens);
+
+    // 5. 记录渲染日志
+    RenderLogDAO.create(db, {
+      user_id: userId,
+      action: 'vision_quality_gate',
+      details: JSON.stringify({ model: params.modelName, tokens: result.usage.totalTokens, provider: params.provider, images: params.images.length }),
+    });
+
+    return result;
   },
 
   async generateAudio(params: {

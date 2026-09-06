@@ -10,6 +10,7 @@ const TYPE_ICONS: Record<ModelType, string> = {
   image: '🖼️',
   video: '🎬',
   audio: '🎵',
+  vision: '👁️',
 };
 
 const TYPE_LABELS: Record<ModelType, string> = {
@@ -17,6 +18,7 @@ const TYPE_LABELS: Record<ModelType, string> = {
   image: '图片',
   video: '视频',
   audio: '音频',
+  vision: '视觉',
 };
 
 interface ModelSelectorProps {

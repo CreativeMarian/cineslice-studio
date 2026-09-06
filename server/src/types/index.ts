@@ -18,7 +18,7 @@ export interface PaginatedResult<T> {
 }
 
 export type RunMode = 'local' | 'server';
-export type ModelType = 'text' | 'image' | 'video' | 'audio';
+export type ModelType = 'text' | 'image' | 'video' | 'audio' | 'vision';
 
 // ============ 用户 ============
 
@@ -319,6 +319,9 @@ export interface ShotVideoInterval {
   motion_prompt: string | null;
   status: VideoStatus;
   error_message: string | null;
+  quality_check: string | null;
+  quality_score: number | null;
+  quality_issues: string | null;
   external_task_id: string | null;
   created_at: string;
   completed_at: string | null;
@@ -447,6 +450,7 @@ export interface UserPreference {
   default_image_model: string | null;
   default_video_model: string | null;
   default_audio_model: string | null;
+default_vision_model: string | null;
   preferences: string | null;
   created_at: string;
   updated_at: string;

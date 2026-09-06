@@ -18,8 +18,8 @@ function getDb(req: Request): Database {
 const modelSchema = z.object({
   provider: z.string(),
   model_name: z.string(),
-  model_type: z.enum(['text', 'image', 'video', 'audio']).optional(),
-  model_types: z.array(z.enum(['text', 'image', 'video', 'audio'])).optional(),
+  model_type: z.enum(['text', 'image', 'video', 'audio', 'vision']).optional(),
+  model_types: z.array(z.enum(['text', 'image', 'video', 'audio', 'vision'])).optional(),
   api_key: z.string(),
   endpoint_url: z.string().url().optional(),
   is_default: z.boolean().optional(),
