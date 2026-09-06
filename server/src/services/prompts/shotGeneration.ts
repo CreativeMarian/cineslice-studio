@@ -16,6 +16,8 @@ export interface ShotGenerationParams {
   episodeDuration?: number; // 目标时长（分钟），默认3
   characters?: Array<{ name: string; appearance: string }>; // 已有角色资产（定妆信息），注入保证人物一致
   sceneNames?: string[]; // 已有场景清单（资产阶段提取），约束镜头场景归属
+  keyItems?: Array<{ name: string; description: string }>; // 本集关键物品清单
+  episodeTheme?: string; // 本集主题
 }
 
 export function shotGenerationPrompt(params: ShotGenerationParams): { systemPrompt: string; prompt: string } {
@@ -109,12 +111,20 @@ ${DIRECTOR_COMPLIANCE_RULES}
 - 【造型调度】根据剧情上下文判断每个镜头中角色的服装造型：如刚起床穿睡衣、上班穿职业装、晚宴穿礼服、运动穿运动装、洗澡后穿浴袍。场景切换或时间跳变时服装应相应变化
 - 每个镜头必须标注 subject（镜头主体角色名），对话场景中说话者必须是主体
 - 每个镜头必须标注 sceneName（该镜头所属场景名）：同一场戏的连续镜头 sceneName 必须一致，场景切换必须发生在剧情明确的转场处
+- 【禁止纯场景过场】每个镜头必须有角色主体（subject 不为空）或明确的剧情功能；纯空镜/纯环境描写镜头不得超过总镜头数的10%，且必须用于氛围铺垫或转场，禁止连续2个以上无角色镜头
+- 【角色驱动】镜头画面描述必须以角色动作/表情/对话为核心，环境描写只作为背景衬托；禁止"镜头缓缓扫过空房间"这类无角色无剧情的无效镜头
+- 【物品出现】关键道具出现时必须在 propsInShot 中标注，且画面描述中包含物品状态
 
 ${params.characters && params.characters.length > 0 ? `【角色定妆信息】（资产库已定义，必须严格引用角色名，画面描述以定妆信息为准，不得自行更改外貌/服装）
 ${params.characters.map((c) => `- ${c.name}：${c.appearance}`).join('\n')}` : ''}
 
 ${params.sceneNames && params.sceneNames.length > 0 ? `【已有场景清单】（镜头 sceneName 必须从以下场景中选取，同一场景的光影氛围保持一致）
 ${params.sceneNames.join('、')}` : ''}
+
+${params.keyItems && params.keyItems.length > 0 ? `【本集关键物品清单】（道具出现时必须在 propsInShot 中标注，画面描述中包含物品状态）
+${params.keyItems.map((i) => '- ' + i.name + '：' + i.description).join('\n')}` : ''}
+
+${params.episodeTheme ? '【本集主题】' + params.episodeTheme + '（镜头氛围和叙事重点需围绕此主题）' : ''}
 
 输出格式为 JSON 数组，每个镜头包含：
 - shotNumber: 镜头序号（从1开始）

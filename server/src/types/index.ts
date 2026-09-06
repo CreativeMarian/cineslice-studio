@@ -131,6 +131,9 @@ export interface NovelEpisode {
   title: string;
   chapter_range: string | null;
   script_content: string;
+  theme: string | null;
+  characters_json: string | null;
+  key_items_json: string | null;
   status: EpisodeStatus;
   text_model_used: string | null;
   word_count: number;

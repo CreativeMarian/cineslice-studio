@@ -5,17 +5,17 @@ import type { Database, NovelEpisode } from '../types';
 import { generateId, now, countWords } from './index';
 
 export const NovelEpisodeDAO = {
-  create(db: Database, data: { user_id: string; project_id: string; episode_number: number; title: string; chapter_range?: string; script_content?: string; text_model_used?: string }): NovelEpisode {
+  create(db: Database, data: { user_id: string; project_id: string; episode_number: number; title: string; chapter_range?: string; script_content?: string; theme?: string; characters_json?: string; key_items_json?: string; text_model_used?: string }): NovelEpisode {
     const id = generateId('ep');
     const content = data.script_content || '';
     db.prepare(`
       INSERT INTO novel_episodes (id, user_id, project_id, episode_number, title, chapter_range, script_content, status, text_model_used, word_count, created_at, updated_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, 'generated', ?, ?, ?, ?)
-    `).run(id, data.user_id, data.project_id, data.episode_number, data.title, data.chapter_range || '', content, data.text_model_used || null, countWords(content), now(), now());
+    `).run(id, data.user_id, data.project_id, data.episode_number, data.title, data.chapter_range || '', content, data.theme || null, data.characters_json || null, data.key_items_json || null, data.text_model_used || null, countWords(content), now(), now());
     return this.getById(db, id)!;
   },
 
-  batchCreate(db: Database, episodes: Array<{ user_id: string; project_id: string; episode_number: number; title: string; chapter_range?: string; script_content?: string; text_model_used?: string }>): NovelEpisode[] {
+  batchCreate(db: Database, episodes: Array<{ user_id: string; project_id: string; episode_number: number; title: string; chapter_range?: string; script_content?: string; theme?: string; characters_json?: string; key_items_json?: string; text_model_used?: string }>): NovelEpisode[] {
     const results: NovelEpisode[] = [];
     const transaction = db.transaction(() => {
       for (const ep of episodes) {

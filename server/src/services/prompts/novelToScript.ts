@@ -31,6 +31,9 @@ export function novelToScriptPrompt(params: NovelToScriptParams): { systemPrompt
 5. 【剧情保真】严格遵循原文情节发展顺序，不得添加原文没有的情节，不得修改人物动机和关系
 6. 【关键对话保留】原文中的重要对话必须原样保留，不得改写或概括
 7. 【人物一致性】人物性格、说话风格必须与原文一致，不得OOC（Out of Character）
+8. 【主题明确】每集必须有明确的主题和核心冲突，禁止无主题的流水账
+9. 【角色驱动】每个场景必须有角色出场和剧情推进，禁止纯环境描写的过场；角色动作和对话是场景核心
+10. 【物品线索】关键物品必须在剧情中发挥作用，在 characters 和 keyItems 中明确标注
 
 ${DIRECTOR_8D_STANDARD}
 
@@ -46,7 +49,10 @@ ${DIRECTOR_COMPLIANCE_RULES}
 - title: 剧集标题（如果原著中有标题请保留，否则根据内容概括）
 - chapterRange: 该集对应的原文章节范围，必须填写具体范围（如"第1-3章"、"第4章"、"第5-6章"），如果原文无章节标记则填写"第X集"（X为当前集数），禁止统一填"第1章"
 - scriptContent: 剧本正文（Markdown 格式）
-- plotPoints: 剧情要点数组，列出本集的3-5个关键情节节点，便于核对剧情保真度（如["主角初遇反派", "发现关键线索", "第一次冲突"]）
+- theme: 本集主题与核心冲突（一句话概括，如"主角发现家人隐瞒的秘密，信任开始崩塌"）
+- characters: 本集出场角色清单，数组格式，每个元素包含 {name, role, description}，role 为"主角/配角/反派/路人"，description 为角色在本集中的功能和关键特征
+- keyItems: 本集关键物品/道具清单，数组格式，每个元素包含 {name, description, importance}，importance 为"核心/重要/背景"
+- plotPoints: 剧情要点数组，列出本集的3-5个关键情节节点，每个节点包含 {event, characters, items}，characters 和 items 为该节点涉及的角色名和物品名数组
 
 【剧本格式要求】
 每集 scriptContent 必须包含：

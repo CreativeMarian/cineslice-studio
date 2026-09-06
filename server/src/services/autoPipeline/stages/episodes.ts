@@ -50,6 +50,9 @@ export async function stageEpisodes(db: Database, task: AutoPipelineTask): Promi
     title: data.title || '第1集',
     script_content: data.scriptContent || allContent,
     chapter_range: '1-1',
+    theme: data.theme || undefined,
+    characters_json: data.characters ? JSON.stringify(data.characters) : undefined,
+    key_items_json: data.keyItems ? JSON.stringify(data.keyItems) : undefined,
     text_model_used: `${model.provider}/${model.modelName}`,
   });
 

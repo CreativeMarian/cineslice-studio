@@ -150,6 +150,9 @@ export async function regenerateEpisodeScript(
     title: data.title || episode.title,
     script_content: data.scriptContent || episode.script_content,
     chapter_range: data.chapterRange || episode.chapter_range,
+    theme: data.theme || episode.theme,
+    characters_json: data.characters ? JSON.stringify(data.characters) : episode.characters_json,
+    key_items_json: data.keyItems ? JSON.stringify(data.keyItems) : episode.key_items_json,
     text_model_used: `${provider}/${modelName}`,
     status: 'generated',
   });
@@ -215,12 +218,35 @@ export async function generateShotsForEpisode(
   const existingScenes = ScriptSceneDAO.listByEpisode(db, episode.id);
   const sceneNames = existingScenes.map(s => s.name).filter(Boolean);
 
+  // 剧集元数据 fallback：如果资产阶段还没提取角色/道具，用剧集生成时输出的清单
+  let characters = existingCharacters.length > 0 ? existingCharacters : undefined;
+  if (!characters && episode.characters_json) {
+    try {
+      const epChars = JSON.parse(episode.characters_json);
+      if (Array.isArray(epChars) && epChars.length > 0) {
+        characters = epChars.map((c: any) => ({ name: c.name, appearance: c.description || c.role || c.name }));
+        console.log(`[GenerateShots] 使用剧集角色清单作fallback: ${characters.length}个角色`);
+      }
+    } catch { /* 解析失败忽略 */ }
+  }
+  let keyItems: Array<{ name: string; description: string }> | undefined;
+  if (episode.key_items_json) {
+    try {
+      const items = JSON.parse(episode.key_items_json);
+      if (Array.isArray(items) && items.length > 0) {
+        keyItems = items.map((i: any) => ({ name: i.name, description: i.description || i.importance || '' }));
+      }
+    } catch { /* 解析失败忽略 */ }
+  }
+
   const { systemPrompt, prompt } = shotGenerationPrompt({
     scriptContent: episode.script_content,
     shotDensity: shotDensity || 'normal',
     includeDialogue: includeDialogue !== false,
-    characters: existingCharacters.length > 0 ? existingCharacters : undefined,
+    characters,
     sceneNames: sceneNames.length > 0 ? sceneNames : undefined,
+    keyItems,
+    episodeTheme: episode.theme || undefined,
   });
 
   const result = await aiProxy.generateText({
