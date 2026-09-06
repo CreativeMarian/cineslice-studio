@@ -952,6 +952,8 @@ export async function batchGenerateVideos(
   if (!episode) throw createError(404, 'NOT_FOUND', '剧集不存在');
 
   const { provider, modelName, shotIds, duration, ratio, resolution } = opts;
+  // 项目风格预设：保证批量视频与单镜/关键帧使用同一画风（此前硬编码默认风格导致预设失效）
+  const { stylePresetObj } = resolveStylePreset(db, episode.project_id);
   let shots = ShotDAO.listByEpisode(db, episode.id);
   if (shotIds && shotIds.length > 0) {
     shots = shots.filter(s => shotIds.includes(s.id));
@@ -1027,7 +1029,7 @@ export async function batchGenerateVideos(
           directorPromptResult?.prompt || shot.action_description || '',
           shotContext,
           scriptAnalysis,
-          { visualStyle: '电影级写实风格，cinematic lighting，高细节，8k分辨率，统一色调', colorPalette: '', cameraLanguage: '' }
+          stylePresetObj
         );
 
         // 合并提示词，注入角色视觉描述确保人物一致性

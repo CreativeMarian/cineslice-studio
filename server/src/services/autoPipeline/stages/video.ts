@@ -184,6 +184,16 @@ export async function stageVideo(db: Database, task: AutoPipelineTask): Promise<
         console.warn(`[AutoPipeline] video shot=${shot.shot_number} AI深度优化失败，使用导演级提示词:`, (aiErr as Error).message);
       }
 
+      // 注入项目风格预设（统一画风：关键帧/单镜/批量/自动流水线四路一致）
+      const styleSuffix = [
+        stylePreset.visualStyle ? `【统一风格】${stylePreset.visualStyle}` : '',
+        stylePreset.colorPalette ? `【色调】${stylePreset.colorPalette}` : '',
+        stylePreset.cameraLanguage ? `【镜头语言】${stylePreset.cameraLanguage}` : '',
+      ].filter(Boolean).join('\n');
+      if (styleSuffix && !finalPrompt.includes('【统一风格】')) {
+        finalPrompt = finalPrompt + '\n\n' + styleSuffix;
+      }
+
       // 合并正面提示词和负面提示词（视频模型通常不支持独立的负面提示词参数）
       const videoMotionPrompt = `${finalPrompt}\n\n【负面提示词·绝对避免】${finalNegativePrompt}`;
 
