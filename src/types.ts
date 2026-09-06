@@ -233,6 +233,8 @@ export interface Shot extends BaseEntity {
   transition?: string | null;
   pace?: string | null;
   use_next_first_frame?: number;
+  phase?: number | null;    // 阶段编号（1-4）：每集按4个剧情阶段划分，每阶段独立成视频
+  phase_name?: string | null; // 阶段名称（如"开场引入""矛盾升级"等）
 }
 
 // ---------- 关键帧 ----------

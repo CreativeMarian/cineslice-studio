@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import {
   Download, FileArchive, Upload, Film, CheckCircle, FileText,
   LayoutList, Users, MapPin, Video, Loader2, AlertCircle, Play,
-  Subtitles, Copy,
+  Subtitles, Copy, Layers,
 } from 'lucide-react';
 import { Card, Button, Badge } from '../ui';
 import { useProjectStore } from '../../stores/useProjectStore';
@@ -82,6 +82,7 @@ export function StageExport() {
   // 视频合成状态
   const [composeResult, setComposeResult] = useState<ComposeResult | null>(null);
   const [isComposing, setIsComposing] = useState(false);
+  const [composeMode, setComposeMode] = useState<'byphase' | 'direct'>('byphase');
   const [ffmpegAvailable, setFfmpegAvailable] = useState<boolean | null>(null);
   // 用 ref 保存轮询定时器：state 会让 useEffect 清理函数捕获过期值，导致卸载时无法清除定时器
   const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -159,6 +160,7 @@ export function StageExport() {
         transition: 'none',
         outputResolution: '1920x1080',
         fps: 24,
+        byPhase: composeMode === 'byphase',
       });
       if (res.success && res.data) {
         setComposeResult(res.data);
@@ -273,9 +275,38 @@ export function StageExport() {
           <div className="flex-1">
             <h3 className="font-medium text-[var(--ink-1)] mb-1">视频合成</h3>
             <p className="text-sm text-[var(--ink-3)] mb-4">
-              将当前集所有分镜的视频片段合成为完整剧集视频（MP4）
+              {composeMode === 'byphase'
+                ? '两级合成：先将本集 4 个剧情阶段各合成为一段视频，再将阶段视频拼接为完整剧集（MP4）'
+                : '将当前集所有分镜的视频片段直接合成为完整剧集视频（MP4）'}
               {currentEpisode && <span className="ml-1">— 当前：第{currentEpisode.episode_number}集 {currentEpisode.title}</span>}
             </p>
+
+            {/* 合成模式切换 */}
+            <div className="flex items-center gap-2 mb-4">
+              <span className="text-xs text-[var(--ink-3)] mr-1">合成模式:</span>
+              <button
+                onClick={() => setComposeMode('byphase')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${composeMode === 'byphase'
+                  ? 'bg-[var(--accent)] text-[var(--on-accent)] shadow-sm'
+                  : 'bg-[var(--panel-2)] text-[var(--ink-2)] hover:bg-[var(--panel-3)]'}`}
+              >
+                按阶段合成（推荐）
+              </button>
+              <button
+                onClick={() => setComposeMode('direct')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${composeMode === 'direct'
+                  ? 'bg-[var(--accent)] text-[var(--on-accent)] shadow-sm'
+                  : 'bg-[var(--panel-2)] text-[var(--ink-2)] hover:bg-[var(--panel-3)]'}`}
+              >
+                直接整集合成
+              </button>
+              {composeMode === 'byphase' && (
+                <span className="text-[11px] text-[var(--ink-3)] flex items-center gap-1 ml-1">
+                  <Layers className="w-3.5 h-3.5" />
+                  4 阶段 → 每段独立视频 → 拼接完整一集
+                </span>
+              )}
+            </div>
 
             {ffmpegAvailable === false && (
               <div className="flex items-center gap-2 p-3 rounded-lg bg-yellow-500/10 border border-yellow-500/20 mb-4">
@@ -311,6 +342,29 @@ export function StageExport() {
                   <span className="text-sm font-medium text-emerald-600 dark:text-emerald-400">合成完成！</span>
                 </div>
                 <video src={composeResult.outputUrl} controls className="w-full max-w-md rounded-lg" />
+                {composeResult.phaseVideos && composeResult.phaseVideos.length > 0 && (
+                  <div className="mt-4">
+                    <p className="text-xs font-medium text-[var(--ink-2)] mb-2">阶段视频（4 段拼接为完整一集）</p>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      {composeResult.phaseVideos.map((pv) => (
+                        <div key={pv.phase} className="rounded-lg border border-[var(--border)] bg-[var(--panel-2)]/60 p-2.5">
+                          <div className="flex items-center justify-between mb-1.5">
+                            <span className="text-xs font-semibold text-[var(--ink-1)] flex items-center gap-1.5">
+                              <span className={`w-4 h-4 rounded-md ${['bg-indigo-500/20 text-indigo-500','bg-blue-500/20 text-blue-500','bg-violet-500/20 text-violet-500','bg-fuchsia-500/20 text-fuchsia-500'][pv.phase - 1] || 'bg-[var(--accent-soft)] text-[var(--accent)]'} flex items-center justify-center text-[10px] font-bold`}>
+                                P{pv.phase}
+                              </span>
+                              {pv.phaseName || `阶段${pv.phase}`}
+                            </span>
+                            <a href={pv.url} download className="text-[var(--accent)] hover:brightness-110">
+                              <Download className="w-3.5 h-3.5" />
+                            </a>
+                          </div>
+                          <video src={pv.url} controls className="w-full rounded-md" />
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
                 <a
                   href={composeResult.outputUrl}
                   download

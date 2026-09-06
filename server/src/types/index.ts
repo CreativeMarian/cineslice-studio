@@ -276,6 +276,8 @@ export interface Shot {
   transition: string | null;
   pace: string | null;
   character_outfits: string | null; // 造型调度：该镜头各角色应穿的造型，JSON {"角色名":"造型名"}
+  phase: number | null;     // 阶段编号（1-4）：每集按剧情分4个阶段，每阶段生成一段视频后拼接
+  phase_name: string | null; // 阶段名称（如"开场冲突""矛盾升级""高潮爆发""悬念收尾"）
   use_next_first_frame: number; // 1=视频生成时自动用下一镜首帧作尾帧（首尾帧插值）
   created_at: string;
   updated_at: string;

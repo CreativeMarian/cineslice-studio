@@ -74,6 +74,17 @@ export async function stageShots(db: Database, task: AutoPipelineTask): Promise<
       return { ...s, shotNumber: num };
     });
 
+    // 阶段兜底：AI 未返回 phase 时，按镜头序号均分到 4 个阶段
+    const PHASE_NAMES = ['开场引入', '矛盾升级', '高潮爆发', '收束悬念'];
+    const totalCount = finalList.length;
+    finalList.forEach((s: any, idx: number) => {
+      if (s.phase === undefined || s.phase === null) {
+        const phaseNum = Math.min(4, Math.max(1, Math.floor((idx / Math.max(1, totalCount)) * 4) + 1));
+        s.phase = phaseNum;
+        s.phaseName = PHASE_NAMES[phaseNum - 1];
+      }
+    });
+
     // 场景关联：sceneName → 匹配/创建 script_scenes → scene_id 落库（场景参考图链路）
     const sceneMap = buildShotSceneMap(db, task.userId, first.id, finalList);
 
@@ -95,6 +106,8 @@ export async function stageShots(db: Database, task: AutoPipelineTask): Promise<
       transition: s.transition || 'cut',
       pace: s.pace || 'normal',
       character_outfits: s.characterOutfits ? JSON.stringify(s.characterOutfits) : null,
+      phase: s.phase ?? null,
+      phase_name: s.phaseName || null,
     })));
   })();
 

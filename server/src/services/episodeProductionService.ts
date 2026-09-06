@@ -278,6 +278,17 @@ export async function generateShotsForEpisode(
       return { ...s, shotNumber: num };
     });
 
+    // 阶段兜底：AI 未返回 phase 时，按镜头序号均分到 4 个阶段（确保每集都有4阶段结构）
+    const PHASE_NAMES = ['开场引入', '矛盾升级', '高潮爆发', '收束悬念'];
+    const total = finalShots.length;
+    finalShots.forEach((s: any, idx: number) => {
+      if (s.phase === undefined || s.phase === null) {
+        const phaseNum = Math.min(4, Math.max(1, Math.floor((idx / Math.max(1, total)) * 4) + 1));
+        s.phase = phaseNum;
+        s.phaseName = PHASE_NAMES[phaseNum - 1];
+      }
+    });
+
     // 场景关联：sceneName → 匹配/创建 script_scenes，保证场景参考图注入链路可用
     // （此前 shots.scene_id 100% 为空，场景概念图永远收集不到，是最大连贯性缺口）
     const sceneMap = buildShotSceneMap(db, userId, episode.id, finalShots);
@@ -301,6 +312,8 @@ export async function generateShotsForEpisode(
       mood: s.mood || null,
       transition: s.transition || 'cut',
       pace: s.pace || 'normal',
+      phase: s.phase ?? null,
+      phase_name: s.phaseName || null,
     })));
   });
 }

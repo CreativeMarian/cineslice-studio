@@ -201,6 +201,7 @@ export function MindMapPage() {
 
   const [scale, setScale] = useState(0.7);
   const [position, setPosition] = useState({ x: 40, y: 40 });
+  const [viewport, setViewport] = useState({ w: 800, h: 600 });
   const [isDragging, setIsDragging] = useState(false);
   const dragStart = useRef({ x: 0, y: 0 });
   const [selectedNode, setSelectedNode] = useState<string | null>(null);
@@ -245,6 +246,7 @@ export function MindMapPage() {
     if (!containerRef.current) return;
     const cw = containerRef.current.clientWidth - 80;
     const ch = containerRef.current.clientHeight - 80;
+    setViewport({ w: containerRef.current.clientWidth, h: containerRef.current.clientHeight });
     const s = Math.min(cw / width, ch / height, 1);
     setScale(s);
     setPosition({
@@ -254,6 +256,17 @@ export function MindMapPage() {
   }, [width, height]);
 
   useEffect(() => { fitToScreen(); }, [fitToScreen]);
+
+  // 容器尺寸变化时更新 viewport（minimap 视口指示用）
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(() => {
+      setViewport({ w: el.clientWidth, h: el.clientHeight });
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
 
   // 聚焦到节点
   const focusNode = useCallback((id: string) => {
@@ -598,8 +611,8 @@ export function MindMapPage() {
                 <rect
                   x={-position.x / scale}
                   y={-position.y / scale}
-                  width={containerRef.current ? containerRef.current.clientWidth / scale : 800}
-                  height={containerRef.current ? containerRef.current.clientHeight / scale : 600}
+                  width={viewport.w / scale}
+                  height={viewport.h / scale}
                   fill="none"
                   stroke="var(--accent)"
                   strokeWidth={3 / scale}

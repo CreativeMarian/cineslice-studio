@@ -7,6 +7,17 @@ export interface ComposeOptions {
   fps?: number;
   bgmPath?: string;
   bgmVolume?: number;
+  /** 两级合成：true 时先按阶段合成再拼接整集 */
+  byPhase?: boolean;
+  /** 只合成指定阶段（1-4） */
+  phase?: number;
+}
+
+export interface PhaseVideo {
+  phase: number;
+  phaseName: string | null;
+  url: string;
+  path: string;
 }
 
 export interface ComposeResult {
@@ -18,6 +29,8 @@ export interface ComposeResult {
   error?: string;
   totalClips: number;
   completedClips: number;
+  /** 两级合成完成后的阶段视频列表 */
+  phaseVideos?: PhaseVideo[];
 }
 
 export const videoComposeService = {

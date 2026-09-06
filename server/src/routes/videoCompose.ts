@@ -5,7 +5,7 @@ import { Router, Request, Response } from 'express';
 import { z } from 'zod';
 import { createError, asyncHandler } from '../middleware/errorHandler';
 import { validateBody } from '../middleware/validate';
-import { composeEpisode, getComposeStatus, checkFfmpegAvailable } from '../services/videoComposer';
+import { composeEpisode, composePhase, getComposeStatus, checkFfmpegAvailable } from '../services/videoComposer';
 import type { Database } from '../types';
 
 const router = Router();
@@ -21,6 +21,8 @@ const composeSchema = z.object({
   fps: z.number().int().min(12).max(60).optional(),
   bgmPath: z.string().max(255).optional(), // BGM 文件名（仅限项目音频目录内的基础文件名）
   bgmVolume: z.number().min(0).max(1).optional(),
+  byPhase: z.boolean().optional(), // true=两级合成（阶段视频→整集）
+  phase: z.number().int().min(1).max(4).optional(), // 只合成指定阶段
 });
 
 // 检查 ffmpeg 可用性
@@ -32,7 +34,9 @@ router.get('/ffmpeg/status', asyncHandler(async (_req: Request, res: Response) =
 // 合成某集视频
 router.post('/episodes/:id/compose', validateBody(composeSchema), asyncHandler(async (req: Request, res: Response) => {
   const db = getDb(req);
-  const result = await composeEpisode(db, req.params.id, req.user.id, req.body);
+  const result = req.body.phase !== undefined
+    ? await composePhase(db, req.params.id, req.user.id, req.body.phase, req.body)
+    : await composeEpisode(db, req.params.id, req.user.id, req.body);
   res.json({ success: result.status !== 'failed', data: result });
 }));
 

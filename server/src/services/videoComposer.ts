@@ -1,5 +1,6 @@
 // 视频合成服务
-// v1.0
+// v2.0 — 支持"阶段合成"：每集按 4 个剧情阶段（phase 1-4）分组，每个阶段合成一段视频，
+//        再将阶段视频拼接为完整剧集（byPhase 模式）；兼容旧版整集直接拼接。
 // 使用 ffmpeg 将多个分镜视频片段合成为完整剧集视频
 
 import { execFile } from 'child_process';
@@ -26,6 +27,10 @@ export interface ComposeOptions {
   fps?: number;
   bgmPath?: string; // 背景音乐本地路径
   bgmVolume?: number; // 0-1
+  /** v2.0: true 时按阶段合成（每个 phase 一段视频，再拼接成整集） */
+  byPhase?: boolean;
+  /** v2.0: 指定只合成某阶段（phase 1-4），用于"阶段视频"生成 */
+  phase?: number;
 }
 
 export interface ComposeResult {
@@ -39,10 +44,15 @@ export interface ComposeResult {
   error?: string;
   totalClips: number;
   completedClips: number;
+  /** v2.0: 按阶段合成时的阶段视频列表（completed 且 byPhase=true 时返回） */
+  phaseVideos?: Array<{ phase: number; phaseName: string | null; url: string; path: string }>;
 }
 
 // 内存中的合成任务状态
 const composeTasks = new Map<string, ComposeResult>();
+
+/** 阶段名称（与分镜生成提示词保持一致） */
+export const PHASE_NAMES = ['开场引入', '矛盾升级', '高潮爆发', '收束悬念'];
 
 /**
  * 获取 ffmpeg 可执行文件路径
@@ -77,13 +87,24 @@ export async function checkFfmpegAvailable(): Promise<boolean> {
 
 
 /**
- * 收集某集所有已完成的视频片段
+ * 收集某集（或某集某阶段）所有已完成的视频片段
+ * @param phase 指定阶段号（1-4）时只收集该阶段的镜头；缺省收集全部
  */
-function collectVideoClips(db: Database, episodeId: string): Array<{ shotId: string; shotNumber: number; videoPath: string | null; duration: number }> {
+function collectVideoClips(
+  db: Database,
+  episodeId: string,
+  phase?: number
+): Array<{ shotId: string; shotNumber: number; videoPath: string | null; duration: number; phase: number | null; phaseName: string | null }> {
   const shots = ShotDAO.listByEpisode(db, episodeId);
-  const clips: Array<{ shotId: string; shotNumber: number; videoPath: string | null; duration: number }> = [];
+  const clips: Array<{ shotId: string; shotNumber: number; videoPath: string | null; duration: number; phase: number | null; phaseName: string | null }> = [];
 
   for (const shot of shots) {
+    // 阶段过滤
+    if (phase !== undefined) {
+      const shotPhase = shot.phase ?? Math.min(4, Math.max(1, Math.floor(((shot.shot_number - 1) / Math.max(1, shots.length)) * 4) + 1));
+      if (shotPhase !== phase) continue;
+    }
+
     const intervals = ShotVideoIntervalDAO.listByShot(db, shot.id);
     // 取最新的已完成视频
     const completed = intervals
@@ -97,6 +118,8 @@ function collectVideoClips(db: Database, episodeId: string): Array<{ shotId: str
         shotNumber: shot.shot_number,
         videoPath: localPath,
         duration: completed.duration_seconds || shot.duration_seconds || 5,
+        phase: shot.phase ?? null,
+        phaseName: shot.phase_name ?? null,
       });
     } else {
       clips.push({
@@ -104,6 +127,8 @@ function collectVideoClips(db: Database, episodeId: string): Array<{ shotId: str
         shotNumber: shot.shot_number,
         videoPath: null,
         duration: shot.duration_seconds || 5,
+        phase: shot.phase ?? null,
+        phaseName: shot.phase_name ?? null,
       });
     }
   }
@@ -256,7 +281,178 @@ async function composeWithXfade(
 }
 
 /**
+ * 执行"一批片段 → 一个视频文件"的底层合成（生成占位 + concat/xfade）
+ */
+async function composeClipsToFile(
+  clips: Array<{ shotId: string; shotNumber: number; videoPath: string | null; duration: number }>,
+  outputPath: string,
+  options: ComposeOptions,
+  taskResult: ComposeResult,
+  tempDir: string,
+): Promise<void> {
+  const resolution = options.outputResolution || '1920x1080';
+  const fps = options.fps || 24;
+  const transition = options.transition || 'none';
+  const transitionDur = options.transitionDuration || 0.5;
+
+  // 为没有视频的镜头生成占位
+  projectStorage.ensureDir(tempDir);
+
+  const finalClips: string[] = [];
+  for (let i = 0; i < clips.length; i++) {
+    const clip = clips[i];
+    if (clip.videoPath) {
+      finalClips.push(clip.videoPath);
+    } else {
+      const placeholderPath = path.resolve(tempDir, `placeholder_${i}.mp4`);
+      await generatePlaceholder(placeholderPath, clip.duration, resolution);
+      finalClips.push(placeholderPath);
+    }
+    taskResult.completedClips = i + 1;
+    taskResult.progress = Math.round(((i + 1) / clips.length) * 30);
+  }
+
+  // 生成 concat 列表文件
+  const listFile = path.resolve(tempDir, 'concat.txt');
+  const listContent = finalClips.map(p => `file '${p.replace(/'/g, "'\\''")}'`).join('\n');
+  fs.writeFileSync(listFile, listContent, 'utf-8');
+
+  taskResult.progress = 40;
+
+  const ffmpeg = getFfmpegPath();
+
+  if (transition === 'none' || finalClips.length <= 1) {
+    // 简单拼接（重新编码以保证兼容性）
+    const args = [
+      '-f', 'concat',
+      '-safe', '0',
+      '-i', listFile,
+      '-c:v', 'libx264',
+      '-preset', 'medium',
+      '-crf', '23',
+      '-pix_fmt', 'yuv420p',
+      '-r', String(fps),
+      '-s', resolution,
+    ];
+
+    // 背景音乐
+    if (options.bgmPath && fs.existsSync(options.bgmPath)) {
+      args.push('-i', options.bgmPath);
+      args.push('-c:a', 'aac');
+      args.push('-b:a', '192k');
+      args.push('-shortest');
+      if (options.bgmVolume !== undefined) {
+        args.push('-filter:a', `volume=${options.bgmVolume}`);
+      }
+    } else {
+      // 保留原始视频音频
+      args.push('-c:a', 'aac');
+      args.push('-b:a', '192k');
+      args.push('-ar', '44100');
+      args.push('-ac', '2');
+    }
+
+    args.push('-y', outputPath);
+
+    await execFileAsync(ffmpeg, args, { timeout: 600000, maxBuffer: 1024 * 1024 * 100 });
+  } else {
+    // 带转场的复杂合成：使用 xfade 滤镜实现淡入淡出
+    await composeWithXfade(ffmpeg, finalClips, outputPath, transitionDur, resolution, fps, tempDir);
+  }
+}
+
+/**
+ * 按阶段合成：把某集指定阶段（phase 1-4）的所有分镜视频合成一段"阶段视频"
+ */
+export async function composePhase(
+  db: Database,
+  episodeId: string,
+  userId: string,
+  phase: number,
+  options: ComposeOptions = {}
+): Promise<ComposeResult> {
+  const taskId = `compose_phase${phase}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  const episode = NovelEpisodeDAO.getByIdAndUser(db, episodeId, userId);
+  if (!episode) {
+    throw createHttpError(404, 'NOT_FOUND', '剧集不存在');
+  }
+  if (phase < 1 || phase > 4) {
+    throw createHttpError(400, 'VALIDATION_ERROR', '阶段编号必须为 1-4');
+  }
+
+  const ffmpegAvailable = await checkFfmpegAvailable();
+  if (!ffmpegAvailable) {
+    const result: ComposeResult = {
+      taskId, status: 'failed',
+      error: 'ffmpeg 未安装，请安装 ffmpeg 或 ffmpeg-static 后重试',
+      totalClips: 0, completedClips: 0,
+    };
+    composeTasks.set(taskId, result);
+    return result;
+  }
+
+  const clips = collectVideoClips(db, episodeId, phase);
+  const validClips = clips.filter(c => c.videoPath);
+
+  if (validClips.length === 0) {
+    const result: ComposeResult = {
+      taskId, status: 'failed',
+      error: `阶段${phase}没有可用的视频片段，请先生成该阶段的分镜视频`,
+      totalClips: clips.length, completedClips: 0,
+    };
+    composeTasks.set(taskId, result);
+    return result;
+  }
+
+  const taskResult: ComposeResult = {
+    taskId, status: 'processing',
+    totalClips: clips.length, completedClips: 0, progress: 0,
+  };
+  composeTasks.set(taskId, taskResult);
+
+  (async () => {
+    let tempDir: string | null = null;
+    try {
+      const projectId = episode.project_id;
+      const videosDir = projectStorage.getVideosDir(projectId);
+      projectStorage.ensureDir(videosDir);
+
+      const phaseName = episode && PHASE_NAMES[phase - 1] || `阶段${phase}`;
+      const outputFileName = `episode_${episode.episode_number}_phase${phase}_${Date.now()}.mp4`;
+      const outputPath = path.resolve(videosDir, outputFileName);
+      const outputUrl = projectStorage.toUrlPath(outputPath);
+
+      tempDir = path.resolve(videosDir, `temp_${taskId}`);
+      projectStorage.ensureDir(tempDir);
+
+      await composeClipsToFile(clips, outputPath, options, taskResult, tempDir);
+
+      taskResult.progress = 100;
+      taskResult.status = 'completed';
+      taskResult.completedAt = new Date().toISOString();
+      taskResult.outputPath = outputPath;
+      taskResult.outputUrl = outputUrl;
+      console.log(`[ComposePhase] 阶段${phase}(${phaseName})合成完成: ${outputPath}（${clips.length}个镜头）`);
+
+      try { if (tempDir) fs.rmSync(tempDir, { recursive: true, force: true }); } catch { /* ignore */ }
+    } catch (err) {
+      taskResult.status = 'failed';
+      taskResult.completedAt = new Date().toISOString();
+      taskResult.error = (err as Error).message;
+      try { if (tempDir) fs.rmSync(tempDir, { recursive: true, force: true }); } catch { /* ignore */ }
+    }
+  })();
+
+  // 终态任务 TTL 清理
+  cleanupTerminalTasks();
+
+  return taskResult;
+}
+
+/**
  * 执行视频合成
+ * - 默认：把整集所有分镜视频直接拼接为完整剧集
+ * - byPhase=true：先按 4 个阶段各合成一段"阶段视频"，再把阶段视频拼接为完整剧集（两级合成）
  */
 export async function composeEpisode(
   db: Database,
@@ -292,6 +488,11 @@ export async function composeEpisode(
     return result;
   }
 
+  // 两级合成模式：先阶段后整集
+  if (options.byPhase) {
+    return composeEpisodeByPhase(db, episode, taskId, options);
+  }
+
   const clips = collectVideoClips(db, episodeId);
   const validClips = clips.filter(c => c.videoPath);
 
@@ -319,7 +520,6 @@ export async function composeEpisode(
 
   // 异步执行合成
   (async () => {
-    // tempDir 提升到 try 外：失败清理路径需要引用它
     let tempDir: string | null = null;
     try {
       const projectId = episode.project_id;
@@ -330,76 +530,10 @@ export async function composeEpisode(
       const outputPath = path.resolve(videosDir, outputFileName);
       const outputUrl = projectStorage.toUrlPath(outputPath);
 
-      const resolution = options.outputResolution || '1920x1080';
-      const fps = options.fps || 24;
-      const transition = options.transition || 'none';
-      const transitionDur = options.transitionDuration || 0.5;
-
-      // 为没有视频的镜头生成占位
       tempDir = path.resolve(videosDir, `temp_${taskId}`);
       projectStorage.ensureDir(tempDir);
 
-      const finalClips: string[] = [];
-      for (let i = 0; i < clips.length; i++) {
-        const clip = clips[i];
-        if (clip.videoPath) {
-          finalClips.push(clip.videoPath);
-        } else {
-          const placeholderPath = path.resolve(tempDir, `placeholder_${i}.mp4`);
-          await generatePlaceholder(placeholderPath, clip.duration, resolution);
-          finalClips.push(placeholderPath);
-        }
-        taskResult.completedClips = i + 1;
-        taskResult.progress = Math.round(((i + 1) / clips.length) * 30);
-      }
-
-      // 生成 concat 列表文件
-      const listFile = path.resolve(tempDir, 'concat.txt');
-      const listContent = finalClips.map(p => `file '${p.replace(/'/g, "'\\''")}'`).join('\n');
-      fs.writeFileSync(listFile, listContent, 'utf-8');
-
-      taskResult.progress = 40;
-
-      const ffmpeg = getFfmpegPath();
-
-      if (transition === 'none' || finalClips.length <= 1) {
-        // 简单拼接（重新编码以保证兼容性）
-        const args = [
-          '-f', 'concat',
-          '-safe', '0',
-          '-i', listFile,
-          '-c:v', 'libx264',
-          '-preset', 'medium',
-          '-crf', '23',
-          '-pix_fmt', 'yuv420p',
-          '-r', String(fps),
-          '-s', resolution,
-        ];
-
-        // 背景音乐
-        if (options.bgmPath && fs.existsSync(options.bgmPath)) {
-          args.push('-i', options.bgmPath);
-          args.push('-c:a', 'aac');
-          args.push('-b:a', '192k');
-          args.push('-shortest');
-          if (options.bgmVolume !== undefined) {
-            args.push('-filter:a', `volume=${options.bgmVolume}`);
-          }
-        } else {
-          // 保留原始视频音频
-          args.push('-c:a', 'aac');
-          args.push('-b:a', '192k');
-          args.push('-ar', '44100');
-          args.push('-ac', '2');
-        }
-
-        args.push('-y', outputPath);
-
-        await execFileAsync(ffmpeg, args, { timeout: 600000, maxBuffer: 1024 * 1024 * 100 });
-      } else {
-        // 带转场的复杂合成：使用 xfade 滤镜实现淡入淡出
-        await composeWithXfade(ffmpeg, finalClips, outputPath, transitionDur, resolution, fps, tempDir);
-      }
+      await composeClipsToFile(clips, outputPath, options, taskResult, tempDir);
 
       taskResult.progress = 100;
       taskResult.status = 'completed';
@@ -407,27 +541,158 @@ export async function composeEpisode(
       taskResult.outputPath = outputPath;
       taskResult.outputUrl = outputUrl;
 
-      // 清理临时文件
-      try {
-        if (tempDir) fs.rmSync(tempDir, { recursive: true, force: true });
-      } catch {
-        // ignore cleanup errors
-      }
+      try { if (tempDir) fs.rmSync(tempDir, { recursive: true, force: true }); } catch { /* ignore */ }
     } catch (err) {
       taskResult.status = 'failed';
       taskResult.completedAt = new Date().toISOString();
       taskResult.error = (err as Error).message;
-      // 失败路径同样清理临时目录：归一化片段是全分辨率重编码产物，一次失败可能泄漏数百 MB
-      try {
-        if (tempDir) fs.rmSync(tempDir, { recursive: true, force: true });
-      } catch {
-        // ignore cleanup errors
-      }
+      try { if (tempDir) fs.rmSync(tempDir, { recursive: true, force: true }); } catch { /* ignore */ }
     }
   })();
 
-  // composeTasks 只增不删会随进程生命周期无限膨胀，且状态查询接口会把
-  // 任意历史任务的绝对路径暴露出去 —— 终态任务保留 30 分钟后移除
+  cleanupTerminalTasks();
+
+  return taskResult;
+}
+
+/**
+ * 两级合成：阶段1→阶段4各生成一段视频，再把4段拼接为完整剧集
+ */
+function composeEpisodeByPhase(
+  db: Database,
+  episode: any,
+  taskId: string,
+  options: ComposeOptions,
+): ComposeResult {
+  const taskResult: ComposeResult = {
+    taskId,
+    status: 'processing',
+    totalClips: 4,
+    completedClips: 0,
+    progress: 0,
+  };
+  composeTasks.set(taskId, taskResult);
+
+  (async () => {
+    let tempDir: string | null = null;
+    try {
+      const projectId = episode.project_id;
+      const videosDir = projectStorage.getVideosDir(projectId);
+      projectStorage.ensureDir(videosDir);
+
+      const phaseVideos: Array<{ phase: number; phaseName: string | null; url: string; path: string }> = [];
+      tempDir = path.resolve(videosDir, `temp_${taskId}`);
+      projectStorage.ensureDir(tempDir);
+
+      // 第一步：逐阶段合成
+      const phaseResults: Array<{ phase: number; path: string }> = [];
+      for (let phase = 1; phase <= 4; phase++) {
+        const phaseClips = collectVideoClips(db, episode.id, phase);
+        const valid = phaseClips.filter(c => c.videoPath);
+        if (valid.length === 0) continue;
+
+        const phaseOutputPath = path.resolve(videosDir, `episode_${episode.episode_number}_phase${phase}_${Date.now()}.mp4`);
+        const phaseTemp = path.resolve(tempDir, `phase${phase}`);
+        projectStorage.ensureDir(phaseTemp);
+
+        const phaseResult = {
+          taskId: taskId + `_p${phase}`,
+          status: 'processing' as const,
+          totalClips: phaseClips.length,
+          completedClips: 0,
+          progress: 0,
+        };
+        await composeClipsToFile(phaseClips, phaseOutputPath, { ...options, transition: 'none' }, phaseResult, phaseTemp);
+
+        // 该阶段实际所有镜头（含占位）也应纳入阶段视频；占位已在 composeClipsToFile 内处理
+        phaseVideos.push({
+          phase,
+          phaseName: episode && PHASE_NAMES[phase - 1] || `阶段${phase}`,
+          url: projectStorage.toUrlPath(phaseOutputPath),
+          path: phaseOutputPath,
+        });
+        phaseResults.push({ phase, path: phaseOutputPath });
+        taskResult.completedClips = phase;
+        taskResult.progress = Math.round((phase / 4) * 60);
+        console.log(`[ComposeByPhase] 阶段${phase}合成完成: ${phaseOutputPath}`);
+      }
+
+      if (phaseResults.length === 0) {
+        throw new Error('没有任何阶段的视频片段，请先生成分镜视频');
+      }
+
+      // 第二步：阶段视频拼接为整集
+      const finalOutputPath = path.resolve(videosDir, `episode_${episode.episode_number}_byphase_${Date.now()}.mp4`);
+      const finalResult = {
+        taskId: taskId + '_final',
+        status: 'processing' as const,
+        totalClips: phaseResults.length,
+        completedClips: 0,
+        progress: 60,
+      };
+
+      // 用 concat 简单拼接阶段视频（阶段间转场由阶段内镜头承载）
+      const finalClips = phaseResults.map(p => p.path);
+      const listFile = path.resolve(tempDir, 'final_concat.txt');
+      const listContent = finalClips.map(p => `file '${p.replace(/'/g, "'\\''")}'`).join('\n');
+      fs.writeFileSync(listFile, listContent, 'utf-8');
+
+      const ffmpeg = getFfmpegPath();
+      const resolution = options.outputResolution || '1920x1080';
+      const fps = options.fps || 24;
+      const args = [
+        '-f', 'concat',
+        '-safe', '0',
+        '-i', listFile,
+        '-c:v', 'libx264',
+        '-preset', 'medium',
+        '-crf', '23',
+        '-pix_fmt', 'yuv420p',
+        '-r', String(fps),
+        '-s', resolution,
+      ];
+      if (options.bgmPath && fs.existsSync(options.bgmPath)) {
+        args.push('-i', options.bgmPath);
+        args.push('-c:a', 'aac');
+        args.push('-b:a', '192k');
+        args.push('-shortest');
+        if (options.bgmVolume !== undefined) {
+          args.push('-filter:a', `volume=${options.bgmVolume}`);
+        }
+      } else {
+        args.push('-c:a', 'aac');
+        args.push('-b:a', '192k');
+        args.push('-ar', '44100');
+        args.push('-ac', '2');
+      }
+      args.push('-y', finalOutputPath);
+
+      await execFileAsync(ffmpeg, args, { timeout: 600000, maxBuffer: 1024 * 1024 * 100 });
+
+      taskResult.progress = 100;
+      taskResult.status = 'completed';
+      taskResult.completedAt = new Date().toISOString();
+      taskResult.outputPath = finalOutputPath;
+      taskResult.outputUrl = projectStorage.toUrlPath(finalOutputPath);
+      taskResult.phaseVideos = phaseVideos;
+      console.log(`[ComposeByPhase] 整集拼接完成: ${finalOutputPath}（${phaseVideos.length}个阶段视频）`);
+
+      try { if (tempDir) fs.rmSync(tempDir, { recursive: true, force: true }); } catch { /* ignore */ }
+    } catch (err) {
+      taskResult.status = 'failed';
+      taskResult.completedAt = new Date().toISOString();
+      taskResult.error = (err as Error).message;
+      try { if (tempDir) fs.rmSync(tempDir, { recursive: true, force: true }); } catch { /* ignore */ }
+    }
+  })();
+
+  cleanupTerminalTasks();
+
+  return taskResult;
+}
+
+/** 终态任务 TTL 清理（30分钟） */
+function cleanupTerminalTasks(): void {
   const TERMINAL_TTL_MS = 30 * 60 * 1000;
   const nowMs = Date.now();
   for (const [id, t] of composeTasks) {
@@ -437,8 +702,6 @@ export async function composeEpisode(
       }
     }
   }
-
-  return taskResult;
 }
 
 /**

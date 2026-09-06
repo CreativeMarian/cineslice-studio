@@ -191,6 +191,24 @@ export function SceneBreakdown() {
 
   const totalDuration = shots.reduce((sum, s) => sum + s.duration_seconds, 0);
 
+const PHASE_META = [
+  { name: '开场引入', desc: '建立场景与人物，抛出钩子', grad: 'from-indigo-500/15 to-blue-500/15', chip: 'bg-indigo-500/15 text-indigo-600 dark:text-indigo-300', dot: 'bg-indigo-400' },
+  { name: '矛盾升级', desc: '冲突推进，矛盾逐步激化', grad: 'from-blue-500/15 to-violet-500/15', chip: 'bg-blue-500/15 text-blue-600 dark:text-blue-300', dot: 'bg-blue-400' },
+  { name: '高潮爆发', desc: '核心冲突顶点，情绪最高点', grad: 'from-violet-500/15 to-fuchsia-500/15', chip: 'bg-violet-500/15 text-violet-600 dark:text-violet-300', dot: 'bg-violet-400' },
+  { name: '收束悬念', desc: '情绪回落，埋下下一集钩子', grad: 'from-fuchsia-500/15 to-cyan-500/15', chip: 'bg-fuchsia-500/15 text-fuchsia-600 dark:text-fuchsia-300', dot: 'bg-fuchsia-400' },
+];
+/** 计算镜头所属阶段：优先取 shot.phase，缺失时按序号均分4段 */
+const phaseOfShot = (s: Shot, idx: number): number => {
+  if (s.phase) return s.phase;
+  return Math.min(4, Math.max(1, Math.floor((idx / Math.max(1, shots.length)) * 4) + 1));
+};
+/** 按阶段分组统计 */
+const phaseGroups = [1, 2, 3, 4].map((p) => ({
+  phase: p,
+  meta: PHASE_META[p - 1],
+  count: shots.filter((s, idx) => phaseOfShot(s, idx) === p).length,
+})).filter((g) => g.count > 0);
+
   return (
     <div className="space-y-5">
       {/* 标题栏 */}
@@ -266,10 +284,29 @@ export function SceneBreakdown() {
         </Card>
       ) : (
         <div className="space-y-3" ref={listRef}>
-          {shots.map((shot: Shot) => {
+          {/* 阶段分组导航：第一集按 4 个剧情阶段划分，每阶段独立成视频后拼接 */}
+          {phaseGroups.length > 1 && (
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+              {phaseGroups.map((g) => (
+                <div key={`pg-${g.phase}`} className={`rounded-xl border border-[var(--border)] bg-gradient-to-br ${g.meta.grad} px-3 py-2.5`}>
+                  <div className="flex items-center gap-2">
+                    <span className={`w-6 h-6 rounded-lg ${g.meta.chip} flex items-center justify-center text-[11px] font-bold`}>P{g.phase}</span>
+                    <span className="text-xs font-semibold text-[var(--ink-1)] truncate">{g.meta.name}</span>
+                  </div>
+                  <div className="mt-1.5 flex items-center gap-2 text-[11px] text-[var(--ink-3)]">
+                    <span>{g.count} 镜</span>
+                    <span className="flex items-center gap-1"><span className={`w-1.5 h-1.5 rounded-full ${g.meta.dot}`} />阶段视频</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+          {shots.map((shot: Shot, shotIdx: number) => {
             const isSelected = selectedShotId === shot.id;
             const isExpanded = expandedShotId === shot.id;
             const sceneName = shot.scene_id ? scenes.find(s => s.id === shot.scene_id)?.name : undefined;
+            const shotPhase = phaseOfShot(shot, shotIdx);
+            const phaseMeta = PHASE_META[shotPhase - 1];
             const shotChars = Array.isArray(shot.characters_in_shot)
               ? shot.characters_in_shot.map((c: unknown) => String(c)).filter(Boolean)
               : [];
@@ -283,6 +320,8 @@ export function SceneBreakdown() {
                 }`}
                 onClick={() => handleShotClick(shot)}
               >
+                {/* 阶段色条：标识该镜头所属剧情阶段 */}
+                <div className={`h-1 -mt-1 mb-3 rounded-full bg-gradient-to-r ${phaseMeta.grad}`} />
                 <div className="flex items-start gap-4">
                   {/* 镜头编号 */}
                   <div className="flex flex-col items-center gap-2 flex-shrink-0">
