@@ -12,6 +12,7 @@ import { AIError } from '../base';
 import { registerVideoFactory } from '../registry';
 import * as fs from 'fs';
 import * as path from 'path';
+import * as http from 'http';
 
 const WORKFLOW_DIR = path.resolve(process.cwd(), 'data', 'comfyui-workflows');
 
@@ -240,7 +241,7 @@ export class ComfyUIVideoAdapter implements VideoAdapter {
   private httpGet(path: string): Promise<string> {
     return new Promise((resolve, reject) => {
       const url = new URL(this.baseUrl + path);
-      const req = require('http').request(
+      const req = http.request(
         { hostname: url.hostname, port: url.port, path: url.pathname + url.search, method: 'GET' },
         (res: any) => {
           let data = '';
@@ -257,7 +258,7 @@ export class ComfyUIVideoAdapter implements VideoAdapter {
   private httpPost(path: string, body: string): Promise<string> {
     return new Promise((resolve, reject) => {
       const url = new URL(this.baseUrl + path);
-      const req = require('http').request(
+      const req = http.request(
         {
           hostname: url.hostname, port: url.port, path: url.pathname + url.search, method: 'POST',
           headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) },
@@ -278,7 +279,7 @@ export class ComfyUIVideoAdapter implements VideoAdapter {
   private httpPostRaw(path: string, body: Buffer, headers: Record<string, string>): Promise<string> {
     return new Promise((resolve, reject) => {
       const url = new URL(this.baseUrl + path);
-      const req = require('http').request(
+      const req = http.request(
         {
           hostname: url.hostname, port: url.port, path: url.pathname + url.search, method: 'POST',
           headers: { ...headers, 'Content-Length': body.length },
