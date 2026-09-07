@@ -31,6 +31,8 @@ export interface ComposeOptions {
   byPhase?: boolean;
   /** v2.0: 指定只合成某阶段（phase 1-4），用于"阶段视频"生成 */
   phase?: number;
+  /** v2.1: true 时跳过无视频的镜头（不生成黑屏占位），仅拼接已有视频 */
+  skipMissingClips?: boolean;
 }
 
 export interface ComposeResult {
@@ -299,17 +301,21 @@ async function composeClipsToFile(
   projectStorage.ensureDir(tempDir);
 
   const finalClips: string[] = [];
+  let kept = 0;
   for (let i = 0; i < clips.length; i++) {
     const clip = clips[i];
     if (clip.videoPath) {
       finalClips.push(clip.videoPath);
-    } else {
+      kept++;
+    } else if (!options.skipMissingClips) {
       const placeholderPath = path.resolve(tempDir, `placeholder_${i}.mp4`);
       await generatePlaceholder(placeholderPath, clip.duration, resolution);
       finalClips.push(placeholderPath);
+      kept++;
     }
-    taskResult.completedClips = i + 1;
-    taskResult.progress = Math.round(((i + 1) / clips.length) * 30);
+    // skipMissingClips=true 且无视频时跳过（不产生黑屏占位）
+    taskResult.completedClips = kept;
+    taskResult.progress = Math.round((kept / Math.max(clips.length, 1)) * 30);
   }
 
   // 生成 concat 列表文件
@@ -602,7 +608,7 @@ function composeEpisodeByPhase(
           completedClips: 0,
           progress: 0,
         };
-        await composeClipsToFile(phaseClips, phaseOutputPath, { ...options, transition: 'none' }, phaseResult, phaseTemp);
+        await { ...options, transition: 'none', skipMissingClips: true }, phaseResult, phaseTemp);
 
         // 该阶段实际所有镜头（含占位）也应纳入阶段视频；占位已在 composeClipsToFile 内处理
         phaseVideos.push({

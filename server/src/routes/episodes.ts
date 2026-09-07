@@ -3,6 +3,7 @@
 import { Router, Request, Response } from 'express';
 import { z } from 'zod';
 import fs from 'fs';
+import * as path from 'path';
 import {
   NovelEpisodeDAO,
   ShotDAO,
@@ -30,6 +31,7 @@ import {
   generateEndFrameForShot,
   collectShotReferenceImages,
 } from '../services/shotConsistencyService';
+import { dubVideo } from '../services/dubbingService';
 import type { Database } from '../types';
 
 const router = Router();
@@ -285,6 +287,28 @@ router.post('/shots/:id/video/generate', validateBody(generateVideoSchema), asyn
     endFrameId: req.body.endFrameId,
     referenceImages: req.body.referenceImages,
   });
+  res.json({ success: true, data: result });
+}));
+
+// 配音 + 字幕烧录（edge-tts 免费语音 + ffmpeg 烧录）
+router.post('/shots/:id/dub', asyncHandler(async (req: Request, res: Response) => {
+  const db = getDb(req);
+  const shot = ShotDAO.getById(db, req.params.id);
+  if (!shot || shot.user_id !== req.user.id) {
+    throw createError(404, 'NOT_FOUND', '分镜不存在');
+  }
+  const videos = ShotVideoIntervalDAO.listByShot(db, req.params.id)
+    .filter((v: any) => v.status === 'completed' && v.video_url)
+    .sort((a: any, b: any) => new Date(b.completed_at || 0).getTime() - new Date(a.completed_at || 0).getTime());
+  if (!videos.length) {
+    throw createError(409, 'CONFLICT', '该镜头暂无已完成视频，请先生成视频');
+  }
+  const localPath = projectStorage.toLocalPath(videos[0].video_url);
+  const projectDir = path.dirname(localPath);
+  const result = await dubVideo(localPath, shot.dialogue, projectDir);
+  if (!result) {
+    throw createError(409, 'CONFLICT', '该镜头没有台词，无需配音');
+  }
   res.json({ success: true, data: result });
 }));
 

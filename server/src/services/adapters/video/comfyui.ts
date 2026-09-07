@@ -53,9 +53,9 @@ export class ComfyUIVideoAdapter implements VideoAdapter {
 
       // 3. 首帧处理：有首帧走图生视频；无首帧移除 LoadImage 节点走文生视频
       if (params.firstFrameImageUrl) {
-        const imageName = await this.uploadFirstFrame(params.firstFrameImageUrl);
+        const imageName = await this.uploadFirstFrame(params.firstFrameImageUrl, width, height);
         this.injectImageToWorkflow(filledWorkflow, imageName);
-        console.log(`[ComfyUI] 首帧已上传: ${imageName}`);
+        console.log(`[ComfyUI] 首帧已上传: ${imageName} (${width}x${height})`);
       } else {
         this.removeImageNodes(filledWorkflow);
         console.log('[ComfyUI] 无首帧，已切换为文生视频模式');
@@ -160,7 +160,7 @@ export class ComfyUIVideoAdapter implements VideoAdapter {
     return str.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n');
   }
 
-  private async uploadFirstFrame(dataUrl: string): Promise<string> {
+  private async uploadFirstFrame(dataUrl: string, width: number, height: number): Promise<string> {
     // dataUrl 可能是 base64 data URL 或 http URL
     let buffer: Buffer;
     let filename: string;
@@ -176,6 +176,22 @@ export class ComfyUIVideoAdapter implements VideoAdapter {
       const res = await fetch(dataUrl);
       buffer = Buffer.from(await res.arrayBuffer());
       filename = `cineslice_first_${Date.now()}.png`;
+    }
+
+    // 关键：首帧必须与视频输出分辨率一致（MiniMaxH3 latent 尺寸强校验），
+    // 用 ffmpeg 强制缩放到 width x height，避免 latent shape 不匹配报错
+    try {
+      const tmpIn = path.join(WORKFLOW_DIR, `.first_in_${Date.now()}.png`);
+      const tmpOut = path.join(WORKFLOW_DIR, `.first_resized_${Date.now()}.png`);
+      fs.writeFileSync(tmpIn, buffer);
+      const { execFileSync } = require('child_process') as typeof import('child_process');
+      execFileSync('ffmpeg', ['-y', '-i', tmpIn, '-vf', `scale=${width}:${height}:force_original_aspect_ratio=decrease,pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2`, tmpOut], { stdio: 'pipe' });
+      buffer = fs.readFileSync(tmpOut);
+      fs.unlinkSync(tmpIn);
+      fs.unlinkSync(tmpOut);
+      filename = `cineslice_first_${Date.now()}.png`;
+    } catch (e) {
+      console.warn(`[ComfyUI] 首帧尺寸对齐失败，按原图上传: ${(e as Error).message}`);
     }
 
     const boundary = `----CineSlice${Date.now()}`;
