@@ -608,7 +608,7 @@ function composeEpisodeByPhase(
           completedClips: 0,
           progress: 0,
         };
-        await { ...options, transition: 'none', skipMissingClips: true }, phaseResult, phaseTemp);
+        await composeClipsToFile(phaseClips, phaseOutputPath, { ...options, transition: 'none', skipMissingClips: true }, phaseResult, phaseTemp);
 
         // 该阶段实际所有镜头（含占位）也应纳入阶段视频；占位已在 composeClipsToFile 内处理
         phaseVideos.push({

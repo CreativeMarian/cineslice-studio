@@ -30,8 +30,8 @@ export class ComfyUIVideoAdapter implements VideoAdapter {
 
   async generate(params: VideoGenerateParams): Promise<VideoGenerateResult> {
     try {
-      // 1. 加载工作流模板
-      const workflow = this.loadWorkflow();
+      // 1. 加载工作流模板（有首帧时优先使用 ref2va 模板，规避 MiniMaxH3ImageToVideo 的 keyframes latent 打包不兼容）
+      const workflow = this.selectWorkflow(!!params.firstFrameImageUrl);
 
       // 2. 替换占位符
       const positive = params.motion || params.prompt || '';
@@ -112,6 +112,16 @@ export class ComfyUIVideoAdapter implements VideoAdapter {
   }
 
   // ============ 内部方法 ============
+
+  private selectWorkflow(hasFirstFrame: boolean): any {
+    if (hasFirstFrame && this.modelName.includes('minimax-h3-video')) {
+      const refPath = path.join(WORKFLOW_DIR, 'minimax-h3-ref2va.json');
+      if (fs.existsSync(refPath)) {
+        this.workflowPath = refPath;
+      }
+    }
+    return this.loadWorkflow();
+  }
 
   private loadWorkflow(): any {
     if (!fs.existsSync(this.workflowPath)) {
@@ -217,12 +227,18 @@ export class ComfyUIVideoAdapter implements VideoAdapter {
         loadImageId = nodeId;
       }
     }
-    // 将首帧连接到 ImageToVideo 类节点的 first_frame 输入
-    // （MiniMaxH3ImageToVideo / WanImageToVideo 等）
+    // 将首帧连接到生成类节点的输入：
+    // MiniMaxH3ReferenceToVideo 用 ref_images（参考图注入，人物/场景一致性）
+    // 其他 ImageToVideo 类节点用 first_frame
     if (loadImageId) {
       for (const nodeId of Object.keys(workflow)) {
         const node = workflow[nodeId];
-        if (node.class_type && /ImageToVideo|Image2Video|I2V/i.test(node.class_type) && node.inputs) {
+        if (!node || !node.inputs) continue;
+        if (node.class_type === 'MiniMaxH3ReferenceToVideo') {
+          if (!node.inputs.ref_images) node.inputs.ref_images = [[loadImageId, 0]];
+          continue;
+        }
+        if (node.class_type && /ImageToVideo|Image2Video|I2V/i.test(node.class_type)) {
           if (node.inputs.first_frame === undefined || node.inputs.first_frame === null) {
             node.inputs.first_frame = [loadImageId, 0];
           }
