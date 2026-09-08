@@ -216,7 +216,7 @@ export class ComfyUIVideoAdapter implements VideoAdapter {
       const tmpIn = path.join(WORKFLOW_DIR, `.first_in_${Date.now()}.png`);
       const tmpOut = path.join(WORKFLOW_DIR, `.first_resized_${Date.now()}.png`);
       fs.writeFileSync(tmpIn, buffer);
-      const { execFileSync } = require('child_process') as typeof import('child_process');
+      const { execFileSync } = await import('child_process');
       execFileSync('ffmpeg', ['-y', '-i', tmpIn, '-vf', `scale=${width}:${height}:force_original_aspect_ratio=decrease,pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2`, tmpOut], { stdio: 'pipe' });
       buffer = fs.readFileSync(tmpOut);
       fs.unlinkSync(tmpIn);

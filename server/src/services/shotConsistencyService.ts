@@ -323,8 +323,28 @@ export async function generateKeyframeCandidates(
 ): Promise<ShotKeyframe[]> {
   const count = Math.min(Math.max(opts.count || 4, 1), 9);
 
+    // 解析镜头角色（缺省自动按 characters_in_shot 收集，参考图与提示词双注入防漂移）
+  const charRefs = parseShotCharacterIds(shot);
+  const characters: Array<{ name: string; visualDescription: string }> = [];
+  for (const ref of charRefs) {
+    let c = ScriptCharacterDAO.getById(db, ref);
+    if (!c) {
+      const epChars = ScriptCharacterDAO.listByEpisode(db, shot.episode_id);
+      c = epChars.find((x: any) => x.name === ref) || null;
+    }
+    if (c) characters.push({ name: c.name, visualDescription: c.visual_description });
+  }
+  // 解析镜头场景
+  let scene: any = null;
+  if (shot.scene_id) {
+    const sc = ScriptSceneDAO.getById(db, shot.scene_id);
+    if (sc) scene = { name: sc.name, description: sc.description, timeOfDay: sc.time_of_day, atmosphere: sc.atmosphere };
+  }
+
   const { prompt, negativePrompt } = keyframePrompt({
     shotDescription: shot.action_description || '',
+    characters: characters.length > 0 ? characters : undefined,
+    scene: scene || undefined,
     frameType: 'first',
   });
 

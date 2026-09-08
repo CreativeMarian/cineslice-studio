@@ -72,6 +72,8 @@ export function ShotCard({ shot, index, isExpanded, onToggle, showToast, sceneNa
   const [useNextFirstFrame, setUseNextFirstFrame] = useState<boolean>(shot.use_next_first_frame !== 0);
   const [isGeneratingCandidates, setIsGeneratingCandidates] = useState(false);
   const [isGeneratingEndFrame, setIsGeneratingEndFrame] = useState(false);
+  // 该镜所在剧集的角色列表（角色名 → id，用于关键帧生成时注入角色参考，防止旧图缓存/人物漂移）
+  const [episodeChars, setEpisodeChars] = useState<Array<{ id: string; name: string }>>([]);
 
   // 当前视频模型的参数配置
   const videoConfig = selectedVideoModel ? getVideoModelConfig(selectedVideoModel) : null;
@@ -116,7 +118,14 @@ export function ShotCard({ shot, index, isExpanded, onToggle, showToast, sceneNa
     } catch {
       // 静默
     }
-  }, [shot.id]);
+    // 加载该剧集角色列表（角色名 → id，关键帧生成时注入角色参考）
+    try {
+      const charsRes = await apiClient.get<unknown, { success?: boolean; data?: Array<{ id: string; name: string }> }>(`/episodes/${shot.episode_id}/characters`);
+      if (charsRes.success && charsRes.data) setEpisodeChars(charsRes.data);
+    } catch {
+      // 静默
+    }
+  }, [shot.id, shot.episode_id]);
 
   useEffect(() => {
     if (isExpanded) {
@@ -219,6 +228,10 @@ export function ShotCard({ shot, index, isExpanded, onToggle, showToast, sceneNa
         provider,
         modelName,
         frameTypes: ['first'],
+        // 注入该镜角色参考：镜头角色名 → 角色 id（后端缺省也会自动收集，双保险）
+        referenceCharacterIds: parseShotCharacterNames(shot)
+          .map(n => episodeChars.find(c => c.name === n || c.name.includes(n) || n.includes(c.name))?.id)
+          .filter((id): id is string => !!id),
       });
       if (res.success && res.data) {
         setKeyframes(res.data as unknown as ShotKeyframe[]);

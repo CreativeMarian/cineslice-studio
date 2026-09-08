@@ -28,6 +28,7 @@ import {
   collectShotReferenceImages,
   generateKeyframeCandidates,
   buildShotSceneMap,
+  parseShotCharacterIds,
 } from './shotConsistencyService';
 import { parseSpeaker, stripSpeakerPrefix } from './voiceAssignment';
 import type { Database } from '../types';
@@ -355,17 +356,24 @@ export async function generateKeyframesForShot(
     console.error('[Keyframe] 剧本分析失败（使用原始提示词）:', (err as Error).message);
   }
 
-  // 获取参考角色
-  let characters: Array<{ name: string; visualDescription: string }> = [];
+  // 获取参考角色（显式传入优先；缺省自动按镜头 characters_in_shot 收集——前端/批量入口无需感知，防旧图缓存与角色漂移）
+  const characters: Array<{ name: string; visualDescription: string }> = [];
   const referenceImages: string[] = [];
-  if (referenceCharacterIds && referenceCharacterIds.length > 0) {
-    characters = referenceCharacterIds.map((id: string) => {
-      const c = ScriptCharacterDAO.getById(db, id);
-      if (c?.reference_image_url) {
-        referenceImages.push(c.reference_image_url);
+  const charRefs: string[] = (referenceCharacterIds && referenceCharacterIds.length > 0)
+    ? referenceCharacterIds
+    : parseShotCharacterIds(shot);
+  if (charRefs.length > 0) {
+    for (const ref of charRefs) {
+      let c = ScriptCharacterDAO.getById(db, ref);
+      if (!c) {
+        const epChars = ScriptCharacterDAO.listByEpisode(db, shot.episode_id);
+        c = epChars.find((x: any) => x.name === ref) || null;
       }
-      return c ? { name: c.name, visualDescription: c.visual_description } : null;
-    }).filter((c): c is { name: string; visualDescription: string } => c !== null);
+      if (c) {
+        if (c.reference_image_url) referenceImages.push(c.reference_image_url);
+        characters.push({ name: c.name, visualDescription: c.visual_description });
+      }
+    }
   }
 
   // 获取参考场景
@@ -440,7 +448,7 @@ export async function generateKeyframesForShot(
         negative_prompt: finalNegativePrompt,
         image_url: imgResult.images[0]?.url,
         image_model_used: modelName,
-        reference_characters: referenceCharacterIds ? JSON.stringify(referenceCharacterIds) : undefined,
+        reference_characters: charRefs.length > 0 ? JSON.stringify(charRefs) : undefined,
         reference_scene: referenceSceneId || undefined,
       });
       results.push(keyframe);
@@ -941,35 +949,21 @@ export async function batchGenerateKeyframes(
         continue;
       }
 
-      const { prompt, negativePrompt } = keyframePrompt({
-        shotDescription: shot.action_description,
-        frameType: 'first',
+      // 复用单镜完整逻辑：角色参考（缺省自动按镜头角色收集）+ 场景 + 提示词优化 + 参考图注入
+      // 与前端单镜/批量入口行为完全一致，防止批量关键帧缺角色描述导致人物漂移
+      const kfs = await generateKeyframesForShot(db, userId, shot.id, {
+        provider,
+        modelName,
+        frameTypes: ['first'],
       });
+      const keyframe = kfs[0];
 
-      const imgResult = await aiProxy.generateImage({
-        db, userId, projectId: episode.project_id,
-        provider, modelName, prompt, negativePrompt,
-        count: 1, size: '2560x1440',
-        saveSubDir: 'keyframes',
-        referenceImages: collectShotReferenceImages(db, shot),
-      });
-
-      // 新帧落库成功后再移除旧帧
+      // 新帧落库成功后再移除旧帧（保留新生成的 first）
       const existing = ShotKeyframeDAO.listByShot(db, shot.id);
-      const existingFirst = existing.find(k => k.frame_type === 'first' && k.image_url);
+      const existingFirst = existing.find(k => k.frame_type === 'first' && k.image_url && k.id !== keyframe.id);
       if (existingFirst) {
         ShotKeyframeDAO.delete(db, existingFirst.id);
       }
-
-      const keyframe = ShotKeyframeDAO.create(db, {
-        user_id: userId,
-        shot_id: shot.id,
-        frame_type: 'first',
-        prompt,
-        negative_prompt: negativePrompt,
-        image_url: imgResult.images[0]?.url,
-        image_model_used: modelName,
-      });
       results.push({ shotId: shot.id, success: true, keyframe });
     } catch (err: any) {
       const errorMsg = err.message || '生成失败';
