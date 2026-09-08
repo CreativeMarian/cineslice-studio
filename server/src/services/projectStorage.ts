@@ -58,6 +58,8 @@ export const projectStorage = {
   // URL 路径转本地路径
   toLocalPath(urlPath: string): string {
     const clean = urlPath.replace(/^\/data\//, '');
+    // 防目录穿越：拒绝 .. 片段（DB 中异常/恶意 URL 不得逃出数据目录）
+    if (!clean || clean.includes('..')) return '';
     return path.resolve(config.dataDir, clean);
   },
 };

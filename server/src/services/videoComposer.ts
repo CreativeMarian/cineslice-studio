@@ -14,7 +14,8 @@ import {
   ShotVideoIntervalDAO,
 } from '../models';
 import { projectStorage } from './projectStorage';
-import { dubVideo, muteVideo } from './dubbingService';
+import { dubVideo, muteVideo, type DubOptions } from './dubbingService';
+import { UserPreferenceDAO } from '../models';
 import { getConfig } from '../config/env';
 import { createError as createHttpError } from '../middleware/errorHandler';
 import { sanitizeFileName } from '../utils/filename';
@@ -53,6 +54,18 @@ export interface ComposeResult {
 
 // 内存中的合成任务状态
 const composeTasks = new Map<string, ComposeResult>();
+
+// 解析用户配置的默认音频模型 key（provider:modelName），未配置返回 null
+function resolveAudioOpts(db: Database, userId: string, episodeId: string): DubOptions | null {
+  try {
+    const pref = UserPreferenceDAO.getByUser(db, userId);
+    const key = pref?.default_audio_model;
+    if (!key || !key.includes(':')) return null;
+    return { db, userId, episodeId, audioModelKey: key };
+  } catch {
+    return null;
+  }
+}
 
 /** 阶段名称（与分镜生成提示词保持一致） */
 export const PHASE_NAMES = ['开场引入', '矛盾升级', '高潮爆发', '收束悬念'];
@@ -294,6 +307,7 @@ async function composeClipsToFile(
   options: ComposeOptions,
   taskResult: ComposeResult,
   tempDir: string,
+  audioOpts?: DubOptions | null,
 ): Promise<void> {
   const resolution = options.outputResolution || '1920x1080';
   const fps = options.fps || 24;
@@ -313,7 +327,7 @@ async function composeClipsToFile(
       let usePath = clip.videoPath;
       try {
         if (clip.dialogue && clip.dialogue.trim()) {
-          const d = await dubVideo(clip.videoPath, clip.dialogue, videosDir, `dub_${clip.shotId}`);
+          const d = await dubVideo(clip.videoPath, clip.dialogue, videosDir, `dub_${clip.shotId}`, audioOpts || undefined);
           if (d) usePath = d.videoPath;
         } else {
           const m = await muteVideo(clip.videoPath, videosDir, `mute_${clip.shotId}`);
@@ -448,7 +462,7 @@ export async function composePhase(
       tempDir = path.resolve(videosDir, `temp_${taskId}`);
       projectStorage.ensureDir(tempDir);
 
-      await composeClipsToFile(clips, outputPath, options, taskResult, tempDir);
+      await composeClipsToFile(clips, outputPath, options, taskResult, tempDir, resolveAudioOpts(db, userId, episodeId));
 
       taskResult.progress = 100;
       taskResult.status = 'completed';
@@ -556,7 +570,7 @@ export async function composeEpisode(
       tempDir = path.resolve(videosDir, `temp_${taskId}`);
       projectStorage.ensureDir(tempDir);
 
-      await composeClipsToFile(clips, outputPath, options, taskResult, tempDir);
+      await composeClipsToFile(clips, outputPath, options, taskResult, tempDir, resolveAudioOpts(db, userId, episodeId));
 
       taskResult.progress = 100;
       taskResult.status = 'completed';
@@ -625,7 +639,7 @@ function composeEpisodeByPhase(
           completedClips: 0,
           progress: 0,
         };
-        await composeClipsToFile(phaseClips, phaseOutputPath, { ...options, transition: 'none', skipMissingClips: true }, phaseResult, phaseTemp);
+        await composeClipsToFile(phaseClips, phaseOutputPath, { ...options, transition: 'none', skipMissingClips: true }, phaseResult, phaseTemp, resolveAudioOpts(db, episode.user_id, episode.id));
 
         // 该阶段实际所有镜头（含占位）也应纳入阶段视频；占位已在 composeClipsToFile 内处理
         phaseVideos.push({

@@ -46,21 +46,25 @@ export function isStageComplete(db: Database, projectId: string, stage: string):
       const ph = ids.map(() => '?').join(',');
       return count(`SELECT COUNT(*) c FROM shots WHERE episode_id IN (${ph})`, ...ids.map(r => r.id)) > 0;
     }
-    case 'keyframes':
-      return count(
-        'SELECT COUNT(*) c FROM shot_keyframes k JOIN shots s ON k.shot_id = s.id JOIN novel_episodes e ON s.episode_id = e.id WHERE e.project_id = ? AND k.image_url IS NOT NULL AND k.image_url != ?',
-        projectId, ''
-      ) > 0;
+    case 'keyframes': {
+      // 全部镜头都有关键帧才算完成（防止半途而废被幂等跳过，缺失镜头永不补齐）
+      const totalShots = count('SELECT COUNT(*) c FROM shots s JOIN novel_episodes e ON s.episode_id = e.id WHERE e.project_id = ?', projectId);
+      if (totalShots === 0) return false;
+      const shotsWithKF = count('SELECT COUNT(DISTINCT k.shot_id) c FROM shot_keyframes k JOIN shots s ON k.shot_id = s.id JOIN novel_episodes e ON s.episode_id = e.id WHERE e.project_id = ? AND k.image_url IS NOT NULL AND k.image_url != ?', projectId, '');
+      return shotsWithKF >= totalShots;
+    }
     case 'audio':
       return count(
         "SELECT COUNT(*) c FROM generation_tasks WHERE project_id = ? AND task_type = 'audio' AND status = 'completed'",
         projectId
       ) > 0;
-    case 'video':
-      return count(
-        "SELECT COUNT(*) c FROM shot_video_intervals v JOIN shots s ON v.shot_id = s.id JOIN novel_episodes e ON s.episode_id = e.id WHERE e.project_id = ? AND v.status = 'completed' AND v.video_url IS NOT NULL AND v.video_url != ''",
-        projectId
-      ) > 0;
+    case 'video': {
+      // 全部镜头都有完成视频才算完成（缺失镜头由 stageVideo 逐镜补齐，不重跑已有）
+      const totalShots = count('SELECT COUNT(*) c FROM shots s JOIN novel_episodes e ON s.episode_id = e.id WHERE e.project_id = ?', projectId);
+      if (totalShots === 0) return false;
+      const shotsWithVideo = count("SELECT COUNT(DISTINCT v.shot_id) c FROM shot_video_intervals v JOIN shots s ON v.shot_id = s.id JOIN novel_episodes e ON s.episode_id = e.id WHERE e.project_id = ? AND v.status = 'completed' AND v.video_url IS NOT NULL AND v.video_url != ''", projectId);
+      return shotsWithVideo >= totalShots;
+    }
     default:
       return false;
   }

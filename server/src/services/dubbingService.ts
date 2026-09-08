@@ -5,6 +5,10 @@ import { promisify } from 'util';
 import * as fs from 'fs';
 import * as path from 'path';
 import { AIError } from './adapters/base';
+import type { Database } from '../types';
+import { aiProxy } from './aiProxy';
+import { resolveVoiceForShot, adjustSpeedByEmotion } from './voiceAssignment';
+import { downloadToFile } from '../utils/download';
 
 const execFileP = promisify(execFile);
 const PROJECT_DIR = path.resolve(process.cwd(), 'data');
@@ -86,16 +90,29 @@ function buildSrt(text: string, dur: number, startOffset = 0): string {
  * @param projectDir 项目数据目录（存放产物）
  * @param stem 产物文件名前缀（默认 dub_时间戳；固定 stem 可复用产物）
  */
+export interface DubOptions {
+  db?: Database;
+  userId?: string;
+  episodeId?: string;
+  /** 用户配置的音频模型 key（provider:modelName）。存在时优先走该模型 + 角色音色档案；否则回退 edge-tts */
+  audioModelKey?: string;
+}
+
+/**
+ * 对镜头视频执行配音 + 字幕烧录（替换音轨：去掉模型幻觉音频，只用 TTS 普通话；字幕上移避开原字幕区）
+ * v1.1 - 支持走用户配置的音频模型（豆包 TTS 等）：音色来自角色 voice_profile，语速按情绪调整，
+ *        与手动"配音"页路径完全一致；未配置时回退 edge-tts 免费语音
+ */
 export async function dubVideo(
   videoPath: string,
   dialogue: string | null | undefined,
   projectDir: string,
-  stem?: string
+  stem?: string,
+  opts?: DubOptions
 ): Promise<DubResult | null> {
   const dialogueText = extractDialogueText(dialogue);
   if (!dialogueText || !fs.existsSync(videoPath)) return null;
 
-  const voice = pickVoice(dialogueText);
   const base = stem || `dub_${Date.now()}`;
   const voicePath = path.join(projectDir, `${base}_voice.mp3`);
   const srtPath = path.join(projectDir, `${base}.srt`);
@@ -104,11 +121,41 @@ export async function dubVideo(
   // 产物已存在则直接复用（幂等）
   if (fs.existsSync(outPath)) {
     const dur = fs.existsSync(voicePath) ? await audioDuration(voicePath) : 0;
-    return { videoPath: outPath, srtPath, voicePath, voiceUsed: voice, dialogueText, durationSec: dur };
+    return { videoPath: outPath, srtPath, voicePath, voiceUsed: 'cached', dialogueText, durationSec: dur };
   }
 
-  await synthVoice(dialogueText, voice, voicePath);
-  const dur = await audioDuration(voicePath);
+  let dur = 0;
+  const useConfiguredModel = opts?.db && opts?.userId && opts?.audioModelKey;
+  if (useConfiguredModel) {
+    // 走用户配置的音频模型：音色 = 角色 voice_profile（跨镜头一致），语速 = 性格基线 + 镜头情绪调整
+    try {
+      const key = opts!.audioModelKey as string;
+      const [provider, ...rest] = key.split(':');
+      const modelName = rest.join(':');
+      const assigned = resolveVoiceForShot(opts!.db!, opts!.episodeId || '', dialogueText);
+      const speed = adjustSpeedByEmotion(dialogueText, '', assigned.speed);
+      const result = await aiProxy.generateAudio({
+        db: opts!.db!,
+        userId: opts!.userId!,
+        provider,
+        modelName,
+        text: dialogueText,
+        voice: assigned.voice,
+        speed,
+      });
+      await downloadToFile(result.audioUrl, voicePath, { timeoutMs: 30_000, maxBytes: 20 * 1024 * 1024 });
+      dur = await audioDuration(voicePath);
+    } catch (err) {
+      console.warn(`[Dub] 配置模型配音失败，回退 edge-tts: ${(err as Error).message}`);
+      await synthVoice(dialogueText, pickVoice(dialogueText), voicePath);
+      dur = await audioDuration(voicePath);
+    }
+  } else {
+    // 未配置音频模型：edge-tts 免费语音
+    await synthVoice(dialogueText, pickVoice(dialogueText), voicePath);
+    dur = await audioDuration(voicePath);
+  }
+
   fs.writeFileSync(srtPath, buildSrt(dialogueText, dur), 'utf-8');
 
   // ffmpeg：视频画面 + TTS 音轨（替换原音轨）+ 烧录字幕
@@ -125,7 +172,7 @@ export async function dubVideo(
   ];
   await execFileP('ffmpeg', args, { timeout: 300000 });
 
-  return { videoPath: outPath, srtPath, voicePath, voiceUsed: voice, dialogueText, durationSec: dur };
+  return { videoPath: outPath, srtPath, voicePath, voiceUsed: useConfiguredModel ? 'configured' : 'edge-tts', dialogueText, durationSec: dur };
 }
 
 /**
