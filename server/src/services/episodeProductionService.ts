@@ -526,19 +526,34 @@ export async function regenerateKeyframe(
 
 /** 从剧本分析中提取角色/场景上下文（用于视频提示词的人物一致性） */
 function buildVideoShotContext(shot: any, scriptAnalysis: any, totalShots: number, duration: number, sceneWithLighting = true) {
-  // 获取该镜头中的角色信息
+  // 获取该镜头中的角色信息（P0 一致性：优先按 shots.characters_in_shot 过滤，只注入该镜角色，防止无关角色乱入）
   let charactersInShot: string[] = [];
   const characterDetails: Record<string, string> = {};
+  const analysisChars: any[] = (scriptAnalysis && scriptAnalysis.characterAnalysis) || [];
+  const matchName = (shotName: string, charName: string) =>
+    shotName === charName || shotName.includes(charName) || charName.includes(shotName);
   try {
-    if (scriptAnalysis && scriptAnalysis.characterAnalysis && scriptAnalysis.characterAnalysis.length > 0) {
-      charactersInShot = scriptAnalysis.characterAnalysis.map((c: any) => c.characterName);
-      for (const char of scriptAnalysis.characterAnalysis) {
-        if (char.characterName && char.visualTraits) {
-          characterDetails[char.characterName] = char.visualTraits;
-        }
+    // mapShotRow 已将 characters_in_shot 解析为数组；此处兼容字符串/数组两种形态
+    const rawCis: any = shot.characters_in_shot;
+    if (rawCis) {
+      let parsed: any = rawCis;
+      if (typeof rawCis === 'string') { try { parsed = JSON.parse(rawCis); } catch { parsed = []; } }
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        charactersInShot = parsed.filter((n: any) => typeof n === 'string');
       }
     }
-    // 从动作描述中提取角色名
+    // 镜头无角色标记 → 退回全部分析角色
+    if (charactersInShot.length === 0 && analysisChars.length > 0) {
+      charactersInShot = analysisChars.map((c: any) => c.characterName);
+    }
+    // 按镜头角色过滤 characterDetails（用字符包含匹配兼容 桂芬/刘桂芬 等别名）
+    for (const char of analysisChars) {
+      if (char.characterName && char.visualTraits) {
+        const inShot = charactersInShot.some((n: string) => matchName(n, char.characterName));
+        if (inShot) characterDetails[char.characterName] = char.visualTraits;
+      }
+    }
+    // 从动作描述中提取角色名（兜底）
     if (charactersInShot.length === 0 && shot.action_description) {
       const nameMatches: string[] | null = shot.action_description.match(/[\u4e00-\u9fa5]{2,4}(?=[，。、\s])/g);
       if (nameMatches) {
@@ -709,7 +724,7 @@ export async function generateVideoForShot(
       const charDescText = Object.entries(characterDetails)
         .map(([name, desc]) => `${name}: ${desc}`)
         .join('；');
-      finalPrompt += `。【角色视觉一致性】${charDescText}。严格保持角色外观、服装、发型、发色与角色设定一致，前后镜头角色身份必须一致`;
+      finalPrompt += `。【角色视觉一致性】${charDescText}。严格保持角色外观、服装、发型、发色与角色设定一致。画面中只出现以上列出的角色，不得出现名单之外的其他人物，前后镜头角色身份必须一致。画面中只出现以上列出的角色，不得出现名单之外的其他人物`;
     }
     if (directorPromptResult?.negativePrompt) {
       finalPrompt += `。【避免】${directorPromptResult.negativePrompt}`;
