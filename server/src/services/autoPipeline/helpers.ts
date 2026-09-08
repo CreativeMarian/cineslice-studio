@@ -13,6 +13,60 @@ import type { DirectorShotContext, CharacterDetail } from '../directorPromptServ
 import { scriptAnalysisCache , cacheScriptAnalysis } from './state';
 
 /**
+ * 真实数据完成度检测：该阶段是否已有实际产出（幂等跳过用）
+ * 与 GET /pipeline/progress 同口径——用户手动完成的操作也能正确识别
+ */
+export function isStageComplete(db: Database, projectId: string, stage: string): boolean {
+  const count = (sql: string, ...args: any[]) => {
+    const row: any = db.prepare(sql).get(...args);
+    return Number(row?.c || 0);
+  };
+  switch (stage) {
+    case 'novel':
+      return count('SELECT COUNT(*) c FROM novel_chapters WHERE project_id = ?', projectId) > 0;
+    case 'episodes':
+      return count('SELECT COUNT(*) c FROM novel_episodes WHERE project_id = ?', projectId) > 0;
+    case 'script':
+      return count('SELECT COUNT(*) c FROM novel_episodes WHERE project_id = ? AND LENGTH(TRIM(script_content)) > 0', projectId) > 0;
+    case 'characters': {
+      const ids = db.prepare('SELECT id FROM novel_episodes WHERE project_id = ?').all(projectId) as Array<{ id: string }>;
+      if (ids.length === 0) return false;
+      const ph = ids.map(() => '?').join(',');
+      return count(`SELECT COUNT(*) c FROM script_characters WHERE episode_id IN (${ph})`, ...ids.map(r => r.id)) > 0;
+    }
+    case 'scenes': {
+      const ids = db.prepare('SELECT id FROM novel_episodes WHERE project_id = ?').all(projectId) as Array<{ id: string }>;
+      if (ids.length === 0) return false;
+      const ph = ids.map(() => '?').join(',');
+      return count(`SELECT COUNT(*) c FROM script_scenes WHERE episode_id IN (${ph})`, ...ids.map(r => r.id)) > 0;
+    }
+    case 'shots': {
+      const ids = db.prepare('SELECT id FROM novel_episodes WHERE project_id = ?').all(projectId) as Array<{ id: string }>;
+      if (ids.length === 0) return false;
+      const ph = ids.map(() => '?').join(',');
+      return count(`SELECT COUNT(*) c FROM shots WHERE episode_id IN (${ph})`, ...ids.map(r => r.id)) > 0;
+    }
+    case 'keyframes':
+      return count(
+        'SELECT COUNT(*) c FROM shot_keyframes k JOIN shots s ON k.shot_id = s.id JOIN novel_episodes e ON s.episode_id = e.id WHERE e.project_id = ? AND k.image_url IS NOT NULL AND k.image_url != ?',
+        projectId, ''
+      ) > 0;
+    case 'audio':
+      return count(
+        "SELECT COUNT(*) c FROM generation_tasks WHERE project_id = ? AND task_type = 'audio' AND status = 'completed'",
+        projectId
+      ) > 0;
+    case 'video':
+      return count(
+        "SELECT COUNT(*) c FROM shot_video_intervals v JOIN shots s ON v.shot_id = s.id JOIN novel_episodes e ON s.episode_id = e.id WHERE e.project_id = ? AND v.status = 'completed' AND v.video_url IS NOT NULL AND v.video_url != ''",
+        projectId
+      ) > 0;
+    default:
+      return false;
+  }
+}
+
+/**
  * 获取第一个已配置的指定类型模型
  */
 export function getFirstModel(db: Database, userId: string, modelType: string): { provider: string; modelName: string } | null {

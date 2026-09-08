@@ -3,6 +3,7 @@ import type { Database } from '../../types';
 import { PipelineService, PIPELINE_STAGES } from '../pipelineService';
 import type { AutoPipelineTask } from './types';
 import { tasks } from './state';
+import { isStageComplete } from './helpers';
 import { saveTask, getTask , getCurrentRunningTask } from './taskStore';
 import { stageNovel } from './stages/novel';
 import { stageEpisodes } from './stages/episodes';
@@ -36,8 +37,18 @@ export async function runPipeline(db: Database, task: AutoPipelineTask): Promise
     }
 
     task.currentStage = stage;
-    PipelineService.startStage(db, projectId, stage);
     saveTask(db, task);
+
+    // 幂等跳过：该阶段已有真实产出时直接跳过，避免重复生成浪费额度
+    // 如需重跑某阶段：先点「重置」再启动全自动
+    if (isStageComplete(db, projectId, stage)) {
+      task.stageProgress[stage] = 'done（已存在，跳过）';
+      saveTask(db, task);
+      console.log(`[AutoPipeline] stage=${stage} already complete, skipped`);
+      continue;
+    }
+
+    PipelineService.startStage(db, projectId, stage);
 
     try {
       switch (stage) {

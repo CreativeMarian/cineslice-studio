@@ -12,6 +12,34 @@ import { Zap, RefreshCw, AlertTriangle, CheckCircle2, Loader2, ArrowRight, Party
 import type { PipelineStatusData, PipelineMode } from '../types';
 
 // 阶段中文名称映射
+// 各阶段预估时长（分钟）：用于一键全自动启动时提示"大概时间"（估算值，非实时数据）
+const STAGE_EST_MIN: Record<string, number> = {
+  novel: 1,
+  episodes: 2,
+  script: 3,
+  characters: 2,
+  scenes: 1,
+  shots: 8,
+  keyframes: 12,
+  audio: 4,
+  video: 25,
+};
+const PIPELINE_ORDER = ['novel', 'episodes', 'script', 'characters', 'scenes', 'shots', 'keyframes', 'audio', 'video'];
+
+// 估算：从 startStage（含）到结束的未完成阶段总时长
+function estimateMinutesFrom(progressData: ProjectProgressData | null, startStage: string | null): number {
+  if (!progressData) return 0;
+  const startIdx = startStage ? PIPELINE_ORDER.indexOf(startStage) : 0;
+  let total = 0;
+  for (let i = Math.max(0, startIdx); i < PIPELINE_ORDER.length; i++) {
+    const st = PIPELINE_ORDER[i];
+    const done = progressData.stages[st]?.done;
+    if (done) continue; // 已完成阶段跳过
+    total += STAGE_EST_MIN[st] || 0;
+  }
+  return total;
+}
+
 const STAGE_LABELS: Record<string, string> = {
   novel: '小说上传',
   episodes: '剧集拆分',
@@ -252,7 +280,26 @@ export function ProjectLayout() {
       if (res.success && res.data) {
         setAutoTaskId(res.data.taskId);
         setPipelineMode('auto');
-        useUIStore.getState().showToast('全自动流水线已启动！正在自动执行所有阶段', 'success');
+        // 预估时间：基于真实完成度（已完成阶段自动跳过，只算剩余阶段）
+        try {
+          const pRes = await pipelineService.getProgress(projectId);
+          if (pRes.success && pRes.data) {
+            const pd = pRes.data;
+            setProgressData(pd);
+            const est = estimateMinutesFrom(pd, null);
+            const skipCount = PIPELINE_ORDER.filter(st => pd.stages[st]?.done).length;
+            useUIStore.getState().showToast(
+              skipCount > 0
+                ? `全自动流水线已启动！${skipCount} 个阶段已存在将自动跳过，预计约 ${Math.max(est, 1)} 分钟完成（视模型速度）`
+                : `全自动流水线已启动！预计约 ${Math.max(est, 1)} 分钟完成（视模型速度）`,
+              'success', { duration: 6000 }
+            );
+          } else {
+            useUIStore.getState().showToast('全自动流水线已启动！正在自动执行所有阶段', 'success');
+          }
+        } catch {
+          useUIStore.getState().showToast('全自动流水线已启动！正在自动执行所有阶段', 'success');
+        }
         loadPipeline();
       }
     } catch {
@@ -449,6 +496,9 @@ export function ProjectLayout() {
                   </span>
                   <span className="flex items-center gap-1">
                     {Object.keys(STAGE_LABELS).length - Object.keys(STAGE_LABELS).indexOf(autoTaskStatus.currentStage) - 1} 阶段待执行
+                    <span className="text-[var(--accent)] font-medium">
+                      · 预计剩余约 {estimateMinutesFrom(progressData, autoTaskStatus.currentStage)} 分钟
+                    </span>
                   </span>
                 </div>
               </div>
