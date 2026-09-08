@@ -52,6 +52,7 @@ export interface VideoGenerateResult {
   videoUrl?: string;
   estimatedTimeSeconds?: number;
   error?: string;
+  progress?: number;
 }
 
 export interface AudioGenerateParams {

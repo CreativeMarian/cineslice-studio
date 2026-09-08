@@ -276,6 +276,7 @@ const generateEpisodesSchema = z.object({
   modelName: z.string(),
   episodes_count: z.number().int().min(1).max(50).optional(),
   style: z.string().optional(),
+  stream: z.boolean().optional(),
 });
 
 // 辅助：规范化 chapterRange，修复 AI 返回的异常值
@@ -301,7 +302,7 @@ router.post('/:id/episodes/generate', validateBody(generateEpisodesSchema), asyn
   const project = ProjectDAO.getByIdAndUser(db, req.params.id, req.user.id);
   if (!project) throw createError(404, 'NOT_FOUND', '项目不存在');
 
-  const { chapter_ids, provider, modelName, episodes_count, style } = req.body;
+  const { chapter_ids, provider, modelName, episodes_count, style, stream } = req.body;
   const chapters = chapter_ids && chapter_ids.length > 0
     ? NovelChapterDAO.getByIds(db, chapter_ids)
     : NovelChapterDAO.listByProject(db, req.params.id);
@@ -325,67 +326,101 @@ router.post('/:id/episodes/generate', validateBody(generateEpisodesSchema), asyn
 
   console.log(`[GenerateEpisodes] 目标 ${targetEpisodes} 集（用户指定=${explicitCount ?? '否'}，集标记=${episodeMarkMax ?? '无'}，章节 ${chapters.length} 章 / ${totalChars} 字符），分批=${needBatch}，每批 ${batchSize} 集`);
 
+  // 流式进度：每批完成即向前端推送真实进度（集数），不模拟
+  const send = (payload: any) => {
+    if (stream) res.write(JSON.stringify(payload) + '\n');
+  };
+
   let allEpisodesData: any[] = [];
+  let totalBatches = 0;
 
-  if (needBatch) {
-    const totalBatches = Math.ceil(targetEpisodes / batchSize);
-    for (let batch = 0; batch < totalBatches; batch++) {
-      const startEpisode = batch * batchSize + 1;
-      const batchCount = Math.min(batchSize, targetEpisodes - batch * batchSize);
-      const batchChapters = selectChaptersForRange(
-        chapters, startEpisode, startEpisode + batchCount - 1, targetEpisodes, episodeMarkMax !== null
-      );
-      const batchContent = batchChapters.map(c => `【${c.title}】\n${c.content}`).join('\n\n');
-      console.log(`[GenerateEpisodes] 第${batch + 1}/${totalBatches}批：第${startEpisode}-${startEpisode + batchCount - 1}集，使用${batchChapters.length}章`);
-
-      const batchData = await generateEpisodeBatch(
-        db, req.user.id, provider, modelName, style, batchContent, startEpisode, batchCount, enforceCount
-      );
-      allEpisodesData = allEpisodesData.concat(batchData);
+  try {
+    if (stream) {
+      res.setHeader('Content-Type', 'application/x-ndjson');
+      res.flushHeaders();
+      send({ done: false, total: targetEpisodes, completed: 0, stage: '正在分析小说章节...' });
     }
-  } else {
-    allEpisodesData = await generateEpisodeBatch(
-      db, req.user.id, provider, modelName, style, novelContent, 1, targetEpisodes, enforceCount
-    );
-  }
 
-  console.log(`[GenerateEpisodes] 共解析出 ${allEpisodesData.length} 集数据（目标 ${targetEpisodes} 集）`);
+    if (needBatch) {
+      totalBatches = Math.ceil(targetEpisodes / batchSize);
+      for (let batch = 0; batch < totalBatches; batch++) {
+        const startEpisode = batch * batchSize + 1;
+        const batchCount = Math.min(batchSize, targetEpisodes - batch * batchSize);
+        const batchChapters = selectChaptersForRange(
+          chapters, startEpisode, startEpisode + batchCount - 1, targetEpisodes, episodeMarkMax !== null
+        );
+        const batchContent = batchChapters.map(c => `【${c.title}】\n${c.content}`).join('\n\n');
+        console.log(`[GenerateEpisodes] 第${batch + 1}/${totalBatches}批：第${startEpisode}-${startEpisode + batchCount - 1}集，使用${batchChapters.length}章`);
 
-  // 删除旧剧集 + 插入新剧集必须在同一事务内：
-  // novel_episodes 的子表（shots/keyframes/角色等）是 ON DELETE CASCADE，
-  // 若先删后插中途失败（如 AI 返回重复集号触发唯一索引），旧分镜将永久丢失
-  const created = db.transaction(() => {
-    const oldEpisodes = NovelEpisodeDAO.listByProject(db, req.params.id);
-    for (const ep of oldEpisodes) NovelEpisodeDAO.delete(db, ep.id);
+        if (stream) send({ done: false, total: targetEpisodes, completed: Math.min(startEpisode - 1, targetEpisodes), batch: batch + 1, totalBatches, stage: `正在生成第${startEpisode}集...（批次 ${batch + 1}/${totalBatches}）` });
 
-    // AI 可能返回重复集号（uq_novel_episodes_proj_num 唯一约束），先顺序去重
-    const seen = new Set<number>();
-    let nextNum = 1;
-    return allEpisodesData.map((ep: any, idx: number) => {
-      let episodeNum = ep.episodeNumber || idx + 1;
-      while (seen.has(episodeNum)) episodeNum = allEpisodesData.length + nextNum++;
-      seen.add(episodeNum);
-      const chapterRangeVal = normalizeChapterRange(ep.chapterRange, episodeNum);
-      return NovelEpisodeDAO.create(db, {
-        user_id: req.user.id,
-        project_id: req.params.id,
-        episode_number: episodeNum,
-        title: ep.title || `第${episodeNum}集`,
-        chapter_range: chapterRangeVal,
-        script_content: ep.scriptContent || '',
-        text_model_used: `${provider}/${modelName}`,
+        const batchData = await generateEpisodeBatch(
+          db, req.user.id, provider, modelName, style, batchContent, startEpisode, batchCount, enforceCount
+        );
+        allEpisodesData = allEpisodesData.concat(batchData);
+        if (stream) send({ done: false, total: targetEpisodes, completed: Math.min(startEpisode - 1 + batchData.length, targetEpisodes), batch: batch + 1, totalBatches, stage: `已完成第${startEpisode}-${Math.min(startEpisode + batchCount - 1, targetEpisodes)}集（${batch + 1}/${totalBatches} 批）` });
+      }
+    } else {
+      if (stream) send({ done: false, total: targetEpisodes, completed: 0, stage: '正在生成剧集剧本...' });
+      allEpisodesData = await generateEpisodeBatch(
+        db, req.user.id, provider, modelName, style, novelContent, 1, targetEpisodes, enforceCount
+      );
+    }
+
+    console.log(`[GenerateEpisodes] 共解析出 ${allEpisodesData.length} 集数据（目标 ${targetEpisodes} 集）`);
+
+    // 删除旧剧集 + 插入新剧集必须在同一事务内：
+    // novel_episodes 的子表（shots/keyframes/角色等）是 ON DELETE CASCADE，
+    // 若先删后插中途失败（如 AI 返回重复集号触发唯一索引），旧分镜将永久丢失
+    const created = db.transaction(() => {
+      const oldEpisodes = NovelEpisodeDAO.listByProject(db, req.params.id);
+      for (const ep of oldEpisodes) NovelEpisodeDAO.delete(db, ep.id);
+
+      // AI 可能返回重复集号（uq_novel_episodes_proj_num 唯一约束），先顺序去重
+      const seen = new Set<number>();
+      let nextNum = 1;
+      return allEpisodesData.map((ep: any, idx: number) => {
+        let episodeNum = ep.episodeNumber || idx + 1;
+        while (seen.has(episodeNum)) episodeNum = allEpisodesData.length + nextNum++;
+        seen.add(episodeNum);
+        const chapterRangeVal = normalizeChapterRange(ep.chapterRange, episodeNum);
+        return NovelEpisodeDAO.create(db, {
+          user_id: req.user.id,
+          project_id: req.params.id,
+          episode_number: episodeNum,
+          title: ep.title || `第${episodeNum}集`,
+          chapter_range: chapterRangeVal,
+          script_content: ep.scriptContent || '',
+          text_model_used: `${provider}/${modelName}`,
+        });
       });
-    });
-  })();
+    })();
 
-  if (created.length === 0) {
-    throw createError(502, 'AI_CALL_FAILED', 'AI 未能生成任何剧集，请重试或更换模型');
+    if (created.length === 0) {
+      throw createError(502, 'AI_CALL_FAILED', 'AI 未能生成任何剧集，请重试或更换模型');
+    }
+
+    // 按 episode_number 排序
+    created.sort((a, b) => a.episode_number - b.episode_number);
+
+    if (stream) {
+      send({ done: false, total: targetEpisodes, completed: created.length, stage: '整理完成' });
+      send({ done: true, data: created });
+      res.end();
+      return;
+    }
+    res.json({ success: true, data: created });
+  } catch (err: any) {
+    if (stream) {
+      try {
+        send({ done: false, error: err?.message || '生成失败' });
+        send({ done: true, data: null, error: err?.message || '生成失败' });
+        res.end();
+      } catch { /* 流已断 */ }
+      return;
+    }
+    throw err;
   }
-
-  // 按 episode_number 排序
-  created.sort((a, b) => a.episode_number - b.episode_number);
-
-  res.json({ success: true, data: created });
 }));
 
 // 剧集列表

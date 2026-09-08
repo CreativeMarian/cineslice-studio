@@ -842,6 +842,7 @@ export async function getVideoStatus(db: Database, userId: string, videoId: stri
             status: 'completed',
             video_url: localUrl,
             completed_at: new Date().toISOString(),
+            progress: 100,
           });
 
           // VLM 视频质量门：抽帧 + 视觉模型打分（主体漂移/幻觉/字幕残留）
@@ -882,13 +883,19 @@ export async function getVideoStatus(db: Database, userId: string, videoId: stri
             status: 'completed',
             video_url: taskResult.videoUrl,
             completed_at: new Date().toISOString(),
+            progress: 100,
           });
           return { ...video, status: 'completed', video_url: taskResult.videoUrl };
         }
       } else if (taskResult.status === 'failed') {
-        ShotVideoIntervalDAO.updateStatus(db, video.id, 'failed', '视频生成失败');
-        return { ...video, status: 'failed', error_message: '视频生成失败' };
+        ShotVideoIntervalDAO.update(db, video.id, { status: 'failed', error_message: '视频生成失败', progress: 0 });
+        return { ...video, status: 'failed', error_message: '视频生成失败', progress: 0 };
       } else {
+        // 处理中：同步真实渲染进度（ComfyUI /progress），前端进度条使用真实数据而非估算
+        if (typeof taskResult.progress === 'number' && taskResult.progress >= 0) {
+          ShotVideoIntervalDAO.update(db, video.id, { progress: taskResult.progress });
+          return { ...video, status: taskResult.status, progress: taskResult.progress };
+        }
         return { ...video, status: taskResult.status };
       }
     } catch (err) {

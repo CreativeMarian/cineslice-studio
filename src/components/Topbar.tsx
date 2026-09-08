@@ -1,6 +1,7 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import { ArrowLeft, User, Sun, Moon, ChevronDown, ChevronRight, Home, Sparkles, Search } from 'lucide-react';
+import { pipelineService, type ProjectProgressData } from '../services/pipelineService';
 import { useProjectStore } from '../stores/useProjectStore';
 import { useAuthStore } from '../stores/useAuthStore';
 import { useUIStore } from '../stores/useUIStore';
@@ -16,6 +17,12 @@ const STAGE_LABELS: Record<string, string> = {
   director: '导演',
   export: '导出',
 };
+// 目标页面 → 前置阶段（真实数据完成度门控）
+const STAGE_REQUIRE: Record<string, string> = {
+  assets: 'script',
+  director: 'shots',
+  export: 'video',
+};
 
 export function Topbar() {
   const [profileOpen, setProfileOpen] = useState(false);
@@ -26,10 +33,36 @@ export function Topbar() {
   const { projectId } = useParams();
   const location = useLocation();
 
-  // 当前阶段
-  const currentStage = STAGE_ORDER.find(s => location.pathname.includes(`/${s}`)) || 'script';
-  const currentIndex = STAGE_ORDER.indexOf(currentStage);
-  const nextStage = currentIndex < STAGE_ORDER.length - 1 ? STAGE_ORDER[currentIndex + 1] : null;
+  const { showToast } = useUIStore();
+  const [progress, setProgress] = useState<ProjectProgressData | null>(null);
+
+  // 真实数据完成度：驱动"下一步"门控（与侧边栏一致）
+  useEffect(() => {
+    if (!projectId) return;
+    let cancelled = false;
+    pipelineService.getProgress(projectId)
+      .then(res => { if (!cancelled && res.success && res.data) setProgress(res.data); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [projectId]);
+
+  // 当前阶段：非工作台页面（自由创作/模型配置等）为 null，不显示阶段引导
+  const isWorkspace = STAGE_ORDER.some(st => location.pathname.includes(`/${st}`));
+  const currentStage = isWorkspace ? (STAGE_ORDER.find(st => location.pathname.includes(`/${st}`)) || 'script') : null;
+  const currentIndex = currentStage ? STAGE_ORDER.indexOf(currentStage) : -1;
+  const nextStage = currentStage && currentIndex < STAGE_ORDER.length - 1 ? STAGE_ORDER[currentIndex + 1] : null;
+
+  // "下一步"门控：目标页前置阶段未完成时提示而非跳转
+  const handleNextClick = () => {
+    if (!nextStage) return;
+    const need = STAGE_REQUIRE[nextStage];
+    const done = need ? !!progress?.stages[need]?.done : true;
+    if (!done) {
+      showToast(`请先完成【${progress?.stages[need]?.label || need}】后再进入【${STAGE_LABELS[nextStage]}】页`, 'warning', { duration: 4000 });
+      return;
+    }
+    navigate(`/projects/${projectId}/${nextStage}`);
+  };
 
   const stageLabels: Record<string, string> = {
     script: '剧本阶段',
@@ -63,13 +96,17 @@ export function Topbar() {
             <span className="text-[var(--ink-2)] hover:text-[var(--ink-1)] cursor-pointer truncate max-w-[120px] sm:max-w-[200px]" onClick={() => navigate('/')}>
               {currentProject?.title || '项目'}
             </span>
-            <ChevronRight className="w-3 h-3 text-[var(--ink-3)] flex-shrink-0" />
-            <span className="text-[var(--accent)] font-medium flex-shrink-0">
-              {STAGE_LABELS[currentStage] || currentStage}
-            </span>
+            {currentStage && (
+              <>
+                <ChevronRight className="w-3 h-3 text-[var(--ink-3)] flex-shrink-0" />
+                <span className="text-[var(--accent)] font-medium flex-shrink-0">
+                  {STAGE_LABELS[currentStage] || currentStage}
+                </span>
+              </>
+            )}
           </div>
 
-          {currentProject && (
+          {currentProject && currentStage && (
             <Badge variant="accent" className="flex-shrink-0 ml-1">{stageLabels[currentProject.stage] || '剧本阶段'}</Badge>
           )}
         </div>
@@ -90,7 +127,7 @@ export function Topbar() {
           {/* 下一步引导 */}
           {nextStage && (
             <button
-              onClick={() => navigate(`/projects/${projectId}/${nextStage}`)}
+              onClick={handleNextClick}
               className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[var(--accent-soft)] text-[var(--accent)] text-xs font-medium hover:bg-[var(--accent-soft)]/80 transition-all"
               title={`前往${STAGE_LABELS[nextStage]}阶段`}
             >

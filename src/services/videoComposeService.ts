@@ -9,6 +9,8 @@ export interface ComposeOptions {
   bgmVolume?: number;
   /** 两级合成：true 时先按阶段合成再拼接整集 */
   byPhase?: boolean;
+  /** 跳过无视频镜头，不生成黑屏占位 */
+  skipMissingClips?: boolean;
   /** 只合成指定阶段（1-4） */
   phase?: number;
 }

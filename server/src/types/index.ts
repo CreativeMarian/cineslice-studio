@@ -323,6 +323,7 @@ export interface ShotVideoInterval {
   quality_score: number | null;
   quality_issues: string | null;
   external_task_id: string | null;
+  progress: number | null;
   created_at: string;
   completed_at: string | null;
 }

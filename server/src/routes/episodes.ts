@@ -427,4 +427,16 @@ router.get('/episodes/:id/subtitles', asyncHandler(async (req: Request, res: Res
   res.json({ success: true, data });
 }));
 
+// 获取剧集已完成视频片段数（导出页合成前检测用，真实数据）
+router.get('/episodes/:id/videos/count', asyncHandler(async (req: Request, res: Response) => {
+  const db = getDb(req);
+  const shots = ShotDAO.listByEpisode(db, req.params.id) as Array<{ id: string }>;
+  let completed = 0;
+  for (const s of shots) {
+    completed += ShotVideoIntervalDAO.listByShot(db, s.id)
+      .filter((v: any) => v.status === 'completed' && v.video_url).length;
+  }
+  res.json({ success: true, data: { count: completed, totalShots: shots.length } });
+}));
+
 export default router;

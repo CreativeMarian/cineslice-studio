@@ -38,48 +38,7 @@ export function EpisodeManager() {
   // 按 episode_number 排序的剧集列表
   const sortedEpisodes = [...episodes].sort((a, b) => a.episode_number - b.episode_number);
 
-  // 生成进度模拟（分阶段）
-  useEffect(() => {
-    if (isGenerating) {
-      setGenerateProgress(5);
-      setGenerateStage('正在连接 AI 服务...');
-      setGenerateElapsed(0);
 
-      const startTime = Date.now();
-      progressTimerRef.current = setInterval(() => {
-        const elapsed = Math.floor((Date.now() - startTime) / 1000);
-        setGenerateElapsed(elapsed);
-
-        // 分阶段模拟进度
-        let progress = 5;
-        let stage = '正在连接 AI 服务...';
-
-        if (elapsed >= 2) {
-          progress = 15 + Math.min(elapsed - 2, 10) * 3;
-          stage = '正在分析小说章节内容...';
-        }
-        if (elapsed >= 12) {
-          progress = 45 + Math.min(elapsed - 12, 20) * 2;
-          stage = 'AI 正在改编剧本...';
-        }
-        if (elapsed >= 32) {
-          progress = 85 + Math.min(elapsed - 32, 15) * 1;
-          stage = '正在整理生成结果...';
-        }
-        if (elapsed >= 47) {
-          progress = 95;
-          stage = '即将完成...';
-        }
-
-        setGenerateProgress(Math.min(progress, 95));
-        setGenerateStage(stage);
-      }, 500);
-
-      return () => {
-        if (progressTimerRef.current) clearInterval(progressTimerRef.current);
-      };
-    }
-  }, [isGenerating]);
 
   const getEpisodesCountValue = (): number | undefined => {
     if (episodesCount === 'auto') return undefined;
@@ -96,12 +55,22 @@ export function EpisodeManager() {
     setGenerateProgress(5);
     setGenerateStage('正在连接 AI 服务...');
     try {
-      const res = await projectService.generateEpisodes(currentProject.id, {
-        chapter_ids: selectedChapterIds,
-        modelKey: params.modelKey,
-        episodes_count: getEpisodesCountValue(),
-        style: 'standard',
-      });
+      const res = await projectService.generateEpisodesStream(
+        currentProject.id,
+        {
+          chapter_ids: selectedChapterIds,
+          modelKey: params.modelKey,
+          episodes_count: getEpisodesCountValue(),
+          style: 'standard',
+        },
+        (p) => {
+          // 真实进度：后端每批完成即上报已完成集数/总集数
+          if (p.total > 0) {
+            setGenerateProgress(Math.max(5, Math.min(95, Math.round((p.completed / p.total) * 100))));
+          }
+          if (p.stage) setGenerateStage(p.stage);
+        }
+      );
       if (res.success && res.data) {
         setGenerateProgress(100);
         setGenerateStage('生成完成！');

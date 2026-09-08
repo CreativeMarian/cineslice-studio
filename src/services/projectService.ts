@@ -48,6 +48,63 @@ export const projectService = {
 
   // ---------- 剧集 ----------
 
+  generateEpisodesStream: (
+    projectId: string,
+    data: { chapter_ids: string[]; modelKey: string; episodes_count?: number; style?: string },
+    onProgress?: (p: { completed: number; total: number; stage: string }) => void
+  ): Promise<ApiResponse<Episode[]>> => {
+    const [provider, modelName] = data.modelKey.split(':');
+    return new Promise((resolve, reject) => {
+      fetch(`/api/projects/${projectId}/episodes/generate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          chapter_ids: data.chapter_ids,
+          provider,
+          modelName,
+          episodes_count: data.episodes_count,
+          style: data.style,
+          stream: true,
+        }),
+      })
+        .then(async (resp) => {
+          if (!resp.body) throw new Error('浏览器不支持流式响应');
+          const reader = resp.body.getReader();
+          const decoder = new TextDecoder();
+          let buf = '';
+          let finalData: any = null;
+          let parseError: string | null = null;
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            buf += decoder.decode(value, { stream: true });
+            let nl: number;
+            while ((nl = buf.indexOf('\n')) >= 0) {
+              const line = buf.slice(0, nl).trim();
+              buf = buf.slice(nl + 1);
+              if (!line) continue;
+              let evt: any;
+              try { evt = JSON.parse(line); } catch { continue; }
+              if (evt.done) {
+                if (evt.error) parseError = evt.error;
+                finalData = evt.data;
+              } else if (evt.error) {
+                parseError = evt.error;
+              } else if (typeof evt.completed === 'number' && onProgress) {
+                onProgress({ completed: evt.completed, total: evt.total || 0, stage: evt.stage || '' });
+              }
+            }
+          }
+          if (parseError) {
+            reject({ response: { data: { message: parseError } } });
+            return;
+          }
+          resolve({ success: true, data: finalData as Episode[] | null } as any);
+        })
+        .catch((err) => reject(err));
+    });
+  },
+
   generateEpisodes: (
     projectId: string,
     data: { chapter_ids: string[]; modelKey: string; episodes_count?: number; style?: string }

@@ -68,6 +68,7 @@ export function ShotCard({ shot, index, isExpanded, onToggle, showToast, sceneNa
   const [videoSubtitles, setVideoSubtitles] = useState(false);
   const [pollingVideoId, setPollingVideoId] = useState<string | null>(null);
   const [elapsedTime, setElapsedTime] = useState(0);
+  const [videoProgress, setVideoProgress] = useState<number | null>(null);
   const [isDeletingVideo, setIsDeletingVideo] = useState(false);
   const [useNextFirstFrame, setUseNextFirstFrame] = useState<boolean>(shot.use_next_first_frame !== 0);
   const [isGeneratingCandidates, setIsGeneratingCandidates] = useState(false);
@@ -158,8 +159,12 @@ export function ShotCard({ shot, index, isExpanded, onToggle, showToast, sceneNa
             }
             return prev.map(v => v.id === pollingVideoId ? res.data! : v);
           });
+          if (typeof res.data.progress === 'number') {
+            setVideoProgress(res.data.progress);
+          }
           if (res.data.status === 'completed' || res.data.status === 'failed') {
             setPollingVideoId(null);
+            setVideoProgress(res.data.status === 'completed' ? 100 : 0);
             if (res.data.status === 'completed') {
               showToast('视频生成完成。下一步：进入「导出」阶段合成成片', 'success');
             } else {
@@ -187,6 +192,7 @@ export function ShotCard({ shot, index, isExpanded, onToggle, showToast, sceneNa
   useEffect(() => {
     if (!processingVideo && !isGeneratingVideo) {
       setElapsedTime(0);
+      setVideoProgress(null);
       return;
     }
     const timer = setInterval(() => {
@@ -203,6 +209,7 @@ export function ShotCard({ shot, index, isExpanded, onToggle, showToast, sceneNa
       setVideos(prev => prev.filter(v => v.id !== videoId));
       if (pollingVideoId === videoId) {
         setPollingVideoId(null);
+        setVideoProgress(null);
       }
       showToast('视频已删除', 'success');
     } catch (err: any) {
@@ -531,13 +538,16 @@ export function ShotCard({ shot, index, isExpanded, onToggle, showToast, sceneNa
                     <RefreshCw className="w-8 h-8 mx-auto mb-2 animate-spin text-yellow-500" />
                     <p className="text-xs text-[var(--ink-1)]">视频生成中，请稍候...</p>
                     <p className="text-[10px] text-[var(--ink-3)] mt-1">已等待 {elapsedTime} 秒 · 通常需要 30-120 秒</p>
-                    {/* 进度条 */}
+                    {/* 进度条：真实渲染进度（ComfyUI /progress），无真实数据时不伪装百分比 */}
                     <div className="w-full h-1.5 bg-[var(--panel-3)] rounded-full mt-3 overflow-hidden">
                       <div
                         className="h-full bg-gradient-to-r from-[var(--accent)] to-[var(--accent-2)] rounded-full transition-all duration-1000"
-                        style={{ width: `${Math.min(95, (elapsedTime / 120) * 100)}%` }}
+                        style={{ width: videoProgress != null ? `${videoProgress}%` : '8%' }}
                       />
                     </div>
+                    {videoProgress != null && (
+                      <p className="text-[10px] text-[var(--ink-2)] mt-1">渲染进度 {videoProgress}%</p>
+                    )}
                     {/* 停止按钮 */}
                     <button
                       onClick={() => processingVideo && handleDeleteVideo(processingVideo.id)}

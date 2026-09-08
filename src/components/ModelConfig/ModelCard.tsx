@@ -143,13 +143,13 @@ export function ModelCard({ meta, config }: ModelCardProps) {
   };
 
   return (
-    <div className="border border-[var(--border)] rounded-lg p-4 bg-[var(--bg-elevated)] hover:border-[var(--accent)] transition-colors">
+    <div className="border border-[var(--border)] rounded-lg p-4 bg-[var(--card-bg)] hover:border-[var(--accent)] transition-colors">
       {/* 头部 */}
       <div className="flex items-start justify-between mb-3">
         <div className="flex items-center gap-2 min-w-0 flex-1">
           <span className="text-xl flex-shrink-0">{TYPE_ICONS[meta.modelType]}</span>
           <div className="min-w-0 flex-1">
-            <h3 className="font-semibold text-[var(--ink)] truncate">{meta.displayName}</h3>
+            <h3 className="font-semibold text-[var(--ink-1)] truncate">{meta.displayName}</h3>
             <p className="text-xs text-[var(--ink-3)] truncate font-mono">{meta.modelName}</p>
           </div>
         </div>

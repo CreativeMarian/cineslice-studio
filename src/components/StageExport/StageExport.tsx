@@ -161,6 +161,7 @@ export function StageExport() {
         outputResolution: '1920x1080',
         fps: 24,
         byPhase: composeMode === 'byphase',
+        skipMissingClips: true,
       });
       if (res.success && res.data) {
         setComposeResult(res.data);
@@ -213,7 +214,17 @@ export function StageExport() {
   };
 
   const currentEpisode = episodes.find(e => e.id === currentEpisodeId);
-  const hasVideoClips = shots.some(s => s.id); // 简化判断，实际应检查 video intervals
+  const [hasVideoClips, setHasVideoClips] = useState<boolean | null>(null);
+
+  // 真实数据：当前集已完成视频片段数（不模拟，合成前提示用）
+  useEffect(() => {
+    if (!currentEpisodeId) { setHasVideoClips(null); return; }
+    let cancelled = false;
+    videoService.getEpisodeVideoCount(currentEpisodeId)
+      .then(res => { if (!cancelled && res.success && res.data) setHasVideoClips(res.data.count > 0); })
+      .catch(() => setHasVideoClips(null));
+    return () => { cancelled = true; };
+  }, [currentEpisodeId]);
 
   // 生成字幕（从分镜台词生成SRT）
   const handleGenerateSubtitles = async () => {
@@ -384,8 +395,8 @@ export function StageExport() {
               >
                 {composeResult?.status === 'processing' ? '合成中...' : '开始合成视频'}
               </Button>
-              {!hasVideoClips && (
-                <span className="text-xs text-[var(--ink-3)] self-center">提示：请先在导演工作台生成分镜视频</span>
+              {hasVideoClips === false && (
+                <span className="text-xs text-[var(--ink-3)] self-center">提示：本集暂无已完成的分镜视频，请先在导演工作台生成</span>
               )}
             </div>
           </div>

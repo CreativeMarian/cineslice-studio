@@ -99,7 +99,9 @@ export class ComfyUIVideoAdapter implements VideoAdapter {
       const record = history[taskId];
 
       if (!record) {
-        return { taskId, status: 'processing' };
+        // 任务还在队列/执行中：查询 ComfyUI 实时渲染进度（/progress 原生接口）
+        const liveProgress = await this.getLiveProgress(taskId);
+        return { taskId, status: 'processing', progress: liveProgress };
       }
 
       const statusStr = record.status?.status_str || '';
@@ -114,16 +116,34 @@ export class ComfyUIVideoAdapter implements VideoAdapter {
         const videoFilename = this.findVideoOutput(record.outputs);
         if (videoFilename) {
           const videoUrl = `${this.baseUrl}/view?filename=${encodeURIComponent(videoFilename)}&type=output`;
-          return { taskId, status: 'completed', videoUrl };
+          return { taskId, status: 'completed', videoUrl, progress: 100 };
         }
         // 成功但没找到视频文件，可能还在保存中
-        return { taskId, status: 'processing' };
+        return { taskId, status: 'processing', progress: 99 };
       }
 
-      return { taskId, status: 'processing' };
+      const liveP = await this.getLiveProgress(taskId);
+      return { taskId, status: 'processing', progress: liveP };
     } catch (err) {
       if (err instanceof AIError) throw err;
       throw new AIError('AI_CALL_FAILED', `ComfyUI任务查询失败: ${(err as Error).message}`);
+    }
+  }
+
+  /** 查询 ComfyUI /progress 实时渲染进度（0-100），任务不在 running 时返回 undefined */
+  private async getLiveProgress(taskId: string): Promise<number | undefined> {
+    try {
+      const raw = await this.httpGet('/progress');
+      const data = JSON.parse(raw);
+      const running: Record<string, { progress?: number }> = data?.running || {};
+      const entry = running[taskId];
+      if (entry && typeof entry.progress === 'number') {
+        return Math.max(0, Math.min(100, Math.round(entry.progress * 100)));
+      }
+      // 队列中尚未开始：返回 1（有真实排队含义），避免伪装
+      return 1;
+    } catch {
+      return undefined;
     }
   }
 

@@ -14,6 +14,7 @@ export interface ShotVideoInterval {
   status: 'pending' | 'generating' | 'processing' | 'completed' | 'failed';
   error_message: string | null;
   external_task_id: string | null;
+  progress?: number | null;
   created_at: string;
   completed_at: string | null;
 }
@@ -239,6 +240,10 @@ export const videoService = {
     ),
 
   // 获取字幕（SRT格式）
+  getEpisodeVideoCount: (episodeId: string) =>
+    apiClient.get<unknown, ApiResponse<{ count: number; totalShots: number }>>(
+      `/episodes/${episodeId}/videos/count`
+    ),
   getSubtitles: (episodeId: string) =>
     apiClient.get<unknown, ApiResponse<{
       subtitles: Array<{ index: number; start: string; end: string; text: string; speaker?: string }>;
