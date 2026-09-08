@@ -209,7 +209,7 @@ export function collectShotReferenceImages(db: Database, shot: Shot): string[] {
   }
 
   // 2. 场景参考图
-  if (refs.length < 3 && shot.scene_id) {
+  if (refs.length < 4 && shot.scene_id) {
     const scene = ScriptSceneDAO.getById(db, shot.scene_id);
     if (scene) {
       const sceneImgs = parseConceptImages(scene.concept_images);
@@ -222,7 +222,7 @@ export function collectShotReferenceImages(db: Database, shot: Shot): string[] {
 
   // 3. 道具参考图（线索道具优先，保证跨镜视觉连贯）
   // props_in_shot 同样可能存道具 id 或名称
-  if (refs.length < 3) {
+  if (refs.length < 4) {
     const propIds = parseShotPropIds(shot);
     if (propIds.length > 0) {
       const props = ScriptPropDAO.getByIds(db, propIds).filter(Boolean);
@@ -240,13 +240,13 @@ export function collectShotReferenceImages(db: Database, shot: Shot): string[] {
         const propImgs = parseConceptImages(prop.concept_images);
         if (propImgs.length > 0) {
           refs.push(propImgs[0]);
-          if (refs.length >= 3) break;
+          if (refs.length >= 4) break;
         }
       }
     }
   }
 
-  return [...new Set(refs)].slice(0, 3);
+  return [...new Set(refs)].slice(0, 4);
 }
 
 /** 本地路径转可访问 URL（图片 API 需要可访问的图片） */

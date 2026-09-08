@@ -781,6 +781,20 @@ export async function generateVideoForShot(
       finalPrompt += `。【避免】${directorPromptResult.negativePrompt}`;
     }
 
+    // 场景锚：注入场景概念图的文字描述（名称+关键环境细节），强化背景一致性
+    if (shot.scene_id) {
+      try {
+        const sc = ScriptSceneDAO.getById(db, shot.scene_id);
+        if (sc && sc.description) {
+          const sceneText = (sc.name + '。' + sc.description).replace(/\s+/g, ' ').slice(0, 180);
+          if (!finalPrompt.includes('【场景环境】')) {
+            finalPrompt += '【场景环境】' + sceneText + '。严格保持此场景的布局、家具、灯光与环境细节，前后镜头场景必须一致。';
+          }
+        }
+      } catch (err) {
+        console.warn('[Video] 场景描述注入失败:', (err as Error).message);
+      }
+    }
     finalMotionPrompt = finalPrompt;
     console.log('[Video] 提示词优化:', promptOptimizationService.getOptimizationSummary(optimized));
     console.log('[Video] 角色数:', charactersInShot.length, '场景:', sceneName || '未知');
