@@ -5,12 +5,16 @@
 // 3) generateKeyframeCandidates —— 九宫格候选关键帧（BigBanana 方案：多视角候选选首帧）
 // 4) selectCandidateAsFirst —— 候选帧升级为首帧
 // 5) generateEndFrameForShot —— 显式尾帧生成（动作/情绪转折镜头）
+// 6) resolvePreviousShotTailFrame —— 上一镜尾帧继承（ComfyUI H3 无 end 帧参数，用真实画面锚定本镜起点）
 
 import fs from 'fs';
 import path from 'path';
+import { execFileSync } from 'child_process';
 import type { Database, Shot, ShotKeyframe } from '../types';
 import {
   ShotKeyframeDAO,
+  ShotDAO,
+  ShotVideoIntervalDAO,
   ScriptCharacterDAO,
   ScriptSceneDAO,
   ScriptPropDAO,
@@ -275,6 +279,37 @@ export interface ResolvedLastFrame {
  * 2. 否则若 shot.use_next_first_frame=1，取下一镜的首帧作为尾帧（VideoClaw 方案）
  *    镜头间画面硬衔接，解决"不连戏"，同时大幅减少视频落点抽卡
  */
+/**
+ * 上一镜尾帧继承：取上一镜已完成视频的最后一帧作为本镜首帧（H3 无 end 参数时的真实画面锚定）。
+ * 返回相对 URL 路径；无上一镜/无已完成视频/抽帧失败时返回 null（调用方回退关键帧首帧）。
+ */
+export function resolvePreviousShotTailFrame(db: Database, shot: Shot): string | null {
+  try {
+    const shots = ShotDAO.listByEpisode(db, shot.episode_id)
+      .filter((s: Shot) => s.shot_number < shot.shot_number)
+      .sort((a: Shot, b: Shot) => b.shot_number - a.shot_number);
+    const prev = shots[0];
+    if (!prev) return null;
+    const vids = ShotVideoIntervalDAO.listByShot(db, prev.id)
+      .filter((v: any) => v.status === 'completed' && v.video_url)
+      .sort((a: any, b: any) => new Date(b.completed_at || 0).getTime() - new Date(a.completed_at || 0).getTime());
+    const vid = vids[0];
+    if (!vid?.video_url) return null;
+    const local = projectStorage.toLocalPath(vid.video_url);
+    if (!local || !fs.existsSync(local)) return null;
+    const dir = path.join(path.dirname(local), 'tails');
+    fs.mkdirSync(dir, { recursive: true });
+    const out = path.join(dir, path.basename(local, '.mp4') + '_tail.png');
+    if (!fs.existsSync(out)) {
+      execFileSync('ffmpeg', ['-y', '-sseof', '-0.3', '-i', local, '-frames:v', '1', '-update', '1', out], { timeout: 60000 });
+    }
+    return projectStorage.toRelativePath(out);
+  } catch (err) {
+    console.warn('[Consistency] 上一镜尾帧继承失败:', (err as Error).message);
+    return null;
+  }
+}
+
 export function resolveLastFrameForShot(
   db: Database,
   shot: Shot,

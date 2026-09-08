@@ -270,6 +270,7 @@ const generateVideoSchema = z.object({
   subtitles: z.boolean().optional(),
   endFrameId: z.string().optional(),       // 显式指定尾帧关键帧（首尾帧插值）
   referenceImages: z.array(z.string()).optional(), // 一致性参考图，未传则自动收集
+  firstFrameImageUrl: z.string().optional(), // 显式覆盖首帧（上一镜尾帧继承等）
 });
 
 // 生成视频
@@ -286,6 +287,7 @@ router.post('/shots/:id/video/generate', validateBody(generateVideoSchema), asyn
     subtitles: req.body.subtitles,
     endFrameId: req.body.endFrameId,
     referenceImages: req.body.referenceImages,
+    firstFrameImageUrl: req.body.firstFrameImageUrl,
   });
   res.json({ success: true, data: result });
 }));

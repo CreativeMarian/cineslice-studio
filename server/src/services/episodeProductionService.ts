@@ -25,6 +25,7 @@ import { getProjectStylePreset } from './autoPipeline/helpers';
 import { directorPromptService } from './directorPromptService';
 import {
   resolveLastFrameForShot,
+  resolvePreviousShotTailFrame,
   collectShotReferenceImages,
   generateKeyframeCandidates,
   buildShotSceneMap,
@@ -639,13 +640,14 @@ export async function generateVideoForShot(
     resolution?: '720p' | '1080p' | '2k' | '4k';
     subtitles?: boolean;
     endFrameId?: string;       // 显式指定尾帧关键帧
+    firstFrameImageUrl?: string; // 显式覆盖首帧（上一镜尾帧继承等）
     referenceImages?: string[]; // 一致性参考图（角色/场景/道具），未传则自动收集
   }
 ) {
   const shot = ShotDAO.getByIdAndUser(db, shotId, userId);
   if (!shot) throw createError(404, 'NOT_FOUND', '镜头不存在');
 
-  const { provider, modelName, keyframeId, motionPrompt, duration, ratio, resolution, subtitles, endFrameId, referenceImages } = opts;
+  const { provider, modelName, keyframeId, motionPrompt, duration, ratio, resolution, subtitles, endFrameId, referenceImages, firstFrameImageUrl: explicitFirstFrame } = opts;
 
   // 获取剧集信息（用于提示词优化和项目ID）
   const episode = NovelEpisodeDAO.getById(db, shot.episode_id);
@@ -683,10 +685,22 @@ export async function generateVideoForShot(
     ? referenceImages
     : collectShotReferenceImages(db, shot);
 
+  // 首帧来源：显式覆盖 > 上一镜尾帧继承 > 关键帧
+  // （ComfyUI H3 无 end 帧参数，"尾帧硬锁定"对其无效；改以真实画面锚定镜头起点）
+  let inheritedFirstFrameUrl: string | null = null;
+  if (!explicitFirstFrame) {
+    inheritedFirstFrameUrl = resolvePreviousShotTailFrame(db, shot);
+  }
+  const sourceFirstFrame = explicitFirstFrame || inheritedFirstFrameUrl || firstFrameUrl;
+
   // 将相对路径的首帧图片转换为 base64 data URL（豆包 API 需要可访问的图片）
-  const firstFrameImageForApi = imageToDataUrl(firstFrameUrl);
+  const firstFrameImageForApi = imageToDataUrl(sourceFirstFrame);
   if (firstFrameImageForApi !== firstFrameUrl) {
     console.log('[Video] first frame converted to base64, length:', firstFrameImageForApi.length);
+  }
+  // 使用继承帧时，本镜关键帧降为参考图首位，维持角色/场景/道具锚定
+  if (sourceFirstFrame !== firstFrameUrl) {
+    shotReferenceImages = [imageToDataUrl(firstFrameUrl), ...shotReferenceImages];
   }
 
   // 提示词优化（基于剧本分析结果）
