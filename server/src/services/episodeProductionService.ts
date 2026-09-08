@@ -560,7 +560,12 @@ function buildVideoShotContext(shot: any, scriptAnalysis: any, totalShots: numbe
     for (const char of analysisChars) {
       if (char.characterName && char.visualTraits) {
         const inShot = charactersInShot.some((n: string) => matchName(n, char.characterName));
-        if (inShot) characterDetails[char.characterName] = char.visualTraits;
+        if (inShot) {
+          // 优先使用角色定妆表的 visual_description（含年龄/面容/服装等权威描述），
+          // H3 对文本约束的遵循强于参考图，可显著改善人物年龄/身份漂移
+          const vd = resolveVisualDescription(db, shot.episode_id, char.characterName);
+          characterDetails[char.characterName] = vd || char.visualTraits;
+        }
       }
     }
     // 从动作描述中提取角色名（兜底）
@@ -627,6 +632,20 @@ const CAMERA_MOVEMENT_LABELS: Record<string, string> = {
 };
 
 /** 生成单个镜头的视频（异步任务，返回处理中的记录） */
+/** 从角色定妆表解析 visual_description（episode+名称模糊匹配） */
+function resolveVisualDescription(db: Database, episodeId: string, charName: string): string | null {
+  try {
+    const chars = ScriptCharacterDAO.listByEpisode(db, episodeId) || [];
+    const hit = chars.find((c: any) =>
+      c.visual_description && (c.name === charName || c.name.includes(charName) || charName.includes(c.name))
+    );
+    return hit ? String(hit.visual_description).slice(0, 120) : null;
+  } catch (err) {
+    console.warn('[Video] visual_description 解析失败:', (err as Error).message);
+    return null;
+  }
+}
+
 export async function generateVideoForShot(
   db: Database,
   userId: string,
@@ -741,6 +760,15 @@ export async function generateVideoForShot(
       stylePresetObj
     );
 
+    // 直接按镜头角色从定妆表注入 visual_description（不依赖剧本分析的 visualTraits，保证始终有权威外貌描述）
+    if (charactersInShot.length > 0) {
+      for (const n of charactersInShot) {
+        if (typeof n === 'string' && n.trim()) {
+          const vd = resolveVisualDescription(db, shot.episode_id, n.trim());
+          if (vd && !Object.values(characterDetails).includes(vd)) characterDetails[n.trim()] = vd;
+        }
+      }
+    }
     // 合并导演提示词和优化提示词，注入角色视觉描述确保人物一致性
     let finalPrompt = optimized.prompt;
     if (Object.keys(characterDetails).length > 0) {
