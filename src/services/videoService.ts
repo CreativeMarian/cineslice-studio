@@ -88,6 +88,113 @@ export const videoService = {
       data
     ),
 
+  // 批量生成首帧关键帧（流式：后端 NDJSON 逐镜推送真实进度）
+  batchGenerateKeyframesStream: async (
+    episodeId: string,
+    data: {
+      provider: string;
+      modelName: string;
+      shotIds?: string[];
+    },
+    onProgress?: (p: { index: number; total: number; shotId: string; status: string }) => void
+  ): Promise<ApiResponse<{
+    total: number;
+    success: number;
+    skipped: number;
+    failed: number;
+    results: any[];
+  }>> => {
+    const resp = await fetch(`/api/episodes/${episodeId}/keyframes/batch`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...data, stream: true }),
+    });
+    if (!resp.body) throw new Error('浏览器不支持流式响应');
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = '';
+    let finalData: any = null;
+    let parseError: string | null = null;
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      let nl: number;
+      while ((nl = buf.indexOf('\n')) >= 0) {
+        const line = buf.slice(0, nl).trim();
+        buf = buf.slice(nl + 1);
+        if (!line) continue;
+        try {
+          const evt = JSON.parse(line);
+          if (evt.done) {
+            finalData = evt.data;
+          } else {
+            onProgress?.(evt);
+          }
+        } catch {
+          parseError = line.slice(0, 120);
+        }
+      }
+    }
+    if (parseError) return { success: false, message: `流式响应解析失败: ${parseError}` } as any;
+    return { success: true, data: finalData };
+  },
+
+  // 批量生成视频（流式：后端 NDJSON 逐镜推送真实进度）
+  batchGenerateVideosStream: async (
+    episodeId: string,
+    data: {
+      provider: string;
+      modelName: string;
+      shotIds?: string[];
+      duration?: number;
+      ratio?: string;
+      resolution?: string;
+    },
+    onProgress?: (p: { index: number; total: number; shotId: string; status: string }) => void
+  ): Promise<ApiResponse<{
+    total: number;
+    created: number;
+    skipped: number;
+    createdVideos: Array<{ shotId: string; videoId: string; taskId: string }>;
+    skippedShots: Array<{ shotId: string; reason: string }>;
+  }>> => {
+    const resp = await fetch(`/api/episodes/${episodeId}/videos/batch`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...data, stream: true }),
+    });
+    if (!resp.body) throw new Error('浏览器不支持流式响应');
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = '';
+    let finalData: any = null;
+    let parseError: string | null = null;
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      let nl: number;
+      while ((nl = buf.indexOf('\n')) >= 0) {
+        const line = buf.slice(0, nl).trim();
+        buf = buf.slice(nl + 1);
+        if (!line) continue;
+        try {
+          const evt = JSON.parse(line);
+          if (evt.done) {
+            finalData = evt.data;
+          } else {
+            onProgress?.(evt);
+          }
+        } catch {
+          parseError = line.slice(0, 120);
+        }
+      }
+    }
+    if (parseError) return { success: false, message: `流式响应解析失败: ${parseError}` } as any;
+    return { success: true, data: finalData };
+  },
+
   // 批量生成首帧关键帧
   batchGenerateKeyframes: (
     episodeId: string,

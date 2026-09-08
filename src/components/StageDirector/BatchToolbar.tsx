@@ -45,7 +45,10 @@ export function BatchToolbar() {
     setIsBatchGeneratingKeyframes(true);
     setBatchProgress({ current: 0, total: shots.length });
     try {
-      const res = await videoService.batchGenerateKeyframes(currentEpisodeId, { provider, modelName });
+      const res = await videoService.batchGenerateKeyframesStream(currentEpisodeId, { provider, modelName }, (p) => {
+        // 实时进度：后端逐镜推送，不做任何模拟
+        setBatchProgress({ current: Math.min(p.index, shots.length), total: shots.length });
+      });
       if (res.success && res.data) {
         const { success, failed, results } = res.data;
         if (failed > 0) {
@@ -89,11 +92,14 @@ export function BatchToolbar() {
     setIsBatchGeneratingVideos(true);
     setBatchProgress({ current: 0, total: shots.length });
     try {
-      const res = await videoService.batchGenerateVideos(currentEpisodeId, {
+      const res = await videoService.batchGenerateVideosStream(currentEpisodeId, {
         provider, modelName,
         duration: 5,
         ratio: '16:9',
         resolution: '1080p',
+      }, (p) => {
+        // 实时进度：后端逐镜推送，不做任何模拟
+        setBatchProgress({ current: Math.min(p.index, shots.length), total: shots.length });
       });
       if (res.success && res.data) {
         const skippedShots = res.data.skippedShots || [];
@@ -170,11 +176,14 @@ export function BatchToolbar() {
       {batchProgress && (
         <div className="mt-3">
           <div className="flex items-center justify-between text-xs text-[var(--ink-3)] mb-1">
-            <span>批量处理中...</span>
-            <span>{batchProgress.current}/{batchProgress.total}</span>
+            <span>批量处理中（实时进度）...</span>
+            <span>{batchProgress.current}/{batchProgress.total} 镜</span>
           </div>
           <div className="w-full h-1.5 bg-[var(--panel-3)] rounded-full overflow-hidden">
-            <div className="h-full bg-[var(--accent)] animate-pulse" style={{ width: '60%' }} />
+            <div
+              className="h-full bg-[var(--accent)] transition-all duration-300"
+              style={{ width: batchProgress.total > 0 ? `${Math.round((batchProgress.current / batchProgress.total) * 100)}%` : '0%' }}
+            />
           </div>
         </div>
       )}

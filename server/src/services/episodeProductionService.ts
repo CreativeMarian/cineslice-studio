@@ -915,7 +915,8 @@ export async function batchGenerateKeyframes(
   db: Database,
   userId: string,
   episodeId: string,
-  opts: { provider: string; modelName: string; shotIds?: string[]; candidatesPerShot?: number }
+  opts: { provider: string; modelName: string; shotIds?: string[]; candidatesPerShot?: number },
+  onProgress?: (p: { index: number; total: number; shotId: string; status: 'ok' | 'failed' }) => void
 ) {
   const episode = NovelEpisodeDAO.getByIdAndUser(db, episodeId, userId);
   if (!episode) throw createError(404, 'NOT_FOUND', '剧集不存在');
@@ -994,7 +995,8 @@ export async function batchGenerateVideos(
     duration?: number;
     ratio?: '16:9' | '9:16' | '1:1' | '4:3' | '3:4' | '21:9';
     resolution?: '720p' | '1080p' | '2k' | '4k';
-  }
+  },
+  onProgress?: (p: { index: number; total: number; shotId: string; status: 'created' | 'skipped' | 'failed' }) => void
 ) {
   const episode = NovelEpisodeDAO.getByIdAndUser(db, episodeId, userId);
   if (!episode) throw createError(404, 'NOT_FOUND', '剧集不存在');
@@ -1016,6 +1018,7 @@ export async function batchGenerateVideos(
     const firstFrame = keyframes.find(k => k.frame_type === 'first' && k.image_url) || keyframes[0];
     if (!firstFrame || !firstFrame.image_url) {
       skipped.push({ shotId: shot.id, reason: '无首帧关键帧' });
+      onProgress?.({ index: skipped.length + created.length, total: shots.length, shotId: shot.id, status: 'skipped' });
       continue;
     }
 
@@ -1051,6 +1054,7 @@ export async function batchGenerateVideos(
     const updatedVideos = ShotVideoIntervalDAO.listByShot(db, shot.id);
     if (updatedVideos.some(v => v.status === 'processing' || v.status === 'pending')) {
       skipped.push({ shotId: shot.id, reason: '已有处理中视频' });
+      onProgress?.({ index: skipped.length + created.length, total: shots.length, shotId: shot.id, status: 'skipped' });
       continue;
     }
 
@@ -1120,9 +1124,11 @@ export async function batchGenerateVideos(
       });
 
       created.push({ shotId: shot.id, videoId: videoInterval.id, taskId: result.taskId });
+      onProgress?.({ index: skipped.length + created.length, total: shots.length, shotId: shot.id, status: 'created' });
     } catch (err: any) {
       const errorMsg = err.message || '创建失败';
       skipped.push({ shotId: shot.id, reason: errorMsg });
+      onProgress?.({ index: skipped.length + created.length, total: shots.length, shotId: shot.id, status: 'failed' });
       // 如果是速率限制，多等一会儿再继续
       if (errorMsg.includes('rate limit') || errorMsg.includes('限流') || err.code === 'AI_RATE_LIMITED') {
         await new Promise(resolve => setTimeout(resolve, 10000));

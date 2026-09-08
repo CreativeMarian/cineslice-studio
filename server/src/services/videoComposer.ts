@@ -99,7 +99,7 @@ function collectVideoClips(
   phase?: number
 ): Array<{ shotId: string; shotNumber: number; videoPath: string | null; duration: number; phase: number | null; phaseName: string | null; dialogue: string | null }> {
   const shots = ShotDAO.listByEpisode(db, episodeId);
-  const clips: Array<{ shotId: string; shotNumber: number; videoPath: string | null; duration: number; phase: number | null; phaseName: string | null }> = [];
+  const clips: Array<{ shotId: string; shotNumber: number; videoPath: string | null; duration: number; phase: number | null; phaseName: string | null; dialogue: string | null }> = [];
 
   for (const shot of shots) {
     // 阶段过滤

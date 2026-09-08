@@ -303,7 +303,7 @@ router.post('/shots/:id/dub', asyncHandler(async (req: Request, res: Response) =
   if (!videos.length) {
     throw createError(409, 'CONFLICT', '该镜头暂无已完成视频，请先生成视频');
   }
-  const localPath = projectStorage.toLocalPath(videos[0].video_url);
+  const localPath = projectStorage.toLocalPath(videos[0].video_url || '');
   const projectDir = path.dirname(localPath);
   const result = await dubVideo(localPath, shot.dialogue, projectDir);
   if (!result) {
@@ -355,17 +355,30 @@ const batchKeyframesSchema = z.object({
   modelName: z.string(),
   shotIds: z.array(z.string()).optional(), // 不传则全部
   candidatesPerShot: z.number().min(1).max(9).optional(), // >1 时生成九宫格候选（不选首帧，待用户挑选）
+  stream: z.boolean().optional(), // true 时以 NDJSON 逐镜推送真实进度
 });
 
-// 批量生成首帧关键帧
+// 批量生成首帧关键帧（stream: true 时以 NDJSON 逐镜推送真实进度）
 router.post('/episodes/:id/keyframes/batch', validateBody(batchKeyframesSchema), asyncHandler(async (req: Request, res: Response) => {
   const db = getDb(req);
-  const data = await batchGenerateKeyframes(db, req.user.id, req.params.id, {
+  const opts = {
     provider: req.body.provider,
     modelName: req.body.modelName,
     shotIds: req.body.shotIds,
     candidatesPerShot: req.body.candidatesPerShot,
-  });
+  };
+  if (req.body.stream === true) {
+    res.setHeader('Content-Type', 'application/x-ndjson');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.flushHeaders?.();
+    const data = await batchGenerateKeyframes(db, req.user.id, req.params.id, opts, (p) => {
+      res.write(JSON.stringify(p) + '\n');
+    });
+    res.write(JSON.stringify({ done: true, data }) + '\n');
+    res.end();
+    return;
+  }
+  const data = await batchGenerateKeyframes(db, req.user.id, req.params.id, opts);
   res.json({ success: true, data });
 }));
 
@@ -376,19 +389,32 @@ const batchVideoSchema = z.object({
   duration: z.number().min(1).max(15).optional(),
   ratio: z.enum(['16:9', '9:16', '1:1', '4:3', '3:4', '21:9']).optional(),
   resolution: z.enum(['720p', '1080p', '2k', '4k']).optional(),
+  stream: z.boolean().optional(), // true 时以 NDJSON 逐镜推送真实进度
 });
 
-// 批量生成视频（为每个有首帧的镜头创建视频任务）
+// 批量生成视频（为每个有首帧的镜头创建视频任务；stream: true 时 NDJSON 逐镜推送真实进度）
 router.post('/episodes/:id/videos/batch', validateBody(batchVideoSchema), asyncHandler(async (req: Request, res: Response) => {
   const db = getDb(req);
-  const data = await batchGenerateVideos(db, req.user.id, req.params.id, {
+  const opts = {
     provider: req.body.provider,
     modelName: req.body.modelName,
     shotIds: req.body.shotIds,
     duration: req.body.duration,
     ratio: req.body.ratio,
     resolution: req.body.resolution,
-  });
+  };
+  if (req.body.stream === true) {
+    res.setHeader('Content-Type', 'application/x-ndjson');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.flushHeaders?.();
+    const data = await batchGenerateVideos(db, req.user.id, req.params.id, opts, (p) => {
+      res.write(JSON.stringify(p) + '\n');
+    });
+    res.write(JSON.stringify({ done: true, data }) + '\n');
+    res.end();
+    return;
+  }
+  const data = await batchGenerateVideos(db, req.user.id, req.params.id, opts);
   res.json({ success: true, data });
 }));
 
