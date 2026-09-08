@@ -24,7 +24,8 @@ export function keyframePrompt(params: KeyframePromptParams): { prompt: string; 
 
   // 角色描述
   if (params.characters && params.characters.length > 0) {
-    const charDesc = params.characters.map(c => `${c.name}：${c.visualDescription}`).join('；');
+    const charDesc = params.characters.map(c => `${c.name}（${c.visualDescription}）`).join('、');
+    parts.push(`画面中必须同时出现且仅出现以下角色：${charDesc}。所有列出的角色都必须出现在画面中，不得遗漏任何一人，不得出现名单之外的人物`);
     parts.push(`角色：${charDesc}`);
   }
 

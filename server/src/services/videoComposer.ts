@@ -14,6 +14,7 @@ import {
   ShotVideoIntervalDAO,
 } from '../models';
 import { projectStorage } from './projectStorage';
+import { dubVideo, muteVideo } from './dubbingService';
 import { getConfig } from '../config/env';
 import { createError as createHttpError } from '../middleware/errorHandler';
 import { sanitizeFileName } from '../utils/filename';
@@ -96,7 +97,7 @@ function collectVideoClips(
   db: Database,
   episodeId: string,
   phase?: number
-): Array<{ shotId: string; shotNumber: number; videoPath: string | null; duration: number; phase: number | null; phaseName: string | null }> {
+): Array<{ shotId: string; shotNumber: number; videoPath: string | null; duration: number; phase: number | null; phaseName: string | null; dialogue: string | null }> {
   const shots = ShotDAO.listByEpisode(db, episodeId);
   const clips: Array<{ shotId: string; shotNumber: number; videoPath: string | null; duration: number; phase: number | null; phaseName: string | null }> = [];
 
@@ -122,6 +123,7 @@ function collectVideoClips(
         duration: completed.duration_seconds || shot.duration_seconds || 5,
         phase: shot.phase ?? null,
         phaseName: shot.phase_name ?? null,
+        dialogue: shot.dialogue || null,
       });
     } else {
       clips.push({
@@ -131,6 +133,7 @@ function collectVideoClips(
         duration: shot.duration_seconds || 5,
         phase: shot.phase ?? null,
         phaseName: shot.phase_name ?? null,
+        dialogue: shot.dialogue || null,
       });
     }
   }
@@ -286,7 +289,7 @@ async function composeWithXfade(
  * 执行"一批片段 → 一个视频文件"的底层合成（生成占位 + concat/xfade）
  */
 async function composeClipsToFile(
-  clips: Array<{ shotId: string; shotNumber: number; videoPath: string | null; duration: number }>,
+  clips: Array<{ shotId: string; shotNumber: number; videoPath: string | null; duration: number; dialogue?: string | null }>,
   outputPath: string,
   options: ComposeOptions,
   taskResult: ComposeResult,
@@ -302,10 +305,24 @@ async function composeClipsToFile(
 
   const finalClips: string[] = [];
   let kept = 0;
+  const videosDir = path.dirname(clips.find(c => c.videoPath)?.videoPath || outputPath);
   for (let i = 0; i < clips.length; i++) {
     const clip = clips[i];
     if (clip.videoPath) {
-      finalClips.push(clip.videoPath);
+      // 配音（有台词）/静音（无台词）：替换模型幻觉音轨，幂等复用产物
+      let usePath = clip.videoPath;
+      try {
+        if (clip.dialogue && clip.dialogue.trim()) {
+          const d = await dubVideo(clip.videoPath, clip.dialogue, videosDir, `dub_${clip.shotId}`);
+          if (d) usePath = d.videoPath;
+        } else {
+          const m = await muteVideo(clip.videoPath, videosDir, `mute_${clip.shotId}`);
+          if (m) usePath = m;
+        }
+      } catch (e) {
+        console.warn(`[Compose] 配音失败 ${clip.shotId}: ${(e as Error).message}，使用原视频`);
+      }
+      finalClips.push(usePath);
       kept++;
     } else if (!options.skipMissingClips) {
       const placeholderPath = path.resolve(tempDir, `placeholder_${i}.mp4`);

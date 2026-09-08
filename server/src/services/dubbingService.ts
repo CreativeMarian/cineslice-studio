@@ -80,37 +80,44 @@ function buildSrt(text: string, dur: number, startOffset = 0): string {
 }
 
 /**
- * 对镜头视频执行配音 + 字幕烧录
+ * 对镜头视频执行配音 + 字幕烧录（替换音轨：去掉模型幻觉音频，只用 TTS 普通话；字幕上移避开原字幕区）
  * @param videoPath 原始视频绝对路径
  * @param dialogue 台词（含角色名）
  * @param projectDir 项目数据目录（存放产物）
+ * @param stem 产物文件名前缀（默认 dub_时间戳；固定 stem 可复用产物）
  */
 export async function dubVideo(
   videoPath: string,
   dialogue: string | null | undefined,
-  projectDir: string
+  projectDir: string,
+  stem?: string
 ): Promise<DubResult | null> {
   const dialogueText = extractDialogueText(dialogue);
   if (!dialogueText || !fs.existsSync(videoPath)) return null;
 
   const voice = pickVoice(dialogueText);
-  const stem = `dub_${Date.now()}`;
-  const voicePath = path.join(projectDir, `${stem}_voice.mp3`);
-  const srtPath = path.join(projectDir, `${stem}.srt`);
-  const outPath = path.join(projectDir, `${stem}.mp4`);
+  const base = stem || `dub_${Date.now()}`;
+  const voicePath = path.join(projectDir, `${base}_voice.mp3`);
+  const srtPath = path.join(projectDir, `${base}.srt`);
+  const outPath = path.join(projectDir, `${base}.mp4`);
+
+  // 产物已存在则直接复用（幂等）
+  if (fs.existsSync(outPath)) {
+    const dur = fs.existsSync(voicePath) ? await audioDuration(voicePath) : 0;
+    return { videoPath: outPath, srtPath, voicePath, voiceUsed: voice, dialogueText, durationSec: dur };
+  }
 
   await synthVoice(dialogueText, voice, voicePath);
   const dur = await audioDuration(voicePath);
   fs.writeFileSync(srtPath, buildSrt(dialogueText, dur), 'utf-8');
 
-  // ffmpeg：视频 + 语音混音 + 烧录字幕（底部白字黑边）
+  // ffmpeg：视频画面 + TTS 音轨（替换原音轨）+ 烧录字幕
+  // 字幕上移（MarginV=110，在画面下部 1/6 处），避开模型自带底部乱码字幕区
   const srtEscaped = srtPath.replace(/\\/g, '/').replace(/:/g, '\\:');
-  const vf = `subtitles='${srtEscaped}':force_style='FontName=Microsoft YaHei,FontSize=18,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,BorderStyle=1,Outline=2,MarginV=28'`;
-  const filter = `[1:a]aresample=48000[a1];[0:a][a1]amix=inputs=2:duration=first:dropout_transition=0[aout]`;
+  const vf = `subtitles='${srtEscaped}':force_style='FontName=Microsoft YaHei,FontSize=20,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,BorderStyle=1,Outline=2,Shadow=1,MarginV=110'`;
   const args = [
     '-y', '-i', videoPath, '-i', voicePath,
-    '-filter_complex', filter,
-    '-map', '0:v', '-map', '[aout]',
+    '-map', '0:v', '-map', '1:a',
     '-vf', vf,
     '-c:v', 'libx264', '-preset', 'fast', '-crf', '20',
     '-c:a', 'aac', '-b:a', '160k', '-shortest',
@@ -119,6 +126,18 @@ export async function dubVideo(
   await execFileP('ffmpeg', args, { timeout: 300000 });
 
   return { videoPath: outPath, srtPath, voicePath, voiceUsed: voice, dialogueText, durationSec: dur };
+}
+
+/**
+ * 无台词镜头：去除模型幻觉音轨，输出静音版本（保留画面）
+ */
+export async function muteVideo(videoPath: string, projectDir: string, stem: string): Promise<string | null> {
+  if (!fs.existsSync(videoPath)) return null;
+  const outPath = path.join(projectDir, `${stem}.mp4`);
+  if (fs.existsSync(outPath)) return outPath;
+  const args = ['-y', '-i', videoPath, '-map', '0:v', '-an', '-c:v', 'copy', outPath];
+  await execFileP('ffmpeg', args, { timeout: 180000 });
+  return outPath;
 }
 
 export { AIError };

@@ -39,6 +39,9 @@ export class ComfyUIVideoAdapter implements VideoAdapter {
       const seed = Math.floor(Math.random() * 1e15);
       const { width, height } = this.parseRatio(params.ratio || '16:9');
 
+      // 固定时长：统一按请求时长（默认 5 秒），保证单镜渲染耗时可控
+      const duration = params.duration || 5;
+
       let workflowStr = JSON.stringify(workflow);
       workflowStr = workflowStr
         .replace(/\{\{POSITIVE_PROMPT\}\}/g, this.escapeJson(positive))
@@ -46,19 +49,32 @@ export class ComfyUIVideoAdapter implements VideoAdapter {
         .replace(/\{\{SEED\}\}/g, String(seed))
         .replace(/\{\{WIDTH\}\}/g, String(width))
         .replace(/\{\{HEIGHT\}\}/g, String(height))
-        .replace(/\{\{DURATION_SECONDS\}\}/g, String(params.duration || 5))
-        .replace(/\{\{FPS\}\}/g, String(params.duration && params.duration <= 3 ? 16 : 8));
+        .replace(/\{\{DURATION_SECONDS\}\}/g, String(duration))
+        .replace(/\{\{FPS\}\}/g, String(duration <= 3 ? 16 : 8));
 
       const filledWorkflow = JSON.parse(workflowStr);
 
-      // 3. 首帧处理：有首帧走图生视频；无首帧移除 LoadImage 节点走文生视频
-      if (params.firstFrameImageUrl) {
-        const imageName = await this.uploadFirstFrame(params.firstFrameImageUrl, width, height);
-        this.injectImageToWorkflow(filledWorkflow, imageName);
-        console.log(`[ComfyUI] 首帧已上传: ${imageName} (${width}x${height})`);
+      // 3. 参考图处理：首帧 + 一致性参考图（角色概念图/造型图/场景图）全部注入 ref_images
+      //    多图参考 = 人物/场景跨镜锚定，解决角色漂移
+      const imageUrls: string[] = [];
+      if (params.firstFrameImageUrl) imageUrls.push(params.firstFrameImageUrl);
+      if (Array.isArray(params.referenceImages)) {
+        for (const ref of params.referenceImages) {
+          if (!ref) continue;
+          if (!imageUrls.some(u => u === ref)) imageUrls.push(ref);
+        }
+      }
+      if (imageUrls.length > 0) {
+        const names: string[] = [];
+        for (const url of imageUrls) {
+          const name = await this.uploadFirstFrame(url, width, height);
+          if (!names.includes(name)) names.push(name);
+        }
+        this.injectImageToWorkflow(filledWorkflow, names);
+        console.log(`[ComfyUI] 参考图已上传 ${names.length} 张: ${names.join(', ')} (${width}x${height})`);
       } else {
         this.removeImageNodes(filledWorkflow);
-        console.log('[ComfyUI] 无首帧，已切换为文生视频模式');
+        console.log('[ComfyUI] 无参考图，已切换为文生视频模式');
       }
 
       // 4. 提交工作流
@@ -182,8 +198,14 @@ export class ComfyUIVideoAdapter implements VideoAdapter {
       buffer = Buffer.from(match[2], 'base64');
       filename = `cineslice_first_${Date.now()}.${ext}`;
     } else {
-      // HTTP URL，先下载
-      const res = await fetch(dataUrl);
+      // HTTP URL / 相对路径，先下载（相对路径指向本服务后端静态目录）
+      let target = dataUrl;
+      if (!/^https?:\/\//i.test(target)) {
+        const port = process.env.PORT || '3000';
+        target = `http://127.0.0.1:${port}${target.startsWith('/') ? '' : '/'}${target}`;
+      }
+      const res = await fetch(target);
+      if (!res.ok) throw new AIError('AI_CALL_FAILED', `参考图下载失败: ${res.status} ${target}`);
       buffer = Buffer.from(await res.arrayBuffer());
       filename = `cineslice_first_${Date.now()}.png`;
     }
@@ -218,30 +240,44 @@ export class ComfyUIVideoAdapter implements VideoAdapter {
     return data.name;
   }
 
-  private injectImageToWorkflow(workflow: any, imageName: string): void {
-    let loadImageId: string | null = null;
+  private injectImageToWorkflow(workflow: any, imageNames: string[]): void {
+    const loadImageIds: string[] = [];
+    for (let i = 0; i < imageNames.length; i++) {
+      const nodeId = 'loadimg_' + i;
+      if (!workflow[nodeId]) {
+        // 每个参考图一个 LoadImage 节点（模板原本可能只有 1 个，按需扩展）
+        workflow[nodeId] = {
+          class_type: 'LoadImage',
+          inputs: { image: imageNames[i] },
+          _meta: { title: '一致性参考图 ' + (i + 1) },
+        };
+      } else {
+        workflow[nodeId].inputs.image = imageNames[i];
+      }
+      loadImageIds.push(nodeId);
+    }
+    // 处理模板自带的首个 LoadImage 节点（ref2va 模板里的 200）
     for (const nodeId of Object.keys(workflow)) {
       const node = workflow[nodeId];
-      if (node.class_type === 'LoadImage' && node.inputs) {
-        node.inputs.image = imageName;
-        loadImageId = nodeId;
+      if (node.class_type === 'LoadImage' && node.inputs && !nodeId.startsWith('loadimg_')) {
+        node.inputs.image = imageNames[0] || node.inputs.image;
+        if (!loadImageIds.includes(nodeId)) loadImageIds.unshift(nodeId);
+        break;
       }
     }
-    // 将首帧连接到生成类节点的输入：
-    // MiniMaxH3ReferenceToVideo 用 ref_images（参考图注入，人物/场景一致性）
+    // 连接到生成类节点：
+    // MiniMaxH3ReferenceToVideo 用 ref_images 数组（多参考，人物/场景一致性）
     // 其他 ImageToVideo 类节点用 first_frame
-    if (loadImageId) {
-      for (const nodeId of Object.keys(workflow)) {
-        const node = workflow[nodeId];
-        if (!node || !node.inputs) continue;
-        if (node.class_type === 'MiniMaxH3ReferenceToVideo') {
-          if (!node.inputs.ref_images) node.inputs.ref_images = [[loadImageId, 0]];
-          continue;
-        }
-        if (node.class_type && /ImageToVideo|Image2Video|I2V/i.test(node.class_type)) {
-          if (node.inputs.first_frame === undefined || node.inputs.first_frame === null) {
-            node.inputs.first_frame = [loadImageId, 0];
-          }
+    for (const nodeId of Object.keys(workflow)) {
+      const node = workflow[nodeId];
+      if (!node || !node.inputs) continue;
+      if (node.class_type === 'MiniMaxH3ReferenceToVideo') {
+        node.inputs.ref_images = loadImageIds.map(id => [id, 0]);
+        continue;
+      }
+      if (node.class_type && /ImageToVideo|Image2Video|I2V/i.test(node.class_type)) {
+        if (node.inputs.first_frame === undefined || node.inputs.first_frame === null) {
+          node.inputs.first_frame = [loadImageIds[0], 0];
         }
       }
     }
