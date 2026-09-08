@@ -73,6 +73,16 @@ async function audioDuration(filePath: string): Promise<number> {
   return parseFloat(stdout.trim()) || 0;
 }
 
+// 获取视频时长（ffprobe）
+async function videoDuration(filePath: string): Promise<number> {
+  try {
+    const { stdout } = await execFileP('ffprobe', [
+      '-v', 'error', '-show_entries', 'format=duration', '-of', 'default=noprint_wrappers=1:nokey=1', filePath,
+    ]);
+    return parseFloat(stdout.trim()) || 0;
+  } catch { return 0; }
+}
+
 // 生成 SRT（单条台词，按语音时长）
 function buildSrt(text: string, dur: number, startOffset = 0): string {
   const fmt = (t: number) => {
@@ -118,10 +128,18 @@ export async function dubVideo(
   const srtPath = path.join(projectDir, `${base}.srt`);
   const outPath = path.join(projectDir, `${base}.mp4`);
 
-  // 产物已存在则直接复用（幂等）
+  // 产物已存在则复用（幂等），但校验产物未被截断：产物时长 >= 语音时长才直接复用，
+  // 否则（旧版 -shortest 硬截断产物）删除重做
   if (fs.existsSync(outPath)) {
     const dur = fs.existsSync(voicePath) ? await audioDuration(voicePath) : 0;
-    return { videoPath: outPath, srtPath, voicePath, voiceUsed: 'cached', dialogueText, durationSec: dur };
+    const outDur = await videoDuration(outPath);
+    if (dur <= 0 || outDur >= dur - 0.5) {
+      return { videoPath: outPath, srtPath, voicePath, voiceUsed: 'cached', dialogueText, durationSec: dur };
+    }
+    try {
+      fs.unlinkSync(outPath);
+      if (fs.existsSync(srtPath)) fs.unlinkSync(srtPath);
+    } catch { /* 忽略清理失败 */ }
   }
 
   let dur = 0;
@@ -159,15 +177,22 @@ export async function dubVideo(
   fs.writeFileSync(srtPath, buildSrt(dialogueText, dur), 'utf-8');
 
   // ffmpeg：视频画面 + TTS 音轨（替换原音轨）+ 烧录字幕
-  // 字幕上移（MarginV=110，在画面下部 1/6 处），避开模型自带底部乱码字幕区
+  // v1.2 - 去 -shortest 硬截断：语音长于视频 → 视频定格补帧（tpad 克隆末帧）到语音播完；
+  //        语音短于视频 → 保留完整画面，语音结束后静音（apad 垫底），杜绝说话被切/画面提前结束
   const srtEscaped = srtPath.replace(/\\/g, '/').replace(/:/g, '\\:');
   const vf = `subtitles='${srtEscaped}':force_style='FontName=Microsoft YaHei,FontSize=20,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,BorderStyle=1,Outline=2,Shadow=1,MarginV=110'`;
+  const videoDur = await videoDuration(videoPath);
+  const targetDur = Math.max(videoDur, dur);
+  const padX = Math.max(0, dur - videoDur).toFixed(3);
+  const filter = padX > '0'
+    ? `[0:v]tpad=stop_mode=clone:stop_duration=${padX},format=yuv420p[v0];[v0]${vf}[vsub];[1:a]apad[aout]`
+    : `[0:v]${vf}[vsub];[1:a]apad[aout]`;
   const args = [
     '-y', '-i', videoPath, '-i', voicePath,
-    '-map', '0:v', '-map', '1:a',
-    '-vf', vf,
+    '-filter_complex', filter,
+    '-map', '[vsub]', '-map', '[aout]',
     '-c:v', 'libx264', '-preset', 'fast', '-crf', '20',
-    '-c:a', 'aac', '-b:a', '160k', '-shortest',
+    '-c:a', 'aac', '-b:a', '160k', '-t', targetDur.toFixed(3),
     outPath,
   ];
   await execFileP('ffmpeg', args, { timeout: 300000 });
