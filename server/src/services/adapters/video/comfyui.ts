@@ -77,6 +77,23 @@ export class ComfyUIVideoAdapter implements VideoAdapter {
         console.log('[ComfyUI] 无参考图，已切换为文生视频模式');
       }
 
+      // 3.5 参考视频（上一镜成品）→ H3 ref_videos 视频续写，锁定人物/场景延续
+      if (params.referenceVideos && params.referenceVideos.length > 0) {
+        const videoNames: string[] = [];
+        for (const url of params.referenceVideos) {
+          try {
+            const name = await this.uploadVideo(url);
+            if (!videoNames.includes(name)) videoNames.push(name);
+          } catch (err) {
+            console.warn('[ComfyUI] 参考视频上传失败，跳过:', (err as Error).message);
+          }
+        }
+        if (videoNames.length > 0) {
+          this.injectVideoToWorkflow(filledWorkflow, videoNames);
+          console.log('[ComfyUI] 参考视频已上传 ' + videoNames.length + ' 个: ' + videoNames.join(', '));
+        }
+      }
+
       // 4. 提交工作流
       const promptId = await this.submitPrompt(filledWorkflow);
       console.log(`[ComfyUI] 工作流已提交, prompt_id=${promptId}`);
@@ -258,6 +275,41 @@ export class ComfyUIVideoAdapter implements VideoAdapter {
     });
     const data = JSON.parse(res);
     return data.name;
+  }
+
+  /** 上传参考视频到 ComfyUI input 目录（/upload/image 接口兼容视频），返回文件名 */
+  private async uploadVideo(videoUrl: string): Promise<string> {
+    let target = videoUrl;
+    if (!/^https?:\/\//i.test(target)) {
+      const port = process.env.PORT || '3000';
+      target = 'http://127.0.0.1:' + port + (target.startsWith('/') ? '' : '/') + target;
+    }
+    const res = await fetch(target);
+    if (!res.ok) throw new AIError('AI_CALL_FAILED', '参考视频下载失败: ' + res.status + ' ' + target);
+    const buffer = Buffer.from(await res.arrayBuffer());
+    const filename = 'cineslice_ref_' + Date.now() + '.mp4';
+    const boundary = '----cineslice' + Date.now();
+    const pre = Buffer.from(
+      '--' + boundary + '\r\nContent-Disposition: form-data; name="image"; filename="' + filename + '"\r\nContent-Type: video/mp4\r\n\r\n'
+    );
+    const post = Buffer.from('\r\n--' + boundary + '--\r\n');
+    const body = Buffer.concat([pre, buffer, post]);
+    const up = await this.httpPostRaw('/upload/image', body, {
+      'Content-Type': 'multipart/form-data; boundary=' + boundary,
+    });
+    const data = JSON.parse(up);
+    return data.name;
+  }
+
+  /** 注入 ref_videos 到 H3 参考节点（ref_videos: [[文件名, 0]]） */
+  private injectVideoToWorkflow(workflow: any, videoNames: string[]): void {
+    for (const nodeId of Object.keys(workflow)) {
+      const node = workflow[nodeId];
+      if (!node || !node.inputs) continue;
+      if (node.class_type && /MiniMaxH3ReferenceToVideo|MiniMaxH3/i.test(node.class_type)) {
+        node.inputs.ref_videos = videoNames.map((n) => [n, 0]);
+      }
+    }
   }
 
   private injectImageToWorkflow(workflow: any, imageNames: string[]): void {

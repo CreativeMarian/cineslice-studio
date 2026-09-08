@@ -339,6 +339,7 @@ export const aiProxy = {
     firstFrameImageUrl?: string;
     lastFrameImageUrl?: string;
     referenceImages?: string[];
+    referenceVideos?: string[];
     duration?: number;
     ratio?: '16:9' | '9:16' | '1:1' | '4:3' | '3:4' | '21:9';
     resolution?: '720p' | '1080p' | '2k' | '4k';
@@ -368,6 +369,7 @@ export const aiProxy = {
       firstFrameImageUrl: params.firstFrameImageUrl,
       lastFrameImageUrl: params.lastFrameImageUrl,
       referenceImages: params.referenceImages,
+      referenceVideos: params.referenceVideos,
       duration: params.duration,
       ratio: params.ratio,
       resolution: params.resolution,

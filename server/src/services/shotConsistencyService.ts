@@ -280,6 +280,27 @@ export interface ResolvedLastFrame {
  *    镜头间画面硬衔接，解决"不连戏"，同时大幅减少视频落点抽卡
  */
 /**
+ * 上一镜成品视频 URL（用于 H3 ref_videos 视频续写，锁定跨镜人物/场景延续）。
+ * 无上一镜/无已完成视频时返回 null。
+ */
+export function resolvePreviousShotVideoUrl(db: Database, shot: Shot): string | null {
+  try {
+    const shots = ShotDAO.listByEpisode(db, shot.episode_id)
+      .filter((s: Shot) => s.shot_number < shot.shot_number)
+      .sort((a: Shot, b: Shot) => b.shot_number - a.shot_number);
+    const prev = shots[0];
+    if (!prev) return null;
+    const vids = ShotVideoIntervalDAO.listByShot(db, prev.id)
+      .filter((v: any) => v.status === 'completed' && v.video_url)
+      .sort((a: any, b: any) => new Date(b.completed_at || 0).getTime() - new Date(a.completed_at || 0).getTime());
+    return vids[0]?.video_url || null;
+  } catch (err) {
+    console.warn('[Consistency] 上一镜视频解析失败:', (err as Error).message);
+    return null;
+  }
+}
+
+/**
  * 上一镜尾帧继承：取上一镜已完成视频的最后一帧作为本镜首帧（H3 无 end 参数时的真实画面锚定）。
  * 返回相对 URL 路径；无上一镜/无已完成视频/抽帧失败时返回 null（调用方回退关键帧首帧）。
  */
@@ -303,7 +324,7 @@ export function resolvePreviousShotTailFrame(db: Database, shot: Shot): string |
     if (!fs.existsSync(out)) {
       execFileSync('ffmpeg', ['-y', '-sseof', '-0.3', '-i', local, '-frames:v', '1', '-update', '1', out], { timeout: 60000 });
     }
-    return projectStorage.toRelativePath(out);
+    return projectStorage.toUrlPath(out);
   } catch (err) {
     console.warn('[Consistency] 上一镜尾帧继承失败:', (err as Error).message);
     return null;

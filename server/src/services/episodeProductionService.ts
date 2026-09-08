@@ -26,6 +26,7 @@ import { directorPromptService } from './directorPromptService';
 import {
   resolveLastFrameForShot,
   resolvePreviousShotTailFrame,
+  resolvePreviousShotVideoUrl,
   collectShotReferenceImages,
   generateKeyframeCandidates,
   buildShotSceneMap,
@@ -681,7 +682,7 @@ export async function generateVideoForShot(
   }
 
   // 一致性参考图（未显式传入时自动收集角色/场景/道具图）
-  const shotReferenceImages = referenceImages && referenceImages.length > 0
+  let shotReferenceImages = referenceImages && referenceImages.length > 0
     ? referenceImages
     : collectShotReferenceImages(db, shot);
 
@@ -784,6 +785,7 @@ export async function generateVideoForShot(
       firstFrameImageUrl: firstFrameImageForApi,
       lastFrameImageUrl,
       referenceImages: shotReferenceImages.length > 0 ? shotReferenceImages : undefined,
+      referenceVideos: (() => { const u = resolvePreviousShotVideoUrl(db, shot); return u ? [u] : undefined; })(),
       motion: finalMotionPrompt || shot.action_description || '',
       duration: duration || 5,
       ratio,
