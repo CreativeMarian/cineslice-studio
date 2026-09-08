@@ -20,6 +20,71 @@ const modeSchema = z.object({
   mode: z.enum(['auto', 'semi-auto']),
 });
 
+// 真实数据完成度检测（不依赖流水线状态机，用户手动操作也能正确判定）
+// 返回每个生产阶段的实际内容数量与完成标记，供前端做步骤门控与下一步引导
+router.get('/progress', asyncHandler(async (req: Request, res: Response) => {
+  const db = getDb(req);
+  const projectId = req.params.id;
+  const project = ProjectDAO.getByIdAndUser(db, projectId, req.user.id);
+  if (!project) throw createError(404, 'NOT_FOUND', '项目不存在');
+
+  const count = (sql: string, ...args: any[]) => {
+    const row: any = db.prepare(sql).get(...args);
+    return Number(row?.c || 0);
+  };
+
+  const cNovel = count('SELECT COUNT(*) c FROM novel_chapters WHERE project_id = ?', projectId);
+  const cEpisodes = count('SELECT COUNT(*) c FROM novel_episodes WHERE project_id = ?', projectId);
+  const cScript = count('SELECT COUNT(*) c FROM novel_episodes WHERE project_id = ? AND LENGTH(TRIM(script_content)) > 0', projectId);
+
+  const epRows = db.prepare('SELECT id FROM novel_episodes WHERE project_id = ?').all(projectId) as Array<{ id: string }>;
+  const epIds = epRows.map(r => r.id);
+  const inList = epIds.length > 0 ? epIds.map(() => '?').join(',') : 'NULL';
+  const epArgs = epIds as any[];
+
+  const cCharacters = epIds.length > 0
+    ? count(`SELECT COUNT(*) c FROM script_characters WHERE episode_id IN (${inList})`, ...epArgs) : 0;
+  const cScenes = epIds.length > 0
+    ? count(`SELECT COUNT(*) c FROM script_scenes WHERE episode_id IN (${inList})`, ...epArgs) : 0;
+  const cShots = epIds.length > 0
+    ? count(`SELECT COUNT(*) c FROM shots WHERE episode_id IN (${inList})`, ...epArgs) : 0;
+  const cKeyframes = count(
+    'SELECT COUNT(*) c FROM shot_keyframes k JOIN shots s ON k.shot_id = s.id JOIN novel_episodes e ON s.episode_id = e.id WHERE e.project_id = ? AND k.image_url IS NOT NULL AND k.image_url != ?',
+    projectId, ''
+  );
+  const cVideos = count(
+    "SELECT COUNT(*) c FROM shot_video_intervals v JOIN shots s ON v.shot_id = s.id JOIN novel_episodes e ON s.episode_id = e.id WHERE e.project_id = ? AND v.status = 'completed' AND v.video_url IS NOT NULL AND v.video_url != ''",
+    projectId
+  );
+
+  const stages = {
+    novel: { done: cNovel > 0, count: cNovel, label: '小说上传' },
+    episodes: { done: cEpisodes > 0, count: cEpisodes, label: '剧集拆分' },
+    script: { done: cScript > 0, count: cScript, label: '剧本生成' },
+    characters: { done: cCharacters > 0, count: cCharacters, label: '角色设定' },
+    scenes: { done: cScenes > 0, count: cScenes, label: '场景设定' },
+    shots: { done: cShots > 0, count: cShots, label: '分镜生成' },
+    keyframes: { done: cKeyframes > 0, count: cKeyframes, label: '关键帧' },
+    video: { done: cVideos > 0, count: cVideos, label: '视频生成' },
+  };
+  const order = ['novel', 'episodes', 'script', 'characters', 'scenes', 'shots', 'keyframes', 'video'] as const;
+  const completedCount = order.filter(k => stages[k].done).length;
+  const firstPending = order.find(k => !stages[k].done) || null;
+  const allDone = firstPending === null;
+
+  res.json({
+    success: true,
+    data: {
+      projectId,
+      stages,
+      completedCount,
+      totalStages: order.length,
+      firstPending,
+      allDone,
+    },
+  });
+}));
+
 // 获取流水线状态
 router.get('/status', asyncHandler(async (req: Request, res: Response) => {
   const db = getDb(req);

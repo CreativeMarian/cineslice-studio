@@ -1,14 +1,14 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
-import { Outlet, useParams } from 'react-router-dom';
+import { Outlet, useParams, useNavigate } from 'react-router-dom';
 import { Sidebar } from './Sidebar';
 import { Topbar } from './Topbar';
 import { useProjectStore } from '../stores/useProjectStore';
 import { useUIStore } from '../stores/useUIStore';
 import { LoadingState } from './ui';
 import { PipelineProgress } from './Pipeline/PipelineProgress';
-import { pipelineService } from '../services/pipelineService';
+import { pipelineService, type ProjectProgressData } from '../services/pipelineService';
 import { Button } from './ui';
-import { Zap, RefreshCw, AlertTriangle, CheckCircle2, Loader2 } from 'lucide-react';
+import { Zap, RefreshCw, AlertTriangle, CheckCircle2, Loader2, ArrowRight, PartyPopper } from 'lucide-react';
 import type { PipelineStatusData, PipelineMode } from '../types';
 
 // 阶段中文名称映射
@@ -32,6 +32,38 @@ export function ProjectLayout() {
   const [pipelineMode, setPipelineMode] = useState<PipelineMode>('semi-auto');
   const [autoTaskId, setAutoTaskId] = useState<string | null>(null);
   const [autoTaskStatus, setAutoTaskStatus] = useState<{ currentStage: string; stageProgress: Record<string, string>; status: string; error?: string } | null>(null);
+  const [progressData, setProgressData] = useState<ProjectProgressData | null>(null);
+  const navigate = useNavigate();
+
+  // 真实数据完成度：步骤门控与下一步引导（独立于流水线状态机，手动操作也生效）
+  const loadProgress = useCallback(async () => {
+    if (!projectId) return;
+    try {
+      const res = await pipelineService.getProgress(projectId);
+      if (res.success && res.data) setProgressData(res.data);
+    } catch { /* 静默 */ }
+  }, [projectId]);
+
+  useEffect(() => { loadProgress(); }, [projectId, loadProgress]);
+
+  // 下一步引导：文案 + 目标页面（按第一个未完成的真实阶段）
+  const NEXT_STEP_MAP: Record<string, { text: string; path: string }> = {
+    novel: { text: '上传小说并拆分剧集', path: 'script' },
+    episodes: { text: '拆分剧集并生成剧本', path: 'script' },
+    script: { text: '生成剧本与分镜', path: 'script' },
+    characters: { text: '提取角色与场景资产', path: 'assets' },
+    scenes: { text: '补充场景设定', path: 'assets' },
+    shots: { text: '生成分镜', path: 'script' },
+    keyframes: { text: '生成关键帧', path: 'director' },
+    video: { text: '生成视频', path: 'director' },
+  };
+  const nextStep = progressData
+    ? (progressData.firstPending ? NEXT_STEP_MAP[progressData.firstPending] : null)
+    : null;
+  const nextStageLabel = progressData
+    ? (progressData.firstPending ? progressData.stages[progressData.firstPending]?.label || progressData.firstPending : null)
+    : null;
+
 
   // in-flight 守卫：轮询 + 手动刷新共用 loadPipeline，慢响应乱序覆盖会被此挡住
   const loadPipelineInFlight = useRef(false);
@@ -448,6 +480,51 @@ export function ProjectLayout() {
                 </button>
               </div>
             )}
+          </div>
+        )}
+        {/* 下一步引导条：基于真实数据完成度，提示用户下一步该做什么 */}
+        {progressData && (
+          <div className="px-4 py-2 border-b border-[var(--border)] bg-gradient-to-r from-[var(--accent-soft)]/40 via-[var(--card-bg)] to-[var(--card-bg)]">
+            <div className="flex items-center gap-3 flex-wrap">
+              <div className="flex items-center gap-2 min-w-0">
+                <span className="text-[10px] font-semibold text-[var(--ink-3)] uppercase tracking-wider whitespace-nowrap">
+                  完成度 {progressData.completedCount}/{progressData.totalStages}
+                </span>
+                <div className="w-28 h-1.5 bg-[var(--panel-3)] rounded-full overflow-hidden flex-shrink-0">
+                  <div
+                    className="h-full bg-gradient-to-r from-[var(--accent)] to-[var(--accent-2)] transition-all duration-500"
+                    style={{ width: `${Math.round((progressData.completedCount / progressData.totalStages) * 100)}%` }}
+                  />
+                </div>
+              </div>
+              {nextStep ? (
+                <div className="flex items-center gap-2 min-w-0 flex-1">
+                  <ArrowRight className="w-3.5 h-3.5 text-[var(--accent)] flex-shrink-0" />
+                  <span className="text-xs text-[var(--ink-2)] truncate">
+                    下一步：<span className="font-semibold text-[var(--ink-1)]">{nextStageLabel}</span> — {nextStep.text}
+                  </span>
+                  <button
+                    onClick={() => navigate(`/projects/${projectId}/${nextStep.path}`)}
+                    className="ml-auto flex-shrink-0 px-3 py-1 rounded-lg bg-[var(--accent)] text-white text-xs font-medium hover:opacity-90 transition-opacity"
+                  >
+                    去执行
+                  </button>
+                </div>
+              ) : (
+                <div className="flex items-center gap-2 min-w-0 flex-1">
+                  <PartyPopper className="w-3.5 h-3.5 text-green-500 flex-shrink-0" />
+                  <span className="text-xs text-[var(--ink-2)] truncate">
+                    全部阶段已完成！下一步：<span className="font-semibold text-[var(--ink-1)]">导出成片</span>
+                  </span>
+                  <button
+                    onClick={() => navigate(`/projects/${projectId}/export`)}
+                    className="ml-auto flex-shrink-0 px-3 py-1 rounded-lg bg-[var(--accent)] text-white text-xs font-medium hover:opacity-90 transition-opacity"
+                  >
+                    去导出
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
         )}
         <main className="flex-1 overflow-y-auto">

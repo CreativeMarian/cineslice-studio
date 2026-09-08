@@ -1,7 +1,26 @@
 import apiClient from './apiClient';
 import type { PipelineStatusData, PipelineMode, ApiResponse } from '../types';
 
+// 真实数据完成度（步骤门控与下一步引导用）
+export interface StageProgress {
+  done: boolean;
+  count: number;
+  label: string;
+}
+export interface ProjectProgressData {
+  projectId: string;
+  stages: Record<string, StageProgress>;
+  completedCount: number;
+  totalStages: number;
+  firstPending: string | null;
+  allDone: boolean;
+}
+
 export const pipelineService = {
+  getProgress: (projectId: string) =>
+    apiClient.get<unknown, ApiResponse<ProjectProgressData>>(
+      `/projects/${projectId}/pipeline/progress`
+    ),
   getStatus: (projectId: string) =>
     apiClient.get<unknown, ApiResponse<PipelineStatusData & { mode: PipelineMode; stage_labels: Record<string, string>; stage_order: string[] }>>(
       `/projects/${projectId}/pipeline/status`
