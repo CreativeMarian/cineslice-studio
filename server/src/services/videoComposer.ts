@@ -12,6 +12,7 @@ import {
   NovelEpisodeDAO,
   ShotDAO,
   ShotVideoIntervalDAO,
+  RenderLogDAO,
 } from '../models';
 import { projectStorage } from './projectStorage';
 import { dubVideo, muteVideo, type DubOptions } from './dubbingService';
@@ -55,15 +56,51 @@ export interface ComposeResult {
 // 内存中的合成任务状态
 const composeTasks = new Map<string, ComposeResult>();
 
-// 解析用户配置的默认音频模型 key（provider:modelName），未配置返回 null
-function resolveAudioOpts(db: Database, userId: string, episodeId: string): DubOptions | null {
+// 解析用户配置的默认音频模型 key（provider:modelName），未配置时仍返回 opts（含 db，用于结构化记录）
+function resolveAudioOpts(db: Database, userId: string, episodeId: string, projectId: string, shotId?: string, shotNumber?: number): DubOptions | null {
   try {
     const pref = UserPreferenceDAO.getByUser(db, userId);
     const key = pref?.default_audio_model;
-    if (!key || !key.includes(':')) return null;
-    return { db, userId, episodeId, audioModelKey: key };
+    return {
+      db,
+      userId,
+      episodeId,
+      projectId,
+      shotId,
+      shotNumber,
+      audioModelKey: key && key.includes(':') ? key : undefined,
+    };
   } catch {
     return null;
+  }
+}
+
+/** 拼接完成写持久化记录（render_logs），支撑 export 完成度与跨重启恢复 */
+function persistComposeLog(
+  db: Database,
+  userId: string,
+  episodeId: string,
+  result: ComposeResult,
+  phase?: number,
+): void {
+  try {
+    RenderLogDAO.create(db, {
+      user_id: userId,
+      episode_id: episodeId,
+      action: phase !== undefined ? 'episode_compose_phase' : 'episode_compose',
+      details: JSON.stringify({
+        taskId: result.taskId,
+        status: result.status,
+        outputUrl: result.outputUrl || null,
+        outputPath: result.outputPath || null,
+        phaseVideos: result.phaseVideos || null,
+        totalClips: result.totalClips,
+        error: result.error || null,
+        phase: phase ?? null,
+      }),
+    });
+  } catch (e) {
+    console.warn(`[Compose] 合成日志入库失败: ${(e as Error).message}`);
   }
 }
 
@@ -226,15 +263,17 @@ async function composeWithXfade(
   fps: number,
   tempDir: string,
 ): Promise<void> {
-  // 1. 统一所有片段编码参数（确保 xfade 兼容）
+  // 1. 统一所有片段编码参数（确保 xfade 兼容），并为无音轨片段补静音轨（否则 acrossfade 报 Stream specifier ':a' matches no streams）
   const normalized: string[] = [];
   for (let i = 0; i < clips.length; i++) {
     const normPath = path.resolve(tempDir, `norm_${i}.mp4`);
     await execFileAsync(ffmpeg, [
       '-i', clips[i],
+      '-f', 'lavfi', '-i', 'anullsrc=r=44100:cl=stereo',
       '-c:v', 'libx264', '-preset', 'medium', '-crf', '23',
       '-pix_fmt', 'yuv420p', '-r', String(fps), '-s', resolution,
       '-c:a', 'aac', '-b:a', '192k', '-ar', '44100', '-ac', '2',
+      '-shortest',
       '-y', normPath,
     ], { timeout: 300000, maxBuffer: 1024 * 1024 * 50 });
     normalized.push(normPath);
@@ -295,7 +334,13 @@ async function composeWithXfade(
     '-y', outputPath,
   ];
 
-  await execFileAsync(ffmpeg, args, { timeout: 600000, maxBuffer: 1024 * 1024 * 100 });
+  try {
+    await execFileAsync(ffmpeg, args, { timeout: 600000, maxBuffer: 1024 * 1024 * 100 });
+  } catch (err: any) {
+    const stderrTail = (err?.stderr || '').toString().trim().split(/\r?\n/).slice(-15).join('\n');
+    console.error(`[ComposeXfade] ffmpeg 失败:\n${stderrTail}`);
+    throw new Error(`xffade合成失败: ${stderrTail || err?.message || '未知错误'}`);
+  }
 }
 
 /**
@@ -327,7 +372,7 @@ async function composeClipsToFile(
       let usePath = clip.videoPath;
       try {
         if (clip.dialogue && clip.dialogue.trim()) {
-          const d = await dubVideo(clip.videoPath, clip.dialogue, videosDir, `dub_${clip.shotId}`, audioOpts || undefined);
+          const d = await dubVideo(clip.videoPath, clip.dialogue, videosDir, `dub_${clip.shotId}`, audioOpts ? { ...audioOpts, shotId: clip.shotId, shotNumber: clip.shotNumber } : undefined);
           if (d) usePath = d.videoPath;
         } else {
           const m = await muteVideo(clip.videoPath, videosDir, `mute_${clip.shotId}`);
@@ -462,7 +507,7 @@ export async function composePhase(
       tempDir = path.resolve(videosDir, `temp_${taskId}`);
       projectStorage.ensureDir(tempDir);
 
-      await composeClipsToFile(clips, outputPath, options, taskResult, tempDir, resolveAudioOpts(db, userId, episodeId));
+      await composeClipsToFile(clips, outputPath, options, taskResult, tempDir, resolveAudioOpts(db, userId, episodeId, projectId));
 
       taskResult.progress = 100;
       taskResult.status = 'completed';
@@ -470,12 +515,18 @@ export async function composePhase(
       taskResult.outputPath = outputPath;
       taskResult.outputUrl = outputUrl;
       console.log(`[ComposePhase] 阶段${phase}(${phaseName})合成完成: ${outputPath}（${clips.length}个镜头）`);
+      persistComposeLog(db, userId, episodeId, taskResult, phase);
 
       try { if (tempDir) fs.rmSync(tempDir, { recursive: true, force: true }); } catch { /* ignore */ }
     } catch (err) {
       taskResult.status = 'failed';
       taskResult.completedAt = new Date().toISOString();
-      taskResult.error = (err as Error).message;
+      const e = err as any;
+      const stderrTail = (typeof e?.stderr === 'string' && e.stderr.trim())
+        ? e.stderr.trim().split(/\r?\n/).slice(-4).join(' | ')
+        : '';
+      taskResult.error = stderrTail ? `${e?.message} — ${stderrTail}` : e?.message || String(err);
+      persistComposeLog(db, userId, episodeId, taskResult, phase);
       try { if (tempDir) fs.rmSync(tempDir, { recursive: true, force: true }); } catch { /* ignore */ }
     }
   })();
@@ -570,19 +621,21 @@ export async function composeEpisode(
       tempDir = path.resolve(videosDir, `temp_${taskId}`);
       projectStorage.ensureDir(tempDir);
 
-      await composeClipsToFile(clips, outputPath, options, taskResult, tempDir, resolveAudioOpts(db, userId, episodeId));
+      await composeClipsToFile(clips, outputPath, options, taskResult, tempDir, resolveAudioOpts(db, userId, episodeId, projectId));
 
       taskResult.progress = 100;
       taskResult.status = 'completed';
       taskResult.completedAt = new Date().toISOString();
       taskResult.outputPath = outputPath;
       taskResult.outputUrl = outputUrl;
+      persistComposeLog(db, userId, episodeId, taskResult);
 
       try { if (tempDir) fs.rmSync(tempDir, { recursive: true, force: true }); } catch { /* ignore */ }
     } catch (err) {
       taskResult.status = 'failed';
       taskResult.completedAt = new Date().toISOString();
       taskResult.error = (err as Error).message;
+      persistComposeLog(db, userId, episodeId, taskResult);
       try { if (tempDir) fs.rmSync(tempDir, { recursive: true, force: true }); } catch { /* ignore */ }
     }
   })();
@@ -639,7 +692,7 @@ function composeEpisodeByPhase(
           completedClips: 0,
           progress: 0,
         };
-        await composeClipsToFile(phaseClips, phaseOutputPath, { ...options, transition: 'none', skipMissingClips: true }, phaseResult, phaseTemp, resolveAudioOpts(db, episode.user_id, episode.id));
+        await composeClipsToFile(phaseClips, phaseOutputPath, { ...options, transition: 'none', skipMissingClips: true }, phaseResult, phaseTemp, resolveAudioOpts(db, episode.user_id, episode.id, projectId));
 
         // 该阶段实际所有镜头（含占位）也应纳入阶段视频；占位已在 composeClipsToFile 内处理
         phaseVideos.push({
@@ -713,12 +766,14 @@ function composeEpisodeByPhase(
       taskResult.outputUrl = projectStorage.toUrlPath(finalOutputPath);
       taskResult.phaseVideos = phaseVideos;
       console.log(`[ComposeByPhase] 整集拼接完成: ${finalOutputPath}（${phaseVideos.length}个阶段视频）`);
+      persistComposeLog(db, episode.user_id, episode.id, taskResult);
 
       try { if (tempDir) fs.rmSync(tempDir, { recursive: true, force: true }); } catch { /* ignore */ }
     } catch (err) {
       taskResult.status = 'failed';
       taskResult.completedAt = new Date().toISOString();
       taskResult.error = (err as Error).message;
+      persistComposeLog(db, episode.user_id, episode.id, taskResult);
       try { if (tempDir) fs.rmSync(tempDir, { recursive: true, force: true }); } catch { /* ignore */ }
     }
   })();
@@ -749,10 +804,33 @@ export function getComposeStatus(taskId: string): ComposeResult | null {
 }
 
 /**
- * 获取某集最近的合成结果
+ * 获取某集最近的合成结果（v3.0：优先读 render_logs 持久化记录，跨重启可恢复；回退内存任务表）
  */
-export function getLatestCompose(_episodeId: string): ComposeResult | null {
-  // 简单实现：返回所有已完成的任务中最新的
+export function getLatestCompose(db: Database, episodeId: string): ComposeResult | null {
+  // 1) 持久化记录优先
+  try {
+    const row: any = db.prepare(
+      "SELECT details, created_at FROM render_logs WHERE episode_id = ? AND action = 'episode_compose' ORDER BY created_at DESC LIMIT 1"
+    ).get(episodeId);
+    if (row?.details) {
+      const d = JSON.parse(row.details);
+      if (d.status === 'completed' && d.outputUrl) {
+        return {
+          taskId: d.taskId || 'persisted',
+          status: 'completed',
+          completedAt: row.created_at,
+          outputUrl: d.outputUrl,
+          outputPath: d.outputPath || undefined,
+          phaseVideos: d.phaseVideos || undefined,
+          totalClips: d.totalClips || 0,
+          completedClips: d.totalClips || 0,
+          progress: 100,
+        };
+      }
+    }
+  } catch { /* 忽略解析失败，回退内存 */ }
+
+  // 2) 内存任务表回退
   let latest: ComposeResult | null = null;
   for (const task of composeTasks.values()) {
     if (task.status === 'completed' && task.outputUrl) {

@@ -535,7 +535,7 @@ export async function regenerateKeyframe(
 // ============ 视频生成 ============
 
 /** 从剧本分析中提取角色/场景上下文（用于视频提示词的人物一致性） */
-function buildVideoShotContext(shot: any, scriptAnalysis: any, totalShots: number, duration: number, sceneWithLighting = true) {
+function buildVideoShotContext(db: Database, shot: any, scriptAnalysis: any, totalShots: number, duration: number, sceneWithLighting = true) {
   // 获取该镜头中的角色信息（P0 一致性：优先按 shots.characters_in_shot 过滤，只注入该镜角色，防止无关角色乱入）
   let charactersInShot: string[] = [];
   const characterDetails: Record<string, string> = {};
@@ -706,9 +706,11 @@ export async function generateVideoForShot(
     : collectShotReferenceImages(db, shot);
 
   // 首帧来源：显式覆盖 > 上一镜尾帧继承 > 关键帧
-  // （ComfyUI H3 无 end 帧参数，"尾帧硬锁定"对其无效；改以真实画面锚定镜头起点）
+  // 首尾帧模式（flf2v）下禁用"上一镜尾帧继承"：本镜 first/last 均由资产管线按分镜起止画面生成，
+  // 首帧直接用本镜 first 关键帧，避免继承上一镜视频尾帧（可能携带旧方案场景漂移）
+  const isFlf2vMode = String(modelName).includes('flf2v');
   let inheritedFirstFrameUrl: string | null = null;
-  if (!explicitFirstFrame) {
+  if (!explicitFirstFrame && !isFlf2vMode) {
     inheritedFirstFrameUrl = resolvePreviousShotTailFrame(db, shot);
   }
   const sourceFirstFrame = explicitFirstFrame || inheritedFirstFrameUrl || firstFrameUrl;
@@ -741,7 +743,7 @@ export async function generateVideoForShot(
       baseMotionPrompt = `【景别】${shotSizeDesc}。【镜头运动】${cameraDesc}。【画面内容】${shot.action_description || ''}。【风格】${stylePresetObj.visualStyle}。`;
     }
 
-    const shotContext = buildVideoShotContext(shot, scriptAnalysis, 0, shot.duration_seconds || 5);
+    const shotContext = buildVideoShotContext(db, shot, scriptAnalysis, 0, shot.duration_seconds || 5);
     const { charactersInShot, characterDetails, sceneName } = shotContext;
 
     // 先使用导演提示词服务生成基础提示词（如果可用）
@@ -1131,7 +1133,7 @@ export async function batchGenerateVideos(
       let finalMotionPrompt = shot.action_description || '';
       try {
         const scriptAnalysis = await scriptAnalysisService.analyzeScript(db, shot.episode_id, userId);
-        const shotContext = buildVideoShotContext(shot, scriptAnalysis, shots.length, duration || 5, false);
+        const shotContext = buildVideoShotContext(db, shot, scriptAnalysis, shots.length, duration || 5, false);
         const { characterDetails } = shotContext;
 
         // 导演提示词服务

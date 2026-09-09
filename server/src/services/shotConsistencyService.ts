@@ -336,9 +336,10 @@ export function resolveLastFrameForShot(
   shot: Shot,
   shots: Shot[]
 ): ResolvedLastFrame | null {
-  // 1. 显式尾帧
+  // 1. 显式尾帧（'end' 手动生成；'last' 为批量关键帧生成的镜头结尾画面，二者都作为首尾帧插值的尾端）
   const keyframes = ShotKeyframeDAO.listByShot(db, shot.id);
-  const endFrame = keyframes.find(k => k.frame_type === 'end' && k.image_url);
+  const endFrame = keyframes.find(k => k.frame_type === 'end' && k.image_url)
+    || keyframes.find(k => k.frame_type === 'last' && k.image_url);
   if (endFrame?.image_url) {
     return { keyframeId: endFrame.id, imageUrl: endFrame.image_url, source: 'explicit_end' };
   }

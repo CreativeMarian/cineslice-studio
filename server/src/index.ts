@@ -65,6 +65,10 @@ async function main() {
   // 4.1 全自动流水线：标记服务器重启前残留的运行中任务为失败
   AutoPipelineService.init(db);
 
+  // 4.1.1 视频任务后台轮询：把 ComfyUI 等外部异步任务的状态回写项目库
+  const { startVideoTaskPoller } = await import('./services/videoTaskPoller');
+  startVideoTaskPoller(() => db);
+
   // 4.2 初始化内置风格预设
   seedStylePresets(db);
 

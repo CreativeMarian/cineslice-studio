@@ -12,6 +12,7 @@ export * from './scriptProp';
 export * from './shot';
 export * from './shotKeyframe';
 export * from './shotVideoInterval';
+export * from './shotAudio';
 export * from './generationTask';
 export * from './renderLog';
 export * from './modelRegistry';

@@ -17,8 +17,9 @@ import { stageCharacters } from './stages/characters';
 import { stageScenes } from './stages/scenes';
 import { stageShots } from './stages/shots';
 import { stageKeyframes } from './stages/keyframes';
-import { stageAudio } from './stages/audio';
 import { stageVideo } from './stages/video';
+import { stageAudio } from './stages/audio';
+import { stageExport } from './stages/export';
 
 export type { AutoPipelineTask };
 export type { ScriptAnalysisResult } from '../scriptAnalysisService';
@@ -118,11 +119,15 @@ export const AutoPipelineService = {
     return stageKeyframes(db, task);
   },
 
+  stageVideo(db: Database, task: AutoPipelineTask): Promise<void> {
+    return stageVideo(db, task);
+  },
+
   stageAudio(db: Database, task: AutoPipelineTask): Promise<void> {
     return stageAudio(db, task);
   },
 
-  stageVideo(db: Database, task: AutoPipelineTask): Promise<void> {
-    return stageVideo(db, task);
+  stageExport(db: Database, task: AutoPipelineTask): Promise<void> {
+    return stageExport(db, task);
   },
 };

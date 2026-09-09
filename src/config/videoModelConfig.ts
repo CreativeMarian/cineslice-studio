@@ -187,6 +187,24 @@ export const VIDEO_MODEL_CONFIGS: Record<string, VideoModelParamConfig> = {
     defaultDuration: 5,
   },
 
+  // ========== 本地 ComfyUI MiniMax H3 首尾帧（推荐：免费、无额度、一致性最强） ==========
+  'comfyui:minimax-h3-flf2v.json': {
+    ratios: [
+      { value: '16:9', label: '横屏 16:9（推荐）', platform: '剧集/横屏视频' },
+    ],
+    resolutions: [
+      { value: '720p', label: '1280×704（本机最优）' },
+    ],
+    durations: [
+      { value: 5, label: '5秒（固定）' },
+    ],
+    supportsSubtitles: false,
+    recommendation: '本地 ComfyUI + MiniMax H3 首尾帧：首帧+尾帧双端硬锁定，人物/场景/道具一致性最强；免费无额度；固定 1280×704/5秒，每镜约20分钟（本机推理）。已在 ComfyUI 运行并配好 flf2v 工作流即可选用',
+    defaultRatio: '16:9',
+    defaultResolution: '704p',
+    defaultDuration: 5,
+  },
+
   // ========== 通义万相 ==========
   'qwen:qwen-video': {
     ratios: COMMON_RATIOS.filter(r => ['16:9', '9:16', '1:1'].includes(r.value)),
@@ -205,6 +223,26 @@ export const VIDEO_MODEL_CONFIGS: Record<string, VideoModelParamConfig> = {
     defaultDuration: 5,
   },
 };
+
+// 支持首尾帧（起止画面双锁定）的视频模型 key 集合：
+// - comfyui:minimax-h3-flf2v.json：本地 ComfyUI 首尾帧工作流（已验证，推荐）
+// - jimeng:jimeng-video-3-0：即梦 image_urls=[首帧,尾帧] 双帧上传
+// - kling:kling-v2 / kling:kling-v3：可灵 image2video 的 image_tail 尾帧
+export const FLF2V_MODEL_KEYS = new Set<string>([
+  'comfyui:minimax-h3-flf2v.json',
+  'jimeng:jimeng-video-3-0',
+  'kling:kling-v2',
+  'kling:kling-v3',
+]);
+
+/** 该视频模型是否支持首尾帧（前端据此显示备注，提示用户首尾帧出片质量更稳） */
+export function supportsFLF2V(modelKey: string): boolean {
+  if (!modelKey) return false;
+  if (FLF2V_MODEL_KEYS.has(modelKey)) return true;
+  const modelName = (modelKey.split(':')[1] || '').toLowerCase();
+  // 兜底：模型名含 flf2v / 首尾帧 关键字
+  return modelName.includes('flf2v');
+}
 
 export const DEFAULT_VIDEO_CONFIG: VideoModelParamConfig = {
   ratios: COMMON_RATIOS,

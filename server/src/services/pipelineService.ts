@@ -13,8 +13,9 @@ export const PIPELINE_STAGES: PipelineStage[] = [
   'scenes',
   'shots',
   'keyframes',
-  'audio',
   'video',
+  'audio',
+  'export',
 ];
 
 // 阶段显示名称
@@ -26,8 +27,9 @@ export const STAGE_LABELS: Record<PipelineStage, string> = {
   scenes: '场景设定',
   shots: '分镜生成',
   keyframes: '关键帧',
-  audio: '配音生成',
   video: '视频生成',
+  audio: '配音生成',
+  export: '拼接成片',
 };
 
 // 阶段对应的模型类型
@@ -39,8 +41,9 @@ export const STAGE_MODEL_TYPE: Record<PipelineStage, 'text' | 'image' | 'video' 
   scenes: 'text',
   shots: 'text',
   keyframes: 'image',
-  audio: 'audio',
   video: 'video',
+  audio: 'audio',
+  export: 'video',
 };
 
 function createEmptyStages(): PipelineStageStatus[] {

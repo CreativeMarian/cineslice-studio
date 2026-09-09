@@ -20,6 +20,8 @@ const STAGE_ICONS: Record<PipelineStage, string> = {
   shots: '🎬',
   keyframes: '🖼️',
   video: '🎥',
+  audio: '🎙️',
+  export: '🎞️',
 };
 
 const STATUS_COLORS: Record<StageStatus, { bg: string; border: string; text: string; label: string }> = {

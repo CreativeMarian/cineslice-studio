@@ -12,7 +12,7 @@ import { aiProxy } from '../services/aiProxy';
 import { projectStorage } from '../services/projectStorage';
 import { sanitizeFileName } from '../utils/filename';
 import { composeAudio, mergeVideoAudio, recommendSfx, BGM_PRESETS, type BgmPreset } from '../services/audioComposer';
-import { NovelEpisodeDAO, ShotDAO } from '../models';
+import { NovelEpisodeDAO, ShotDAO, ShotAudioDAO } from '../models';
 import { downloadToFile } from '../utils/download';
 import {
   parseSpeaker,
@@ -103,6 +103,28 @@ router.post('/episodes/:id/tts', validateBody(ttsShotSchema), asyncHandler(async
         if (fs.existsSync(localPath) && fs.statSync(localPath).size === 0) {
           throw new Error('TTS 写入了空音频文件');
         }
+        // 结构化入库（v3.0）：按镜头 upsert，删除该镜头旧配音文件避免堆积
+        const oldRecords = ShotAudioDAO.listByShot(db, shot.id);
+        const { created } = ShotAudioDAO.upsertByShot(db, {
+          user_id: req.user.id,
+          project_id: projectId,
+          episode_id: episodeId,
+          shot_id: shot.id,
+          shot_number: shot.shot_number,
+          file_name: fileName,
+          voice: finalVoice || undefined,
+          speed: finalSpeed ?? undefined,
+          duration_seconds: result.durationSeconds ?? undefined,
+          source: 'manual',
+        });
+        for (const old of oldRecords) {
+          if (old.file_name && old.file_name !== fileName) {
+            try {
+              const oldPath = path.resolve(audioDir, sanitizeFileName(old.file_name) || '');
+              if (oldPath && fs.existsSync(oldPath)) fs.unlinkSync(oldPath);
+            } catch { /* 忽略清理失败 */ }
+          }
+        }
         results[idx] = {
           shotId: shot.id,
           shotNumber: shot.shot_number,
@@ -112,6 +134,7 @@ router.post('/episodes/:id/tts', validateBody(ttsShotSchema), asyncHandler(async
           speed: finalSpeed,
           speaker: speaker || undefined,
           durationSeconds: result.durationSeconds,
+          audioRecordId: created.id,
         };
       } catch (err: any) {
         results[idx] = {
@@ -236,22 +259,45 @@ router.post('/episodes/:id/audio-compose', validateBody(composeSchema), asyncHan
   });
 }));
 
-// 获取剧集已合成的音频列表
+// 获取剧集已合成的音频列表（v3.0：结构化记录 + 文件存在性；兼容旧目录扫描兜底）
 router.get('/episodes/:id/audio', asyncHandler(async (req: Request, res: Response) => {
   const db = getDb(req);
   const episode = NovelEpisodeDAO.getByIdAndUser(db, req.params.id, req.user.id);
   if (!episode) throw createError(404, 'NOT_FOUND', '剧集不存在');
 
   const audioDir = projectStorage.getAudioDir(episode.project_id);
-  const files: Array<{ name: string; url: string; size: number; createdAt: string }> = [];
+  const records = ShotAudioDAO.listByEpisode(db, episode.id);
+  const items = records.map(r => {
+    const url = r.file_name ? projectStorage.toUrlPath(path.resolve(audioDir, sanitizeFileName(r.file_name) || '')) : null;
+    const localPath = r.file_name ? path.resolve(audioDir, sanitizeFileName(r.file_name) || '') : null;
+    const exists = localPath ? fs.existsSync(localPath) : false;
+    const size = localPath && exists ? fs.statSync(localPath).size : 0;
+    return {
+      id: r.id,
+      shotId: r.shot_id,
+      shotNumber: r.shot_number,
+      fileName: r.file_name,
+      url: url && exists ? url : null,
+      voice: r.voice,
+      speed: r.speed,
+      durationSeconds: r.duration_seconds,
+      source: r.source,
+      status: r.status,
+      size,
+      createdAt: r.created_at,
+    };
+  });
 
+  // 旧版兼容：未被记录（无 shot_audio 记录）但目录存在的音频文件，仍返回（合成/预览用）
+  const orphanFiles: Array<{ name: string; url: string; size: number; createdAt: string }> = [];
   if (fs.existsSync(audioDir)) {
-    const items = fs.readdirSync(audioDir);
-    for (const name of items) {
-      if (/\.(mp3|wav|ogg|m4a)$/i.test(name)) {
+    const recordedNames = new Set(items.map(i => i.fileName).filter(Boolean));
+    const itemsList = fs.readdirSync(audioDir);
+    for (const name of itemsList) {
+      if (/\.(mp3|wav|ogg|m4a)$/i.test(name) && !recordedNames.has(name)) {
         const filePath = path.resolve(audioDir, name);
         const stat = fs.statSync(filePath);
-        files.push({
+        orphanFiles.push({
           name,
           url: projectStorage.toUrlPath(filePath),
           size: stat.size,
@@ -259,10 +305,10 @@ router.get('/episodes/:id/audio', asyncHandler(async (req: Request, res: Respons
         });
       }
     }
-    files.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    orphanFiles.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
   }
 
-  res.json({ success: true, data: files });
+  res.json({ success: true, data: { items, orphanFiles } });
 }));
 
 // 根据分镜推荐音效

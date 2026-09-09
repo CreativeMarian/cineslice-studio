@@ -2,7 +2,7 @@
 // v1.1 - 增加首尾帧衔接开关（下镜首帧作尾帧，低抽卡核心选项）
 import { Video } from 'lucide-react';
 import { ModelSelector } from '../ModelConfig/ModelSelector';
-import type { VideoModelParamConfig } from '../../config/videoModelConfig';
+import { supportsFLF2V, type VideoModelParamConfig } from '../../config/videoModelConfig';
 
 export type VideoRatio = '16:9' | '9:16' | '1:1' | '4:3' | '3:4' | '21:9';
 export type VideoResolution = '720p' | '1080p' | '2k' | '4k';
@@ -57,6 +57,11 @@ export function VideoParamsPanel({
           onChange={onModelChange}
           placeholder="选择视频模型"
         />
+        {supportsFLF2V(selectedVideoModel) && (
+          <p className="text-[10px] text-green-600 dark:text-green-400 mt-1 flex items-center gap-1">
+            🔄 该模型支持首尾帧：先用图片模型生成首/尾帧，起止画面硬锁定，人物/场景/道具一致性更强，视频更符合预期
+          </p>
+        )}
       </div>
 
       <div className="grid grid-cols-2 gap-2">

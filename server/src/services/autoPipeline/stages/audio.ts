@@ -3,7 +3,7 @@
 import fs from 'fs';
 import path from 'path';
 import type { Database } from '../../../types';
-import { NovelEpisodeDAO, ShotDAO, ScriptCharacterDAO } from '../../../models';
+import { NovelEpisodeDAO, ShotDAO, ScriptCharacterDAO, ShotAudioDAO } from '../../../models';
 import { aiProxy } from '../../aiProxy';
 import { downloadToFile } from '../../../utils/download';
 import { projectStorage } from '../../projectStorage';
@@ -73,6 +73,28 @@ export async function stageAudio(db: Database, task: AutoPipelineTask): Promise<
       // 落盘校验：0 字节文件会让后续合成阶段莫名失败
       if (fs.existsSync(localPath) && fs.statSync(localPath).size === 0) {
         throw new Error('TTS 写入了空音频文件');
+      }
+      // 结构化入库（v3.0）：按镜头 upsert，清理旧配音文件
+      const oldRecords = ShotAudioDAO.listByShot(db, shot.id);
+      ShotAudioDAO.upsertByShot(db, {
+        user_id: task.userId,
+        project_id: task.projectId,
+        episode_id: first.id,
+        shot_id: shot.id,
+        shot_number: shot.shot_number,
+        file_name: fileName,
+        voice: baseVoice,
+        speed: finalSpeed,
+        duration_seconds: result.durationSeconds ?? undefined,
+        source: 'auto',
+      });
+      for (const old of oldRecords) {
+        if (old.file_name && old.file_name !== fileName) {
+          try {
+            const oldPath = path.resolve(audioDir, old.file_name);
+            if (fs.existsSync(oldPath)) fs.unlinkSync(oldPath);
+          } catch { /* 忽略清理失败 */ }
+        }
       }
       generated++;
       task.stageProgress['audio'] = `生成中 ${generated}/${targetShots.length}（${speaker || '未知'}: ${baseVoice}）`;

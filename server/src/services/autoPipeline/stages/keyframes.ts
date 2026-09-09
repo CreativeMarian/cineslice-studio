@@ -47,8 +47,11 @@ export async function stageKeyframes(db: Database, task: AutoPipelineTask): Prom
   let skipped = 0;
 
   for (const shot of shots) {
+    // 幂等：first + last 双帧都齐才算完成（flf2v 首尾帧链路需要两帧），缺失哪帧补哪帧
     const existing = ShotKeyframeDAO.listByShot(db, shot.id);
-    if (existing.length > 0) {
+    const hasFirst = existing.some(k => k.frame_type === 'first' && k.image_url);
+    const hasLast = existing.some(k => k.frame_type === 'last' && k.image_url);
+    if (hasFirst && hasLast) {
       skipped++;
       continue;
     }
@@ -119,25 +122,48 @@ export async function stageKeyframes(db: Database, task: AutoPipelineTask): Prom
 
       console.log(`[AutoPipeline] keyframe shot=${shot.shot_number} 提示词生成完成`);
 
-      const imgResult = await aiProxy.generateImage({
-        db, userId: task.userId, projectId: task.projectId,
-        provider: model.provider, modelName: model.modelName,
-        prompt: finalPrompt, negativePrompt: finalNegativePrompt, count: 1, size: '2560x1440',
-        referenceImages: referenceImages.length > 0 ? referenceImages : undefined,
-        saveSubDir: 'keyframes',
-      });
+      // 局部函数：生成一帧关键帧并入库（first=镜头起始画面 / last=镜头结尾画面）
+      const genFrame = async (frameType: 'first' | 'last', promptText: string): Promise<boolean> => {
+        try {
+          const imgResult = await aiProxy.generateImage({
+            db, userId: task.userId, projectId: task.projectId,
+            provider: model.provider, modelName: model.modelName,
+            prompt: promptText, negativePrompt: finalNegativePrompt, count: 1, size: '2560x1440',
+            referenceImages: referenceImages.length > 0 ? referenceImages : undefined,
+            saveSubDir: 'keyframes',
+          });
+          const url = imgResult.images[0]?.url;
+          if (!url) return false;
+          ShotKeyframeDAO.create(db, {
+            user_id: task.userId,
+            shot_id: shot.id,
+            frame_type: frameType,
+            prompt: promptText,
+            negative_prompt: finalNegativePrompt,
+            image_url: url,
+            image_model_used: model.modelName,
+          });
+          generated++;
+          task.stageProgress['keyframes'] = `生成中 ${generated} 帧（${frameType}）`;
+          return true;
+        } catch (err: any) {
+          console.error(`[AutoPipeline] keyframe shot=${shot.id} ${frameType} 生成失败:`, err.message);
+          return false;
+        }
+      };
 
-      ShotKeyframeDAO.create(db, {
-        user_id: task.userId,
-        shot_id: shot.id,
-        frame_type: 'first',
-        prompt: finalPrompt,
-        negative_prompt: finalNegativePrompt,
-        image_url: imgResult.images[0]?.url,
-        image_model_used: model.modelName,
-      });
-      generated++;
-      task.stageProgress['keyframes'] = `生成中 ${generated}/${shots.length - skipped}`;
+      // first：镜头起始画面（现有提示词）
+      if (!hasFirst) {
+        await genFrame('first', finalPrompt);
+      }
+
+      // last：镜头结尾画面——剧情收束时刻，动作已完成，状态/情绪呈现结果（首尾帧链路的尾端锁定）
+      if (!hasLast) {
+        const lastPrompt = finalPrompt + `
+
+【关键帧类型】这是该镜头结尾瞬间的关键帧：本镜剧情在此收束，人物动作已完成，呈现动作/情绪的结果状态；道具、服饰、场景与镜头全程保持一致。`;
+        await genFrame('last', lastPrompt);
+      }
     } catch (err: any) {
       console.error(`[AutoPipeline] keyframe shot=${shot.id} failed:`, err.message);
       // 单帧失败不中断整体，继续下一个

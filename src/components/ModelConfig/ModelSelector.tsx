@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Select } from '../ui';
 import { useModelStore } from '../../stores/useModelStore';
 import { getModelKey } from '../../types/model';
+import { supportsFLF2V } from '../../config/videoModelConfig';
 import type { ModelType } from '../../types';
 
 const TYPE_ICONS: Record<ModelType, string> = {
@@ -77,9 +78,16 @@ export function ModelSelector({ modelType, value, onChange, placeholder, showTyp
               <span className="truncate min-w-0 flex-1">{model.provider} / {model.model_name}</span>
               {model.is_default && <span className="text-[var(--accent)] text-xs flex-shrink-0">(默认)</span>}
               {modelType === 'video' && (
-                <span className="text-xs flex-shrink-0" title={model.supports_audio ? '该模型支持生成带音频的视频' : '该模型只生成无声视频'}>
-                  {model.supports_audio ? '🔊' : '🔇'}
-                </span>
+                <>
+                  {supportsFLF2V(key) && (
+                    <span className="text-xs flex-shrink-0" title="支持首尾帧：起止画面双锁定，人物/场景一致性更强，视频更符合预期">
+                      🔄
+                    </span>
+                  )}
+                  <span className="text-xs flex-shrink-0" title={model.supports_audio ? '该模型支持生成带音频的视频' : '该模型只生成无声视频'}>
+                    {model.supports_audio ? '🔊' : '🔇'}
+                  </span>
+                </>
               )}
             </span>
           </Select.Item>

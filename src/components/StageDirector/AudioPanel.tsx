@@ -19,9 +19,19 @@ interface TtsResult {
   error?: string;
 }
 
-interface AudioFile {
-  name: string;
-  url: string;
+interface AudioRecord {
+  id: string;
+  shotId: string;
+  shotNumber: number | null;
+  fileName: string | null;
+  url: string | null;
+  voice: string | null;
+  speed: number | null;
+  durationSeconds: number | null;
+  source: string;
+  status: string;
+  size: number;
+  createdAt: string;
 }
 
 export function AudioPanel({ episodeId, shots, showToast }: AudioPanelProps) {
@@ -32,12 +42,13 @@ export function AudioPanel({ episodeId, shots, showToast }: AudioPanelProps) {
   const [bgmVolume, setBgmVolume] = useState(0.25);
   const [isComposing, setIsComposing] = useState(false);
   const [composedAudio, setComposedAudio] = useState<{ url: string; duration: number } | null>(null);
-  const [audioFiles, setAudioFiles] = useState<AudioFile[]>([]);
+  // 结构化配音记录（v3.0）：刷新后仍可恢复"已配音镜头 + 合成音轨"
+  const [audioRecords, setAudioRecords] = useState<AudioRecord[]>([]);
 
   useEffect(() => {
     apiClient.get<any, any>(`/episodes/${episodeId}/audio`).then((res: any) => {
       if (res.success && res.data) {
-        setAudioFiles(res.data);
+        setAudioRecords(res.data.items || []);
       }
     }).catch(() => {});
   }, [episodeId]);
@@ -55,6 +66,9 @@ export function AudioPanel({ episodeId, shots, showToast }: AudioPanelProps) {
         setTtsResults(res.data);
         const successCount = res.data.filter((r: TtsResult) => r.audioUrl).length;
         showToast(`配音生成完成：${successCount} 个镜头。下一步：点击「音频合成」合并音轨`, 'success');
+        // 刷新结构化记录
+        const audioRes = await apiClient.get<any, any>(`/episodes/${episodeId}/audio`);
+        if (audioRes.success && audioRes.data) setAudioRecords(audioRes.data.items || []);
       }
     } catch {
       showToast('配音生成失败', 'error');
@@ -64,7 +78,11 @@ export function AudioPanel({ episodeId, shots, showToast }: AudioPanelProps) {
   };
 
   const handleCompose = async () => {
-    const voiceTracks = ttsResults.filter(r => r.fileName).map(r => ({ fileName: r.fileName!, shotNumber: r.shotNumber }));
+    // v3.0：从结构化记录取音轨（刷新后仍可合成），优先本次生成结果
+    const records = ttsResults.length > 0 ? ttsResults : audioRecords;
+    const voiceTracks = records
+      .filter((r: any) => r.fileName && (r.audioUrl || r.url))
+      .map((r: any) => ({ fileName: r.fileName, shotNumber: r.shotNumber }));
     if (voiceTracks.length === 0) {
       showToast('请先生成配音', 'error');
       return;
@@ -179,14 +197,24 @@ export function AudioPanel({ episodeId, shots, showToast }: AudioPanelProps) {
         )}
       </Card>
 
-      {audioFiles.length > 0 && (
+      {audioRecords.length > 0 && (
         <Card className="p-4">
-          <h3 className="text-sm font-semibold text-[var(--ink-1)] mb-3">已生成的音频文件</h3>
-          <div className="space-y-1 max-h-32 overflow-y-auto">
-            {audioFiles.map(f => (
-              <div key={f.name} className="flex items-center gap-2 text-xs">
-                <span className="text-[var(--ink-3)] truncate flex-1">{f.name}</span>
-                <audio src={f.url} controls className="h-6" />
+          <h3 className="text-sm font-semibold text-[var(--ink-1)] mb-2">
+            已配音镜头（{audioRecords.filter(r => r.url).length} 个）
+          </h3>
+          <p className="text-xs text-[var(--ink-3)] mb-3">记录已结构化入库，刷新页面不丢失，可直接用于音频合成。</p>
+          <div className="space-y-1 max-h-40 overflow-y-auto">
+            {audioRecords.map(r => (
+              <div key={r.id} className="flex items-center gap-2 text-xs">
+                <span className="text-[var(--ink-3)] w-10">#{r.shotNumber ?? '?'}</span>
+                {r.url ? (
+                  <>
+                    <audio src={r.url} controls className="h-6 flex-1" />
+                    <span className="text-[var(--ink-3)] whitespace-nowrap">{r.voice || 'edge'}</span>
+                  </>
+                ) : (
+                  <span className="text-red-500 flex-1">文件缺失</span>
+                )}
               </div>
             ))}
           </div>

@@ -18,6 +18,17 @@ export const ShotVideoIntervalDAO = {
     return db.prepare('SELECT * FROM shot_video_intervals WHERE shot_id = ? ORDER BY created_at ASC').all(shotId) as ShotVideoInterval[];
   },
 
+  /** 所有待推进的外部任务（pending/processing 且已有 external_task_id 与模型标识），供后台轮询器消费。最新任务优先，避免被历史僵尸任务占满轮询窗口 */
+  listPendingExternal(db: Database, limit = 15): ShotVideoInterval[] {
+    return db.prepare(`
+      SELECT * FROM shot_video_intervals
+      WHERE status IN ('pending', 'processing')
+        AND external_task_id IS NOT NULL AND external_task_id != ''
+        AND video_model_used IS NOT NULL AND video_model_used != ''
+      ORDER BY created_at DESC LIMIT ?
+    `).all(limit) as ShotVideoInterval[];
+  },
+
   getById(db: Database, id: string): ShotVideoInterval | null {
     return (db.prepare('SELECT * FROM shot_video_intervals WHERE id = ?').get(id) as ShotVideoInterval) || null;
   },

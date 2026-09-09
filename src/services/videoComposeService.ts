@@ -47,4 +47,10 @@ export const videoComposeService = {
 
   getStatus: (taskId: string) =>
     apiClient.get<unknown, { success: boolean; data: ComposeResult }>(`/compose/${taskId}`),
+
+  /** 查询某集最近一次合成结果（持久化记录优先，跨重启可恢复） */
+  getLatest: (episodeId: string) =>
+    apiClient.get<unknown, { success: boolean; data: ComposeResult | null }>(
+      `/episodes/${episodeId}/latest-compose`
+    ),
 };

@@ -43,6 +43,10 @@ export class KlingVideoAdapter implements VideoAdapter {
     if (params.firstFrameImageUrl) {
       body.image = params.firstFrameImageUrl;
     }
+    // 首尾帧：可灵 image2video 原生支持 image_tail 尾帧，起止画面双锁定
+    if (params.lastFrameImageUrl) {
+      body.image_tail = params.lastFrameImageUrl;
+    }
 
     try {
       const data = await httpRequest<any>(`${this.baseUrl}${endpoint}`, {

@@ -42,6 +42,8 @@ export const videoService = {
       provider: string;
       modelName: string;
       keyframeId?: string;
+      /** 显式指定尾帧关键帧 id：支持首尾帧的模型将做首尾帧插值（起止画面双锁定） */
+      endFrameId?: string;
       motionPrompt?: string;
       duration?: number;
       ratio?: '16:9' | '9:16' | '1:1' | '4:3' | '3:4' | '21:9';

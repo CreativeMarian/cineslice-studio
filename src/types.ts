@@ -55,7 +55,7 @@ export interface UserPreferences {
 export type ProjectStage = 'script' | 'assets' | 'director' | 'export';
 export type ProjectStatus = 'active' | 'archived';
 export type PipelineMode = 'auto' | 'semi-auto';
-export type PipelineStage = 'novel' | 'episodes' | 'script' | 'characters' | 'scenes' | 'shots' | 'keyframes' | 'video';
+export type PipelineStage = 'novel' | 'episodes' | 'script' | 'characters' | 'scenes' | 'shots' | 'keyframes' | 'video' | 'audio' | 'export';
 export type StageStatus = 'pending' | 'running' | 'done' | 'failed' | 'awaiting_confirmation';
 export type RecommendedStage = 'episodes' | 'script' | 'characters' | 'scenes' | 'shots' | 'images' | 'video' | 'audio';
 

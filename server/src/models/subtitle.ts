@@ -24,6 +24,10 @@ export const SubtitleDAO = {
     db.prepare('DELETE FROM subtitles WHERE episode_id = ?').run(episodeId);
   },
 
+  deleteByShot(db: Database, shotId: string): void {
+    db.prepare('DELETE FROM subtitles WHERE shot_id = ?').run(shotId);
+  },
+
   // 生成 SRT 格式字幕
   toSRT(subtitles: Subtitle[]): string {
     return subtitles.map((s, i) => {

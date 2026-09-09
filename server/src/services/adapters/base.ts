@@ -39,6 +39,7 @@ export interface VideoGenerateParams {
   firstFrameImageUrl?: string;
   lastFrameImageUrl?: string;
   referenceImages?: string[]; // 一致性参考图（角色定妆照/场景/道具），视频模型支持时注入
+  referenceVideos?: string[]; // 参考视频（flf2v 等支持时注入；默认禁用避免干扰尾帧）
   duration?: number;
   ratio?: '16:9' | '9:16' | '1:1' | '4:3' | '3:4' | '21:9';
   resolution?: '720p' | '1080p' | '2k' | '4k';

@@ -5,7 +5,7 @@ import { Router, Request, Response } from 'express';
 import { z } from 'zod';
 import { createError, asyncHandler } from '../middleware/errorHandler';
 import { validateBody } from '../middleware/validate';
-import { composeEpisode, composePhase, getComposeStatus, checkFfmpegAvailable } from '../services/videoComposer';
+import { composeEpisode, composePhase, getComposeStatus, getLatestCompose, checkFfmpegAvailable } from '../services/videoComposer';
 import type { Database } from '../types';
 
 const router = Router();
@@ -23,6 +23,7 @@ const composeSchema = z.object({
   bgmVolume: z.number().min(0).max(1).optional(),
   byPhase: z.boolean().optional(), // true=两级合成（阶段视频→整集）
   phase: z.number().int().min(1).max(4).optional(), // 只合成指定阶段
+  skipMissingClips: z.boolean().optional(), // true=跳过无视频镜头，不生成黑屏占位
 });
 
 // 检查 ffmpeg 可用性
@@ -44,6 +45,13 @@ router.post('/episodes/:id/compose', validateBody(composeSchema), asyncHandler(a
 router.get('/compose/:taskId', asyncHandler(async (req: Request, res: Response) => {
   const result = getComposeStatus(req.params.taskId);
   if (!result) throw createError(404, 'NOT_FOUND', '合成任务不存在');
+  res.json({ success: true, data: result });
+}));
+
+// 查询某集最近一次合成结果（持久化记录优先，跨重启可恢复）
+router.get('/episodes/:id/latest-compose', asyncHandler(async (req: Request, res: Response) => {
+  const db = req.app.locals.db as Database;
+  const result = getLatestCompose(db, req.params.id);
   res.json({ success: true, data: result });
 }));
 

@@ -384,6 +384,107 @@ export function ShotCard({ shot, index, isExpanded, onToggle, showToast, sceneNa
     }
   };
 
+  // 首尾帧出片（推荐入口）：一键补齐首/尾帧（图片模型，带角色+场景参考）→ 自动切本地 flf2v 模型
+  // → 显式提交 endFrameId，起止画面双锁定。小白用户无需理解"首帧/尾帧/模型"概念，点一次即可。
+  const handleGenerateFLF2V = async () => {
+    if (!selectedImageModel) {
+      showToast('请先选择图像模型（用于自动补齐首/尾帧）', 'error');
+      return;
+    }
+    setIsGeneratingVideo(true);
+    try {
+      const [imgProvider, imgModel] = selectedImageModel.split(':');
+      if (!imgProvider || !imgModel) {
+        showToast('图像模型格式错误', 'error');
+        return;
+      }
+      // 镜头角色 id（用于首/尾帧生成时注入角色定妆参考，防止人物漂移）
+      const charIds = parseShotCharacterNames(shot)
+        .map(n => episodeChars.find(c => c.name === n || c.name.includes(n) || n.includes(c.name))?.id)
+        .filter((id): id is string => !!id);
+
+      // 1) 补首帧（frame_type=first）
+      let first = firstKeyframe;
+      if (!first) {
+        const r1 = await apiClient.post<unknown, { success?: boolean; data?: ShotKeyframe[]; message?: string }>(`/shots/${shot.id}/keyframes/generate`, {
+          provider: imgProvider,
+          modelName: imgModel,
+          frameTypes: ['first'],
+          referenceCharacterIds: charIds,
+        });
+        if (r1.success && r1.data && r1.data.length > 0) {
+          first = r1.data[r1.data.length - 1];
+          setKeyframes(prev => {
+            const ids = new Set(prev.map(k => k.id));
+            return [...prev, ...(r1.data as unknown as ShotKeyframe[]).filter(k => !ids.has(k.id))];
+          });
+        }
+      }
+      // 2) 补尾帧（frame_type=last，带角色+场景参考）
+      let last = endFrame || keyframes.find(k => k.frame_type === 'last' && k.image_url) || undefined;
+      if (!last) {
+        const r2 = await apiClient.post<unknown, { success?: boolean; data?: ShotKeyframe[]; message?: string }>(`/shots/${shot.id}/keyframes/generate`, {
+          provider: imgProvider,
+          modelName: imgModel,
+          frameTypes: ['last'],
+          referenceCharacterIds: charIds,
+          referenceSceneId: shot.scene_id || undefined,
+        });
+        if (r2.success && r2.data && r2.data.length > 0) {
+          last = r2.data[r2.data.length - 1];
+          setKeyframes(prev => {
+            const ids = new Set(prev.map(k => k.id));
+            return [...prev, ...(r2.data as unknown as ShotKeyframe[]).filter(k => !ids.has(k.id))];
+          });
+        }
+      }
+      if (!first || !last) {
+        showToast('首/尾帧生成失败，请检查图像模型配置与额度', 'error');
+        return;
+      }
+
+      // 3) 优先切到本地 flf2v 模型（首尾帧一致性最强、免费）；未配置则保持当前选中模型
+      const flf2vKey = 'comfyui:minimax-h3-flf2v.json';
+      const vidModels = configs.video?.filter(m => m.is_active) || [];
+      const hasFlf2v = vidModels.some(m => getModelKey(m.provider, m.model_name) === flf2vKey);
+      const finalModel = hasFlf2v ? flf2vKey : selectedVideoModel;
+      if (!finalModel) {
+        showToast('请先选择视频模型', 'error');
+        return;
+      }
+      if (hasFlf2v && selectedVideoModel !== flf2vKey) setSelectedVideoModel(flf2vKey);
+      const [vProvider, vModel] = finalModel.split(':');
+      const useFlf2v = finalModel === flf2vKey;
+
+      // 4) 提交视频（显式首尾帧：keyframeId + endFrameId）
+      const res = await videoService.generate(shot.id, {
+        provider: vProvider,
+        modelName: vModel,
+        keyframeId: first.id,
+        endFrameId: last.id,
+        motionPrompt: motionPrompt || shot.action_description,
+        duration: useFlf2v ? 5 : videoDuration,
+        ratio: useFlf2v ? '16:9' : videoRatio,
+        resolution: useFlf2v ? '720p' : videoResolution,
+        subtitles: false,
+      });
+      if (res.success && res.data) {
+        setVideos(prev => [...prev, res.data!]);
+        setPollingVideoId(res.data.id);
+        showToast(
+          useFlf2v
+            ? '首尾帧已锁定，已提交本地 ComfyUI 生成（约 20 分钟，后台自动回写进度）'
+            : '首尾帧已锁定，视频任务已创建，处理中...',
+          'info'
+        );
+      }
+    } catch (err: any) {
+      showToast(err?.response?.data?.message || err?.message || '首尾帧出片失败', 'error');
+    } finally {
+      setIsGeneratingVideo(false);
+    }
+  };
+
   return (
     <Card className="overflow-hidden">
       <div
@@ -430,6 +531,15 @@ export function ShotCard({ shot, index, isExpanded, onToggle, showToast, sceneNa
           >
             {processingVideo || isGeneratingVideo ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Video className="w-4 h-4" />}
             <span>{processingVideo || isGeneratingVideo ? '生成中' : completedVideo ? '视频✓' : '视频'}</span>
+          </button>
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); handleGenerateFLF2V(); }}
+            disabled={isGeneratingVideo || !!processingVideo}
+            className={`flex items-center gap-1.5 px-2 py-1 rounded-md text-xs font-medium transition-colors ${isGeneratingVideo || processingVideo ? 'opacity-50 cursor-not-allowed' : 'bg-purple-500/10 text-purple-600 dark:text-purple-400 hover:bg-purple-500/20'}`}
+            title="推荐：自动补齐首/尾帧（图片模型）→ 本地 ComfyUI 首尾帧出片，人物/场景/道具一致性最强"
+          >
+            <span>⚡ 首尾帧出片</span>
           </button>
           {isExpanded ? (
             <ChevronUp className="w-4 h-4 text-[var(--ink-3)]" />

@@ -101,6 +101,20 @@ export function StageExport() {
     };
   }, []);
 
+  // 切换剧集时拉取最近一次合成结果（持久化记录，跨刷新/重启可恢复显示）
+  useEffect(() => {
+    if (!currentEpisodeId) { setComposeResult(null); return; }
+    let cancelled = false;
+    videoComposeService.getLatest(currentEpisodeId)
+      .then(res => {
+        if (!cancelled && res.success && res.data && res.data.status === 'completed') {
+          setComposeResult(res.data);
+        }
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [currentEpisodeId]);
+
   const handleExport = async (type: ExportType, format: ExportFormat) => {
     if (!currentProject) return;
     const key = `${type}-${format}`;

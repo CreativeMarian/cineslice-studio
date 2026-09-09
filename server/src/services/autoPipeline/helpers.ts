@@ -47,17 +47,37 @@ export function isStageComplete(db: Database, projectId: string, stage: string):
       return count(`SELECT COUNT(*) c FROM shots WHERE episode_id IN (${ph})`, ...ids.map(r => r.id)) > 0;
     }
     case 'keyframes': {
-      // 全部镜头都有关键帧才算完成（防止半途而废被幂等跳过，缺失镜头永不补齐）
+      // flf2v 首尾帧链路需要每镜 first+last 双帧：只生成 first 的镜头视为未完成（自动补齐 last）
+      // 防止"有一帧就跳阶段"导致 last 帧永不生成、视频尾帧退化
       const totalShots = count('SELECT COUNT(*) c FROM shots s JOIN novel_episodes e ON s.episode_id = e.id WHERE e.project_id = ?', projectId);
       if (totalShots === 0) return false;
-      const shotsWithKF = count('SELECT COUNT(DISTINCT k.shot_id) c FROM shot_keyframes k JOIN shots s ON k.shot_id = s.id JOIN novel_episodes e ON s.episode_id = e.id WHERE e.project_id = ? AND k.image_url IS NOT NULL AND k.image_url != ?', projectId, '');
-      return shotsWithKF >= totalShots;
+      const shotsWithFirst = count("SELECT COUNT(DISTINCT k.shot_id) c FROM shot_keyframes k JOIN shots s ON k.shot_id = s.id JOIN novel_episodes e ON s.episode_id = e.id WHERE e.project_id = ? AND k.frame_type = 'first' AND k.image_url IS NOT NULL AND k.image_url != ?", projectId, '');
+      const shotsWithLast = count("SELECT COUNT(DISTINCT k.shot_id) c FROM shot_keyframes k JOIN shots s ON k.shot_id = s.id JOIN novel_episodes e ON s.episode_id = e.id WHERE e.project_id = ? AND k.frame_type = 'last' AND k.image_url IS NOT NULL AND k.image_url != ?", projectId, '');
+      return shotsWithFirst >= totalShots && shotsWithLast >= totalShots;
     }
-    case 'audio':
-      return count(
-        "SELECT COUNT(*) c FROM generation_tasks WHERE project_id = ? AND task_type = 'audio' AND status = 'completed'",
+    case 'audio': {
+      // v3.0: 结构化配音记录（shot_audio）判定，与 progress 完成度一致
+      const total = count(
+        "SELECT COUNT(*) c FROM shots s JOIN novel_episodes e ON s.episode_id = e.id WHERE e.project_id = ? AND LENGTH(TRIM(COALESCE(s.dialogue,''))) > 0",
         projectId
-      ) > 0;
+      );
+      if (total === 0) return false;
+      const done = count(
+        "SELECT COUNT(DISTINCT a.shot_id) c FROM shot_audio a JOIN shots s ON a.shot_id = s.id JOIN novel_episodes e ON s.episode_id = e.id WHERE e.project_id = ? AND a.status = 'completed'",
+        projectId
+      );
+      return done >= total;
+    }
+    case 'export': {
+      // v3.0: 每集都有成功的拼接记录（render_logs episode_compose）才算完成
+      const epCount = count('SELECT COUNT(*) c FROM novel_episodes WHERE project_id = ?', projectId);
+      if (epCount === 0) return false;
+      const done = count(
+        "SELECT COUNT(*) c FROM render_logs r JOIN novel_episodes e ON r.episode_id = e.id WHERE e.project_id = ? AND r.action = 'episode_compose' AND r.details LIKE '%\"status\":\"completed\"%'",
+        projectId
+      );
+      return done >= epCount;
+    }
     case 'video': {
       // 全部镜头都有完成视频才算完成（缺失镜头由 stageVideo 逐镜补齐，不重跑已有）
       const totalShots = count('SELECT COUNT(*) c FROM shots s JOIN novel_episodes e ON s.episode_id = e.id WHERE e.project_id = ?', projectId);
@@ -72,10 +92,16 @@ export function isStageComplete(db: Database, projectId: string, stage: string):
 
 /**
  * 获取第一个已配置的指定类型模型
+ * 视频类型：优先本地 ComfyUI flf2v（MiniMax H3 首尾帧）——首尾帧硬锁定、免费无额度、质量最稳；
+ *           未配置 flf2v 时回退到用户配置的第一个视频模型
  */
 export function getFirstModel(db: Database, userId: string, modelType: string): { provider: string; modelName: string } | null {
   const models = ModelRegistryDAO.listByUserAndType(db, userId, modelType);
   if (models.length === 0) return null;
+  if (modelType === 'video') {
+    const flf = models.find(m => m.provider === 'comfyui' && String(m.model_name).toLowerCase().includes('flf2v'));
+    if (flf) return { provider: flf.provider, modelName: flf.model_name };
+  }
   return { provider: models[0].provider, modelName: models[0].model_name };
 }
 

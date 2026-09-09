@@ -32,12 +32,17 @@ export class ComfyUIVideoAdapter implements VideoAdapter {
     try {
       // 1. 加载工作流模板（有首帧时优先使用 ref2va 模板，规避 MiniMaxH3ImageToVideo 的 keyframes latent 打包不兼容）
       const workflow = this.selectWorkflow(!!params.firstFrameImageUrl);
+      const isFlf2v = this.workflowPath.includes('flf2v');
 
       // 2. 替换占位符
       const positive = params.motion || params.prompt || '';
       const negative = this.extractNegative(positive);
       const seed = Math.floor(Math.random() * 1e15);
-      const { width, height } = this.parseRatio(params.ratio || '16:9');
+      const parsed = this.parseRatio(params.ratio || '16:9');
+      // flf2v（MiniMaxH3ImageToVideo）latent 空间维要求 height/16 为偶数 → height % 32 == 0；
+      // 720 会报张量 shape 错误，向下取整到 704
+      const height = isFlf2v ? parsed.height - (parsed.height % 32) : parsed.height;
+      const width = parsed.width;
 
       // 固定时长：统一按请求时长（默认 5 秒），保证单镜渲染耗时可控
       const duration = params.duration || 5;
@@ -54,31 +59,51 @@ export class ComfyUIVideoAdapter implements VideoAdapter {
 
       const filledWorkflow = JSON.parse(workflowStr);
 
-      // 3. 参考图处理：首帧 + 一致性参考图（角色概念图/造型图/场景图）全部注入 ref_images
-      //    多图参考 = 人物/场景跨镜锚定，解决角色漂移
-      const imageUrls: string[] = [];
-      if (params.firstFrameImageUrl) imageUrls.push(params.firstFrameImageUrl);
-      if (Array.isArray(params.referenceImages)) {
-        for (const ref of params.referenceImages) {
-          if (!ref) continue;
-          if (!imageUrls.some(u => u === ref)) imageUrls.push(ref);
+      // 3. 参考图处理
+      if (isFlf2v) {
+        // 首尾帧专用：首帧 → LoadImage 200（first_frame），尾帧 → LoadImage 201（last_frame）
+        // 首尾两端为原图硬锁定，模型在两端之间补帧，人物/场景/道具一致性最强
+        let firstName: string | null = null;
+        if (params.firstFrameImageUrl) {
+          firstName = await this.uploadFrame(params.firstFrameImageUrl, width, height, 'first');
         }
-      }
-      if (imageUrls.length > 0) {
-        const names: string[] = [];
-        for (const url of imageUrls) {
-          const name = await this.uploadFirstFrame(url, width, height);
-          if (!names.includes(name)) names.push(name);
+        let lastName: string | null = null;
+        if (params.lastFrameImageUrl) {
+          lastName = await this.uploadFrame(params.lastFrameImageUrl, width, height, 'last');
         }
-        this.injectImageToWorkflow(filledWorkflow, names);
-        console.log(`[ComfyUI] 参考图已上传 ${names.length} 张: ${names.join(', ')} (${width}x${height})`);
+        if (firstName) {
+          this.injectFlf2vImages(filledWorkflow, firstName, lastName);
+          console.log(`[ComfyUI] 首尾帧已注入: first=${firstName}${lastName ? ' last=' + lastName : '（无尾帧，退化为单首帧）'} (${width}x${height})`);
+        } else {
+          this.removeImageNodes(filledWorkflow);
+          console.log('[ComfyUI] 无首帧，已切换为文生视频模式');
+        }
       } else {
-        this.removeImageNodes(filledWorkflow);
-        console.log('[ComfyUI] 无参考图，已切换为文生视频模式');
+        const imageUrls: string[] = [];
+        if (params.firstFrameImageUrl) imageUrls.push(params.firstFrameImageUrl);
+        if (Array.isArray(params.referenceImages)) {
+          for (const ref of params.referenceImages) {
+            if (!ref) continue;
+            if (!imageUrls.some(u => u === ref)) imageUrls.push(ref);
+          }
+        }
+        if (imageUrls.length > 0) {
+          const names: string[] = [];
+          for (const url of imageUrls) {
+            const name = await this.uploadFrame(url, width, height, 'first');
+            if (!names.includes(name)) names.push(name);
+          }
+          this.injectImageToWorkflow(filledWorkflow, names);
+          console.log(`[ComfyUI] 参考图已上传 ${names.length} 张: ${names.join(', ')} (${width}x${height})`);
+        } else {
+          this.removeImageNodes(filledWorkflow);
+          console.log('[ComfyUI] 无参考图，已切换为文生视频模式');
+        }
       }
 
       // 3.5 参考视频（上一镜成品）→ H3 ref_videos 视频续写，锁定人物/场景延续
-      if (params.referenceVideos && params.referenceVideos.length > 0) {
+      // 首尾帧模式（flf2v）下跳过：ImageToVideo 节点无 ref_videos 参数，注入会干扰 first/last_frame 生效
+      if (!isFlf2v && params.referenceVideos && params.referenceVideos.length > 0) {
         const videoNames: string[] = [];
         for (const url of params.referenceVideos) {
           try {
@@ -116,8 +141,13 @@ export class ComfyUIVideoAdapter implements VideoAdapter {
       const record = history[taskId];
 
       if (!record) {
-        // 任务还在队列/执行中：查询 ComfyUI 实时渲染进度（/progress 原生接口）
+        // 任务还在队列/执行中：查询 ComfyUI 实时渲染进度（/progress + /queue 原生接口）
         const liveProgress = await this.getLiveProgress(taskId);
+        if (liveProgress === undefined) {
+          // 既不在队列也不在 running 也不在 history：任务已不存在（ComfyUI 重启/记录丢失），
+          // 标记失败防止僵尸任务永久卡住轮询队列
+          return { taskId, status: 'failed', error: '任务已不在 ComfyUI 队列/历史中（可能因重启丢失），请重新生成该镜头' };
+        }
         return { taskId, status: 'processing', progress: liveProgress };
       }
 
@@ -147,18 +177,21 @@ export class ComfyUIVideoAdapter implements VideoAdapter {
     }
   }
 
-  /** 查询 ComfyUI /progress 实时渲染进度（0-100），任务不在 running 时返回 undefined */
+  /** 查询 ComfyUI /progress + /queue 判断任务是否仍在（0-100），完全不在队列/运行时返回 undefined */
   private async getLiveProgress(taskId: string): Promise<number | undefined> {
     try {
-      const raw = await this.httpGet('/progress');
+      const [raw, queueRaw] = await Promise.all([this.httpGet('/progress'), this.httpGet('/queue')]);
       const data = JSON.parse(raw);
+      const queue = JSON.parse(queueRaw);
       const running: Record<string, { progress?: number }> = data?.running || {};
       const entry = running[taskId];
       if (entry && typeof entry.progress === 'number') {
         return Math.max(0, Math.min(100, Math.round(entry.progress * 100)));
       }
-      // 队列中尚未开始：返回 1（有真实排队含义），避免伪装
-      return 1;
+      if (entry) return 0; // 正在运行但暂无进度值
+      const inQueue = Array.isArray(queue?.queue_pending) && queue.queue_pending.some((e: any) => Array.isArray(e) && e[1] === taskId);
+      if (inQueue) return 1; // 队列中尚未开始
+      return undefined; // 不在运行也不在队列：任务已不存在
     } catch {
       return undefined;
     }
@@ -167,7 +200,13 @@ export class ComfyUIVideoAdapter implements VideoAdapter {
   // ============ 内部方法 ============
 
   private selectWorkflow(hasFirstFrame: boolean): any {
-    if (hasFirstFrame && this.modelName.includes('minimax-h3-video')) {
+    if (this.modelName.includes('flf2v')) {
+      // 首尾帧工作流：首帧+尾帧双端硬锁定（MiniMaxH3ImageToVideo 原生支持 first_frame/last_frame）
+      const flfPath = path.join(WORKFLOW_DIR, 'minimax-h3-flf2v.json');
+      if (fs.existsSync(flfPath)) {
+        this.workflowPath = flfPath;
+      }
+    } else if (hasFirstFrame && this.modelName.includes('minimax-h3-video')) {
       const refPath = path.join(WORKFLOW_DIR, 'minimax-h3-ref2va.json');
       if (fs.existsSync(refPath)) {
         this.workflowPath = refPath;
@@ -223,7 +262,7 @@ export class ComfyUIVideoAdapter implements VideoAdapter {
     return str.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n');
   }
 
-  private async uploadFirstFrame(dataUrl: string, width: number, height: number): Promise<string> {
+  private async uploadFrame(dataUrl: string, width: number, height: number, tag: 'first' | 'last'): Promise<string> {
     // dataUrl 可能是 base64 data URL 或 http URL
     let buffer: Buffer;
     let filename: string;
@@ -233,7 +272,7 @@ export class ComfyUIVideoAdapter implements VideoAdapter {
       if (!match) throw new AIError('AI_CALL_FAILED', '无效的首帧图片数据格式');
       const ext = match[1] === 'jpeg' ? 'jpg' : match[1];
       buffer = Buffer.from(match[2], 'base64');
-      filename = `cineslice_first_${Date.now()}.${ext}`;
+      filename = `cineslice_${tag}_${Date.now()}.${ext}`;
     } else {
       // HTTP URL / 相对路径，先下载（相对路径指向本服务后端静态目录）
       let target = dataUrl;
@@ -244,23 +283,23 @@ export class ComfyUIVideoAdapter implements VideoAdapter {
       const res = await fetch(target);
       if (!res.ok) throw new AIError('AI_CALL_FAILED', `参考图下载失败: ${res.status} ${target}`);
       buffer = Buffer.from(await res.arrayBuffer());
-      filename = `cineslice_first_${Date.now()}.png`;
+      filename = `cineslice_${tag}_${Date.now()}.png`;
     }
 
     // 关键：首帧必须与视频输出分辨率一致（MiniMaxH3 latent 尺寸强校验），
     // 用 ffmpeg 强制缩放到 width x height，避免 latent shape 不匹配报错
     try {
-      const tmpIn = path.join(WORKFLOW_DIR, `.first_in_${Date.now()}.png`);
-      const tmpOut = path.join(WORKFLOW_DIR, `.first_resized_${Date.now()}.png`);
+      const tmpIn = path.join(WORKFLOW_DIR, `.${tag}_in_${Date.now()}.png`);
+      const tmpOut = path.join(WORKFLOW_DIR, `.${tag}_resized_${Date.now()}.png`);
       fs.writeFileSync(tmpIn, buffer);
       const { execFileSync } = await import('child_process');
       execFileSync('ffmpeg', ['-y', '-i', tmpIn, '-vf', `scale=${width}:${height}:force_original_aspect_ratio=decrease,pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2`, tmpOut], { stdio: 'pipe' });
       buffer = fs.readFileSync(tmpOut);
       fs.unlinkSync(tmpIn);
       fs.unlinkSync(tmpOut);
-      filename = `cineslice_first_${Date.now()}.png`;
+      filename = `cineslice_${tag}_${Date.now()}.png`;
     } catch (e) {
-      console.warn(`[ComfyUI] 首帧尺寸对齐失败，按原图上传: ${(e as Error).message}`);
+      console.warn(`[ComfyUI] ${tag}帧尺寸对齐失败，按原图上传: ${(e as Error).message}`);
     }
 
     const boundary = `----CineSlice${Date.now()}`;
@@ -350,6 +389,30 @@ export class ComfyUIVideoAdapter implements VideoAdapter {
       if (node.class_type && /ImageToVideo|Image2Video|I2V/i.test(node.class_type)) {
         if (node.inputs.first_frame === undefined || node.inputs.first_frame === null) {
           node.inputs.first_frame = [loadImageIds[0], 0];
+        }
+      }
+    }
+  }
+
+  /** 注入首尾帧到 flf2v 工作流：LoadImage 200 → first_frame，LoadImage 201 → last_frame */
+  private injectFlf2vImages(workflow: any, firstName: string | null, lastName: string | null): void {
+    for (const nodeId of Object.keys(workflow)) {
+      const node = workflow[nodeId];
+      if (!node || node.class_type !== 'LoadImage') continue;
+      if (nodeId === '200') {
+        if (firstName) node.inputs.image = firstName;
+      } else if (nodeId === '201') {
+        if (lastName) {
+          node.inputs.image = lastName;
+        } else {
+          // 无尾帧：删除 201 节点并断开 last_frame 输入（ImageToVideo 的 last_frame 可选）
+          delete workflow[nodeId];
+          for (const otherId of Object.keys(workflow)) {
+            const other = workflow[otherId];
+            if (other && other.inputs && Array.isArray(other.inputs.last_frame) && String(other.inputs.last_frame[0]) === '201') {
+              delete other.inputs.last_frame;
+            }
+          }
         }
       }
     }

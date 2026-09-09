@@ -48,14 +48,41 @@ router.get('/progress', asyncHandler(async (req: Request, res: Response) => {
     ? count(`SELECT COUNT(*) c FROM script_scenes WHERE episode_id IN (${inList})`, ...epArgs) : 0;
   const cShots = epIds.length > 0
     ? count(`SELECT COUNT(*) c FROM shots WHERE episode_id IN (${inList})`, ...epArgs) : 0;
-  const cKeyframes = count(
-    'SELECT COUNT(*) c FROM shot_keyframes k JOIN shots s ON k.shot_id = s.id JOIN novel_episodes e ON s.episode_id = e.id WHERE e.project_id = ? AND k.image_url IS NOT NULL AND k.image_url != ?',
-    projectId, ''
-  );
-  const cVideos = count(
-    "SELECT COUNT(*) c FROM shot_video_intervals v JOIN shots s ON v.shot_id = s.id JOIN novel_episodes e ON s.episode_id = e.id WHERE e.project_id = ? AND v.status = 'completed' AND v.video_url IS NOT NULL AND v.video_url != ''",
+  const totalShots = count(
+    'SELECT COUNT(*) c FROM shots s JOIN novel_episodes e ON s.episode_id = e.id WHERE e.project_id = ?',
     projectId
   );
+  // flf2v 首尾帧链路：每镜需要 first+last 双帧才算关键帧完成（只 first 视为未完成，自动补齐 last）
+  const cShotsWithFirst = count(
+    "SELECT COUNT(DISTINCT k.shot_id) c FROM shot_keyframes k JOIN shots s ON k.shot_id = s.id JOIN novel_episodes e ON s.episode_id = e.id WHERE e.project_id = ? AND k.frame_type = 'first' AND k.image_url IS NOT NULL AND k.image_url != ?",
+    projectId, ''
+  );
+  const cShotsWithLast = count(
+    "SELECT COUNT(DISTINCT k.shot_id) c FROM shot_keyframes k JOIN shots s ON k.shot_id = s.id JOIN novel_episodes e ON s.episode_id = e.id WHERE e.project_id = ? AND k.frame_type = 'last' AND k.image_url IS NOT NULL AND k.image_url != ?",
+    projectId, ''
+  );
+  const cKeyframes = cShotsWithFirst + cShotsWithLast;
+  const cVideos = count(
+    "SELECT COUNT(DISTINCT v.shot_id) c FROM shot_video_intervals v JOIN shots s ON v.shot_id = s.id JOIN novel_episodes e ON s.episode_id = e.id WHERE e.project_id = ? AND v.status = 'completed' AND v.video_url IS NOT NULL AND v.video_url != ''",
+    projectId
+  );
+  // audio 完成度：有对白的镜头数 vs 已配音镜头数（shot_audio 结构化记录，含手动 TTS 与 compose 自动配音）
+  const cShotsWithDialogue = count(
+    "SELECT COUNT(*) c FROM shots s JOIN novel_episodes e ON s.episode_id = e.id WHERE e.project_id = ? AND LENGTH(TRIM(COALESCE(s.dialogue,''))) > 0",
+    projectId
+  );
+  const cShotsWithAudio = epIds.length > 0
+    ? count(
+        `SELECT COUNT(DISTINCT a.shot_id) c FROM shot_audio a JOIN shots s ON a.shot_id = s.id JOIN novel_episodes e ON s.episode_id = e.id WHERE e.project_id = ? AND a.status = 'completed'`,
+        projectId
+      ) : 0;
+  // export 完成度：最近一次 episode_compose 持久化记录且成功（含阶段合成或整集拼接）
+  const cExports = epIds.length > 0
+    ? count(
+        `SELECT COUNT(*) c FROM render_logs r WHERE r.episode_id IN (${inList}) AND r.action = 'episode_compose' AND r.details LIKE '%"status":"completed"%'`,
+        ...epArgs
+      ) : 0;
+  const episodesTotal = Math.max(epIds.length, 1);
 
   const stages = {
     novel: { done: cNovel > 0, count: cNovel, label: '小说上传' },
@@ -64,10 +91,12 @@ router.get('/progress', asyncHandler(async (req: Request, res: Response) => {
     characters: { done: cCharacters > 0, count: cCharacters, label: '角色设定' },
     scenes: { done: cScenes > 0, count: cScenes, label: '场景设定' },
     shots: { done: cShots > 0, count: cShots, label: '分镜生成' },
-    keyframes: { done: cKeyframes > 0, count: cKeyframes, label: '关键帧' },
-    video: { done: cVideos > 0, count: cVideos, label: '视频生成' },
+    keyframes: { done: totalShots > 0 && cShotsWithFirst >= totalShots && cShotsWithLast >= totalShots, count: cKeyframes, label: '关键帧' },
+    video: { done: totalShots > 0 && cVideos >= totalShots, count: cVideos, label: '视频生成' },
+    audio: { done: cShotsWithDialogue > 0 && cShotsWithAudio >= cShotsWithDialogue, count: cShotsWithAudio, label: '配音生成' },
+    export: { done: cExports >= episodesTotal, count: cExports, label: '拼接成片' },
   };
-  const order = ['novel', 'episodes', 'script', 'characters', 'scenes', 'shots', 'keyframes', 'video'] as const;
+  const order = ['novel', 'episodes', 'script', 'characters', 'scenes', 'shots', 'keyframes', 'video', 'audio', 'export'] as const;
   const completedCount = order.filter(k => stages[k].done).length;
   const firstPending = order.find(k => !stages[k].done) || null;
   const allDone = firstPending === null;
@@ -223,12 +252,39 @@ router.post('/auto-run', asyncHandler(async (req: Request, res: Response) => {
     }
     throw err;
   }
+
+  // 预估总耗时（分钟）：文本阶段固定开销 + 关键帧(缺帧镜头×2帧×~11s) + 视频(缺视频镜头×~20min 本地flf2v)
+  const projectId = req.params.id;
+  const shotRow: any = db.prepare(
+    "SELECT COUNT(*) c FROM shots s JOIN novel_episodes e ON s.episode_id = e.id WHERE e.project_id = ?"
+  ).get(projectId);
+  const totalShots = Number(shotRow?.c || 0);
+  const missingKF: any = db.prepare(
+    "SELECT COUNT(DISTINCT s.id) c FROM shots s JOIN novel_episodes e ON s.episode_id = e.id WHERE e.project_id = ? AND NOT EXISTS (SELECT 1 FROM shot_keyframes k WHERE k.shot_id = s.id AND k.image_url IS NOT NULL AND k.image_url != '')"
+  ).get(projectId);
+  const missingVideo: any = db.prepare(
+    "SELECT COUNT(DISTINCT s.id) c FROM shots s JOIN novel_episodes e ON s.episode_id = e.id WHERE e.project_id = ? AND NOT EXISTS (SELECT 1 FROM shot_video_intervals v WHERE v.shot_id = s.id AND v.status = 'completed' AND v.video_url IS NOT NULL AND v.video_url != '')"
+  ).get(projectId);
+  const kfShots = Number(missingKF?.c || 0);
+  const videoShots = Number(missingVideo?.c || 0);
+  // v3.0: 补 audio（有对白未配音镜头 × 0.5min）与 export（每集合成 × 3min）估算
+  const missingAudio: any = db.prepare(
+    `SELECT COUNT(DISTINCT s.id) c FROM shots s JOIN novel_episodes e ON s.episode_id = e.id
+     WHERE e.project_id = ? AND LENGTH(TRIM(COALESCE(s.dialogue,''))) > 0
+       AND NOT EXISTS (SELECT 1 FROM shot_audio a WHERE a.shot_id = s.id AND a.status = 'completed')`
+  ).get(projectId);
+  const audioShots = Number(missingAudio?.c || 0);
+  const epCount: any = db.prepare('SELECT COUNT(*) c FROM novel_episodes WHERE project_id = ?').get(projectId);
+  const exportEpisodes = Number(epCount?.c || 0);
+  const estimatedMinutes = Math.max(10, Math.ceil(15 + kfShots * 0.5 + videoShots * 20 + audioShots * 0.5 + exportEpisodes * 3));
+
   res.json({
     success: true,
     data: {
       taskId: task.taskId,
       status: task.status,
-      message: '全自动流水线已启动，将自动执行所有阶段',
+      estimatedMinutes,
+      message: `全自动流水线已启动，预计 ${estimatedMinutes} 分钟左右完成（${totalShots} 个镜头，其中关键帧 ${kfShots} 个、视频 ${videoShots} 个、配音 ${audioShots} 个待生成）`,
     },
   });
 }));

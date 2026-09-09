@@ -12,8 +12,9 @@ import { stageCharacters } from './stages/characters';
 import { stageScenes } from './stages/scenes';
 import { stageShots } from './stages/shots';
 import { stageKeyframes } from './stages/keyframes';
-import { stageAudio } from './stages/audio';
 import { stageVideo } from './stages/video';
+import { stageAudio } from './stages/audio';
+import { stageExport } from './stages/export';
 
 /**
  * 串行执行所有阶段
@@ -73,11 +74,14 @@ export async function runPipeline(db: Database, task: AutoPipelineTask): Promise
         case 'keyframes':
           await stageKeyframes(db, task);
           break;
+        case 'video':
+          await stageVideo(db, task);
+          break;
         case 'audio':
           await stageAudio(db, task);
           break;
-        case 'video':
-          await stageVideo(db, task);
+        case 'export':
+          await stageExport(db, task);
           break;
       }
       PipelineService.completeStage(db, projectId, stage);

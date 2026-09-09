@@ -21,10 +21,11 @@ const STAGE_EST_MIN: Record<string, number> = {
   scenes: 1,
   shots: 8,
   keyframes: 12,
-  audio: 4,
   video: 25,
+  audio: 4,
+  export: 5,
 };
-const PIPELINE_ORDER = ['novel', 'episodes', 'script', 'characters', 'scenes', 'shots', 'keyframes', 'audio', 'video'];
+const PIPELINE_ORDER = ['novel', 'episodes', 'script', 'characters', 'scenes', 'shots', 'keyframes', 'video', 'audio', 'export'];
 
 // 估算：从 startStage（含）到结束的未完成阶段总时长
 function estimateMinutesFrom(progressData: ProjectProgressData | null, startStage: string | null): number {
@@ -48,8 +49,9 @@ const STAGE_LABELS: Record<string, string> = {
   scenes: '场景设定',
   shots: '分镜生成',
   keyframes: '关键帧',
-  audio: '配音生成',
   video: '视频生成',
+  audio: '配音生成',
+  export: '拼接成片',
 };
 
 export function ProjectLayout() {
@@ -84,6 +86,8 @@ export function ProjectLayout() {
     shots: { text: '生成分镜', path: 'script' },
     keyframes: { text: '生成关键帧', path: 'director' },
     video: { text: '生成视频', path: 'director' },
+    audio: { text: '生成配音并合成音轨', path: 'director' },
+    export: { text: '拼接导出成片', path: 'export' },
   };
   const nextStep = progressData
     ? (progressData.firstPending ? NEXT_STEP_MAP[progressData.firstPending] : null)
@@ -280,25 +284,34 @@ export function ProjectLayout() {
       if (res.success && res.data) {
         setAutoTaskId(res.data.taskId);
         setPipelineMode('auto');
-        // 预估时间：基于真实完成度（已完成阶段自动跳过，只算剩余阶段）
-        try {
-          const pRes = await pipelineService.getProgress(projectId);
-          if (pRes.success && pRes.data) {
-            const pd = pRes.data;
-            setProgressData(pd);
-            const est = estimateMinutesFrom(pd, null);
-            const skipCount = PIPELINE_ORDER.filter(st => pd.stages[st]?.done).length;
-            useUIStore.getState().showToast(
-              skipCount > 0
-                ? `全自动流水线已启动！${skipCount} 个阶段已存在将自动跳过，预计约 ${Math.max(est, 1)} 分钟完成（视模型速度）`
-                : `全自动流水线已启动！预计约 ${Math.max(est, 1)} 分钟完成（视模型速度）`,
-              'success', { duration: 6000 }
-            );
-          } else {
+        // 预估时间：优先用后端精确估算（镜头数×单镜耗时，含真实完成度跳过）；
+        // 后端未返回时回退前端阶段估算
+        const backendEst = (res.data as { estimatedMinutes?: number }).estimatedMinutes;
+        if (backendEst) {
+          useUIStore.getState().showToast(
+            res.data.message || `全自动流水线已启动！预计约 ${backendEst} 分钟完成`,
+            'success', { duration: 6000 }
+          );
+        } else {
+          try {
+            const pRes = await pipelineService.getProgress(projectId);
+            if (pRes.success && pRes.data) {
+              const pd = pRes.data;
+              setProgressData(pd);
+              const est = estimateMinutesFrom(pd, null);
+              const skipCount = PIPELINE_ORDER.filter(st => pd.stages[st]?.done).length;
+              useUIStore.getState().showToast(
+                skipCount > 0
+                  ? `全自动流水线已启动！${skipCount} 个阶段已存在将自动跳过，预计约 ${Math.max(est, 1)} 分钟完成（视模型速度）`
+                  : `全自动流水线已启动！预计约 ${Math.max(est, 1)} 分钟完成（视模型速度）`,
+                'success', { duration: 6000 }
+              );
+            } else {
+              useUIStore.getState().showToast('全自动流水线已启动！正在自动执行所有阶段', 'success');
+            }
+          } catch {
             useUIStore.getState().showToast('全自动流水线已启动！正在自动执行所有阶段', 'success');
           }
-        } catch {
-          useUIStore.getState().showToast('全自动流水线已启动！正在自动执行所有阶段', 'success');
         }
         loadPipeline();
       }

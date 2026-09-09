@@ -958,6 +958,14 @@ const VIDEO_MODELS: ModelMeta[] = [
     costEstimate: { perVideo: 0 },
     configHint: 'Endpoint 填 ComfyUI 地址（如 http://127.0.0.1:8188），无需 API Key。工作流模板放 data/comfyui-workflows/',
   },
+  {
+    provider: 'comfyui', providerName: 'ComfyUI 本地',
+    modelName: 'minimax-h3-flf2v.json', displayName: 'MiniMax H3 首尾帧（ComfyUI 本地）',
+    modelType: 'video', description: '本地 ComfyUI 首尾帧工作流：首帧+尾帧双端硬锁定，模型在两端间补帧，人物/场景/道具一致性最强',
+    supports: { referenceImage: true, customEndpoint: true, audio: false },
+    costEstimate: { perVideo: 0 },
+    configHint: 'Endpoint 填 ComfyUI 地址（如 http://127.0.0.1:8188），无需 API Key。工作流模板放 data/comfyui-workflows/',
+  },
 ];
 
 // ---------- 音频模型（8个） ----------

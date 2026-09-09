@@ -45,7 +45,7 @@ export interface AuthUser {
 export type ProjectStage = 'script' | 'assets' | 'director' | 'export';
 export type ProjectStatus = 'active' | 'archived';
 export type PipelineMode = 'auto' | 'semi-auto';
-export type PipelineStage = 'novel' | 'episodes' | 'script' | 'characters' | 'scenes' | 'shots' | 'keyframes' | 'audio' | 'video';
+export type PipelineStage = 'novel' | 'episodes' | 'script' | 'characters' | 'scenes' | 'shots' | 'keyframes' | 'video' | 'audio' | 'export';
 export type StageStatus = 'pending' | 'running' | 'done' | 'failed' | 'awaiting_confirmation';
 export type RecommendedStage = 'episodes' | 'script' | 'characters' | 'scenes' | 'shots' | 'images' | 'video' | 'audio';
 
@@ -362,6 +362,26 @@ export interface Subtitle {
   style: string;
   created_at: string;
 }
+
+// ============ 配音记录 ============
+
+export interface ShotAudio {
+  id: string;
+  user_id: string;
+  project_id: string;
+  episode_id: string;
+  shot_id: string;
+  shot_number: number | null;
+  file_name: string | null;
+  voice: string | null;
+  speed: number | null;
+  duration_seconds: number | null;
+  source: string;
+  status: string;
+  created_at: string;
+  updated_at: string;
+}
+
 
 // ============ 渲染日志 ============
 

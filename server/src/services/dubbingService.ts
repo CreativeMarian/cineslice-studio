@@ -9,6 +9,7 @@ import type { Database } from '../types';
 import { aiProxy } from './aiProxy';
 import { resolveVoiceForShot, adjustSpeedByEmotion } from './voiceAssignment';
 import { downloadToFile } from '../utils/download';
+import { ShotAudioDAO, SubtitleDAO } from '../models';
 
 const execFileP = promisify(execFile);
 const PROJECT_DIR = path.resolve(process.cwd(), 'data');
@@ -104,8 +105,47 @@ export interface DubOptions {
   db?: Database;
   userId?: string;
   episodeId?: string;
+  projectId?: string;
+  /** 写结构化记录用的镜头信息（compose 自动配音链路传入） */
+  shotId?: string;
+  shotNumber?: number;
   /** 用户配置的音频模型 key（provider:modelName）。存在时优先走该模型 + 角色音色档案；否则回退 edge-tts */
   audioModelKey?: string;
+}
+
+/** 配音结果写入 shot_audio + subtitles 结构化记录（compose 自动配音链路） */
+function persistDubResult(opts: DubOptions, result: { voicePath: string; voiceUsed: string; dialogueText: string; durationSec: number }): void {
+  try {
+    if (!opts.db || !opts.userId || !opts.episodeId || !opts.projectId || !opts.shotId) return;
+    const voiceFileName = path.basename(result.voicePath);
+    ShotAudioDAO.upsertByShot(opts.db, {
+      user_id: opts.userId,
+      project_id: opts.projectId,
+      episode_id: opts.episodeId,
+      shot_id: opts.shotId,
+      shot_number: opts.shotNumber ?? null,
+      file_name: voiceFileName,
+      voice: result.voiceUsed === 'cached' ? 'cached' : undefined,
+      duration_seconds: result.durationSec || undefined,
+      source: 'compose',
+    });
+    // 结构化字幕入库（整集 SRT 烧录与字幕检索用）
+    SubtitleDAO.deleteByShot(opts.db, opts.shotId);
+    if (result.dialogueText) {
+      SubtitleDAO.create(opts.db, {
+        user_id: opts.userId,
+        episode_id: opts.episodeId,
+        shot_id: opts.shotId,
+        start_time: 0,
+        end_time: Math.max(result.durationSec, 1),
+        text: result.dialogueText,
+        speaker: undefined,
+        style: 'compose',
+      });
+    }
+  } catch (e) {
+    console.warn(`[Dub] 结构化记录写入失败（不影响成片）: ${(e as Error).message}`);
+  }
 }
 
 /**
@@ -134,6 +174,7 @@ export async function dubVideo(
     const dur = fs.existsSync(voicePath) ? await audioDuration(voicePath) : 0;
     const outDur = await videoDuration(outPath);
     if (dur <= 0 || outDur >= dur - 0.5) {
+      persistDubResult(opts || {}, { voicePath, voiceUsed: 'cached', dialogueText, durationSec: dur });
       return { videoPath: outPath, srtPath, voicePath, voiceUsed: 'cached', dialogueText, durationSec: dur };
     }
     try {
@@ -179,8 +220,9 @@ export async function dubVideo(
   // ffmpeg：视频画面 + TTS 音轨（替换原音轨）+ 烧录字幕
   // v1.2 - 去 -shortest 硬截断：语音长于视频 → 视频定格补帧（tpad 克隆末帧）到语音播完；
   //        语音短于视频 → 保留完整画面，语音结束后静音（apad 垫底），杜绝说话被切/画面提前结束
+  // v1.3 - WrapStyle=2：长台词自动换行，避免超出画面宽度被截断
   const srtEscaped = srtPath.replace(/\\/g, '/').replace(/:/g, '\\:');
-  const vf = `subtitles='${srtEscaped}':force_style='FontName=Microsoft YaHei,FontSize=20,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,BorderStyle=1,Outline=2,Shadow=1,MarginV=110'`;
+  const vf = `subtitles='${srtEscaped}':force_style='FontName=Microsoft YaHei,FontSize=20,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,BorderStyle=1,Outline=2,Shadow=1,MarginV=110,WrapStyle=2'`;
   const videoDur = await videoDuration(videoPath);
   const targetDur = Math.max(videoDur, dur);
   const padX = Math.max(0, dur - videoDur).toFixed(3);
@@ -196,6 +238,8 @@ export async function dubVideo(
     outPath,
   ];
   await execFileP('ffmpeg', args, { timeout: 300000 });
+
+  persistDubResult(opts || {}, { voicePath, voiceUsed: useConfiguredModel ? 'configured' : 'edge-tts', dialogueText, durationSec: dur });
 
   return { videoPath: outPath, srtPath, voicePath, voiceUsed: useConfiguredModel ? 'configured' : 'edge-tts', dialogueText, durationSec: dur };
 }
