@@ -10,6 +10,8 @@ import { buildShotSceneMap } from '../../shotConsistencyService';
 import type { AutoPipelineTask } from '../types';
 import { getFirstModel, getOrCreateScriptAnalysis } from '../helpers';
 import { saveTask } from '../taskStore';
+import { getPromptSkillForVideoModel, applySkillRules } from '../../promptSkills';
+import { UserPreferenceDAO } from '../../../models';
 
 export async function stageShots(db: Database, task: AutoPipelineTask): Promise<void> {
   const episodes = NovelEpisodeDAO.listByProject(db, task.projectId);
@@ -40,6 +42,14 @@ export async function stageShots(db: Database, task: AutoPipelineTask): Promise<
     characters: existingCharacters.length > 0 ? existingCharacters : undefined,
   });
 
+  // ── 提示词 Skill：按用户预选视频模型加载官方规范，注入分镜阶段 ──
+  const pref = UserPreferenceDAO.getByUser(db, task.userId);
+  const promptSkill = getPromptSkillForVideoModel(pref?.default_video_model || undefined);
+  if (promptSkill) {
+    console.log(`[AutoPipeline] 分镜阶段加载官方提示词 skill: ${promptSkill.displayName}`);
+  }
+  const finalSystemPrompt = applySkillRules(systemPrompt, promptSkill, 'shotRule');
+
   // 提示词优化（基于剧本分析结果细化分镜提示词）
   let finalPrompt = prompt;
   if (scriptAnalysis) {
@@ -52,7 +62,7 @@ export async function stageShots(db: Database, task: AutoPipelineTask): Promise<
 
   const result = await aiProxy.generateText({
     db, userId: task.userId, provider: model.provider, modelName: model.modelName,
-    prompt: finalPrompt, systemPrompt, responseFormat: 'json', maxTokens: 32000,
+    prompt: finalPrompt, systemPrompt: finalSystemPrompt, responseFormat: 'json', maxTokens: 32000,
   });
 
   const shots = parseShotListArray<any[]>(result.content).map((sh: any) => normalizeShotValueSafe(sh));

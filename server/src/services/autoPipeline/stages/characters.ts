@@ -6,6 +6,8 @@ import { characterExtractPrompt } from '../../prompts/characterExtract';
 import { parseAiJsonOrThrow } from '../../../utils/aiJsonParser';
 import type { AutoPipelineTask } from '../types';
 import { getFirstModel, getOrCreateScriptAnalysis, getProjectStylePreset } from '../helpers';
+import { UserPreferenceDAO } from '../../../models';
+import { getPromptSkillForVideoModel, applySkillRules } from '../../promptSkills';
 
 export async function stageCharacters(db: Database, task: AutoPipelineTask): Promise<void> {
   const episodes = NovelEpisodeDAO.listByProject(db, task.projectId);
@@ -22,9 +24,14 @@ export async function stageCharacters(db: Database, task: AutoPipelineTask): Pro
   if (!model) throw new Error('请先配置文本模型');
 
   const { systemPrompt, prompt } = characterExtractPrompt(first.script_content);
+
+  // ── 提示词 Skill：资产提取阶段按用户预选视频模型加载官方规范 ──
+  const promptSkill = getPromptSkillForVideoModel(UserPreferenceDAO.getByUser(db, task.userId)?.default_video_model);
+  if (promptSkill) console.log(`[AutoPipeline] 角色提取加载官方提示词 skill: ${promptSkill.displayName}`);
+  const finalSystem = applySkillRules(systemPrompt, promptSkill, 'assetRule');
   const result = await aiProxy.generateText({
     db, userId: task.userId, provider: model.provider, modelName: model.modelName,
-    prompt, systemPrompt, responseFormat: 'json', maxTokens: 4096,
+    prompt, systemPrompt: finalSystem, responseFormat: 'json', maxTokens: 4096,
   });
 
   const characters = parseAiJsonOrThrow<any[]>(result.content);
@@ -74,6 +81,10 @@ export async function stageCharacters(db: Database, task: AutoPipelineTask): Pro
         if (emotionalArc) characterPrompt += `，情绪状态：${emotionalArc}`;
         characterPrompt += `。${stylePreset.visualStyle}`;
         characterPrompt += '。正面全身像，标准姿势，清晰面部特征，完整服装展示，中性背景，高细节，8K分辨率';
+        // ── 提示词 Skill：追加官方参考图约束（供后续视频生成锁定身份）──
+        if (promptSkill?.assetRule) {
+          characterPrompt += '。此图将作为视频生成的身份参考图：面部正对镜头或轻微侧对镜头、五官清晰、面部不可遮挡、无大面积阴影或过曝、自然光色；画面中只有此人、无任何文字/字母/数字/logo/水印';
+        }
 
         // 负面提示词
         const charNegativePrompt = '低质量，模糊，变形，多余手指，丑陋，水印，文字，卡通，动漫，3d渲染感，塑料皮肤，蜡像质感，恐怖谷，过度光滑，AI伪影，CG感，不自然对称，背景杂乱，多人，侧脸，背影';

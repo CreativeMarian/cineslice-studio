@@ -115,11 +115,13 @@ export const ShotDAO = {
     character_outfits?: string;
     phase?: number | null;
     phase_name?: string | null;
+    first_frame_description?: string | null;
+    last_frame_description?: string | null;
   }): Shot {
     const id = generateId('shot');
     db.prepare(`
-      INSERT INTO shots (id, user_id, episode_id, scene_id, shot_number, shot_size, action_description, dialogue, camera_movement, grid_position, duration_seconds, characters_in_shot, props_in_shot, notes, subject, lighting, mood, transition, pace, character_outfits, phase, phase_name, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO shots (id, user_id, episode_id, scene_id, shot_number, shot_size, action_description, dialogue, camera_movement, grid_position, duration_seconds, characters_in_shot, props_in_shot, notes, subject, lighting, mood, transition, pace, character_outfits, phase, phase_name, first_frame_description, last_frame_description, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       id, data.user_id, data.episode_id, data.scene_id || null,
       data.shot_number, data.shot_size || 'medium', data.action_description || '',
@@ -130,6 +132,7 @@ export const ShotDAO = {
       data.transition || 'cut', data.pace || 'normal',
       data.character_outfits || null,
       data.phase ?? null, data.phase_name || null,
+      data.first_frame_description || null, data.last_frame_description || null,
       now(), now(),
     );
     return this.getById(db, id)!;

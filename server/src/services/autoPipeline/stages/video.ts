@@ -23,7 +23,11 @@ import type { ScriptAnalysisResult } from '../../scriptAnalysisService';
 import type { AutoPipelineTask } from '../types';
 import { getFirstModel, getOrCreateScriptAnalysis, getProjectStylePreset, buildDirectorShotContext } from '../helpers';
 import { saveTask } from '../taskStore';
+import { UserPreferenceDAO } from '../../../models';
+import { getPromptSkillForVideoModel, getPromptSkill } from '../../promptSkills';
 import { assessVideoClip } from '../../videoQualityGate';
+import { parseCharactersInShot } from '../../../models/shot';
+
 
 export async function stageVideo(db: Database, task: AutoPipelineTask): Promise<void> {
   const episodes = NovelEpisodeDAO.listByProject(db, task.projectId);
@@ -82,6 +86,10 @@ export async function stageVideo(db: Database, task: AutoPipelineTask): Promise<
     saveTask(db, task);
   };
 
+  // 提示词 Skill：按用户预选视频模型加载（视频生成阶段官方三段式包装）
+  const pref = UserPreferenceDAO.getByUser(db, task.userId);
+  const promptSkill = getPromptSkill(model.provider, model.modelName) || getPromptSkillForVideoModel(pref?.default_video_model);
+  if (promptSkill) console.log(`[AutoPipeline] video 加载官方提示词 skill: ${promptSkill.displayName}`);
   // 从项目风格预设获取统一风格（保证全片画风一致）
   const stylePreset = getProjectStylePreset(db, task.projectId);
   console.log(`[AutoPipeline] video 使用风格预设: ${stylePreset.presetName}`);
@@ -132,11 +140,13 @@ export async function stageVideo(db: Database, task: AutoPipelineTask): Promise<
       // ═══════════════════════════════════════════════════════════
       let lastFrameImageForApi: string | undefined;
       let resolvedEndFrameId: string | null = null;
+      let lastFrameSource: string | null = null;
       try {
         const lastFrame = resolveLastFrameForShot(db, shot, shots);
         if (lastFrame) {
           lastFrameImageForApi = imageToDataUrl(lastFrame.imageUrl);
           resolvedEndFrameId = lastFrame.keyframeId;
+          lastFrameSource = lastFrame.source;
         }
       } catch { /* 尾帧解析失败，退化为单首帧生成 */ }
 
@@ -195,9 +205,46 @@ export async function stageVideo(db: Database, task: AutoPipelineTask): Promise<
         finalPrompt = finalPrompt + '\n\n' + styleSuffix;
       }
 
-      // 合并正面提示词和负面提示词（视频模型通常不支持独立的负面提示词参数）
-      const videoMotionPrompt = `${finalPrompt}\n\n【负面提示词·绝对避免】${finalNegativePrompt}`;
+      // ═══════════════════════════════════════════════════════════
+      // 首尾帧动作弧注入（根源修复：5秒一个慢动作）
+      // 首帧=动作起点画面，尾帧=动作终点画面（explicit_end=本镜last帧才可引用尾帧描述；
+      // next_shot_first=下一镜首帧作尾帧时只注入首帧描述+泛化动作弧，避免描述与画面不符）
+      // ═══════════════════════════════════════════════════════════
+      const firstFrameDesc = shot.first_frame_description || null;
+      const lastFrameDesc = (lastFrameSource === 'explicit_end' && shot.last_frame_description) ? shot.last_frame_description : null;
+      if (firstFrameDesc || lastFrameDesc) {
+        const arcParts = [
+          '【首尾帧动作弧·强制】',
+          firstFrameDesc ? `首帧画面为动作起点：${firstFrameDesc}` : '',
+          lastFrameDesc ? `尾帧画面为动作终点：${lastFrameDesc}` : '',
+          '视频必须在这5秒内完成从动作起点到动作终点的完整过渡：约1秒动作起始→3秒主体动作（动作幅度充分、位移明显、节奏紧凑）→1秒动作收尾定格。',
+          '⚠️ 禁止缓慢微动、禁止几乎静止的画面、禁止5秒内只有一个细微动作或慢吞吞的单一动作；动作要有明确过程和幅度，接近真人影视短剧的节奏。',
+        ].filter(Boolean).join('\n');
+        finalPrompt = finalPrompt + '\n\n' + arcParts;
+      }
 
+      let videoMotionPrompt = `${finalPrompt}\n\n【负面提示词·绝对避免】${finalNegativePrompt}`;
+
+      // ── 提示词 Skill：官方三段式结构包装（integrated_multimodal_description + overall_soundscape + non_diegetic_music）──
+      if (promptSkill?.buildVideoPrompt) {
+        const skPrompt = promptSkill.buildVideoPrompt({
+          actionDescription: videoMotionPrompt,
+          shotSize: shot.shot_size || 'medium',
+          cameraMovement: shot.camera_movement || 'static',
+          duration: shot.duration_seconds || 5,
+          ratio: '16:9',
+          charactersInShot: parseCharactersInShot(shot.characters_in_shot),
+          dialogue: (shot.dialogue || '').trim() || undefined,
+          stylePrompt: stylePreset.visualStyle,
+          isImageToVideo: true,
+          isFirstLastFrame: !!lastFrameImageForApi,
+        });
+        if (skPrompt) {
+          videoMotionPrompt = skPrompt;
+          console.log(`[AutoPipeline] video shot=${shot.shot_number} 官方提示词 skill 包装完成（${promptSkill.displayName}）`);
+        }
+      }
+      // 合并正面提示词和负面提示词（视频模型通常不支持独立的负面提示词参数）
       console.log(`[AutoPipeline] video shot=${shot.shot_number} 提示词生成完成`);
 
       // ═══════════════════════════════════════════════════════════

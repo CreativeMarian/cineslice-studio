@@ -486,7 +486,11 @@ export const aiProxy = {
     const { db, userId } = params;
 
     const modelConfig = ModelRegistryDAO.getByUserAndModel(db, userId, params.provider, params.modelName);
-    if (!modelConfig?.api_key) {
+    if (!modelConfig) {
+      throw createError(400, 'MODEL_NOT_CONFIGURED', '音频模型未配置');
+    }
+    // Edge TTS 为本地免费服务，不需要 API Key
+    if (!modelConfig.api_key && params.provider !== 'edge-tts') {
       throw createError(400, 'MODEL_NOT_CONFIGURED', '音频模型 API Key 未配置');
     }
 

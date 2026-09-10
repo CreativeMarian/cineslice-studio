@@ -279,6 +279,8 @@ export interface Shot {
   phase: number | null;     // 阶段编号（1-4）：每集按剧情分4个阶段，每阶段生成一段视频后拼接
   phase_name: string | null; // 阶段名称（如"开场冲突""矛盾升级""高潮爆发""悬念收尾"）
   use_next_first_frame: number; // 1=视频生成时自动用下一镜首帧作尾帧（首尾帧插值）
+  first_frame_description: string | null; // 首帧画面描述（动作弧起始状态，用于首帧关键帧生成）
+  last_frame_description: string | null;  // 尾帧画面描述（动作弧结束状态，用于尾帧关键帧生成）
   created_at: string;
   updated_at: string;
 }

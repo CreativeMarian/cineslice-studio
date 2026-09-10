@@ -95,7 +95,7 @@ export function AudioPanel({ episodeId, shots, showToast }: AudioPanelProps) {
         bgmVolume,
       });
       if (res.success && res.data) {
-        setComposedAudio({ url: res.data.data.audioUrl, duration: res.data.data.totalDuration });
+        setComposedAudio({ url: res.data.audioUrl, duration: res.data.totalDuration });
         showToast('音频合成完成。下一步：进入「导出」阶段合成成片', 'success');
       }
     } catch {
@@ -182,7 +182,7 @@ export function AudioPanel({ episodeId, shots, showToast }: AudioPanelProps) {
           将配音 + BGM 合成为一条音轨，用于后续视频合成。分镜时长自动对齐配音片段。
         </p>
         <div className="flex items-center gap-3 flex-wrap">
-          <Button onClick={handleCompose} isLoading={isComposing} leftIcon={<Sparkles className="w-4 h-4" />} disabled={ttsResults.length === 0}>
+          <Button onClick={handleCompose} isLoading={isComposing} leftIcon={<Sparkles className="w-4 h-4" />} disabled={ttsResults.length === 0 && audioRecords.length === 0}>
             合成音轨
           </Button>
           {composedAudio && (
@@ -192,7 +192,7 @@ export function AudioPanel({ episodeId, shots, showToast }: AudioPanelProps) {
             </div>
           )}
         </div>
-        {ttsResults.length === 0 && (
+        {ttsResults.length === 0 && audioRecords.length === 0 && (
           <p className="text-xs text-yellow-600 dark:text-yellow-400 mt-2">⚠️ 请先生成配音，再进行音频合成</p>
         )}
       </Card>

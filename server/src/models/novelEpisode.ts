@@ -11,7 +11,7 @@ export const NovelEpisodeDAO = {
     db.prepare(`
       INSERT INTO novel_episodes (id, user_id, project_id, episode_number, title, chapter_range, script_content, status, text_model_used, word_count, created_at, updated_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, 'generated', ?, ?, ?, ?)
-    `).run(id, data.user_id, data.project_id, data.episode_number, data.title, data.chapter_range || '', content, data.theme || null, data.characters_json || null, data.key_items_json || null, data.text_model_used || null, countWords(content), now(), now());
+    `).run(id, data.user_id, data.project_id, data.episode_number, data.title, data.chapter_range || '', content, data.text_model_used || null, countWords(content), now(), now());
     return this.getById(db, id)!;
   },
 

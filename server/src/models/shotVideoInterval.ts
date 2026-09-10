@@ -18,14 +18,14 @@ export const ShotVideoIntervalDAO = {
     return db.prepare('SELECT * FROM shot_video_intervals WHERE shot_id = ? ORDER BY created_at ASC').all(shotId) as ShotVideoInterval[];
   },
 
-  /** 所有待推进的外部任务（pending/processing 且已有 external_task_id 与模型标识），供后台轮询器消费。最新任务优先，避免被历史僵尸任务占满轮询窗口 */
+  /** 所有待推进的外部任务（pending/processing 且已有 external_task_id 与模型标识），供后台轮询器消费。按创建时间正序（FIFO）轮询：ComfyUI 串行队列先提交的先完成，DESC 会永远轮询不到已完成的旧任务 */
   listPendingExternal(db: Database, limit = 15): ShotVideoInterval[] {
     return db.prepare(`
       SELECT * FROM shot_video_intervals
       WHERE status IN ('pending', 'processing')
         AND external_task_id IS NOT NULL AND external_task_id != ''
         AND video_model_used IS NOT NULL AND video_model_used != ''
-      ORDER BY created_at DESC LIMIT ?
+      ORDER BY created_at ASC LIMIT ?
     `).all(limit) as ShotVideoInterval[];
   },
 

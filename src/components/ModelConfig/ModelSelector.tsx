@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Select } from '../ui';
 import { useModelStore } from '../../stores/useModelStore';
 import { getModelKey } from '../../types/model';
-import { supportsFLF2V } from '../../config/videoModelConfig';
+import { supportsFLF2V, hasPromptSkillForModel } from '../../config/videoModelConfig';
 import type { ModelType } from '../../types';
 
 const TYPE_ICONS: Record<ModelType, string> = {
@@ -82,6 +82,11 @@ export function ModelSelector({ modelType, value, onChange, placeholder, showTyp
                   {supportsFLF2V(key) && (
                     <span className="text-xs flex-shrink-0" title="支持首尾帧：起止画面双锁定，人物/场景一致性更强，视频更符合预期">
                       🔄
+                    </span>
+                  )}
+                  {hasPromptSkillForModel(model.provider, model.model_name) && (
+                    <span className="text-xs flex-shrink-0" title="已内置该模型的官方提示词 Skill：解析剧本后自动按官方提示词规范生成分镜/关键帧/视频提示词，出片质量更稳">
+                      🎯
                     </span>
                   )}
                   <span className="text-xs flex-shrink-0" title={model.supports_audio ? '该模型支持生成带音频的视频' : '该模型只生成无声视频'}>

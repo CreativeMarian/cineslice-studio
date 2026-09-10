@@ -25,6 +25,10 @@ export interface DirectorShotContext {
   // 前后镜头上下文
   previousShotAction?: string;
   nextShotAction?: string;
+  /** 关键帧帧类型：first=动作起点画面，last=动作终点画面 */
+  frameType?: 'first' | 'last';
+  /** 帧专属画面描述（生成关键帧时优先于 actionDescription） */
+  frameSpecificDescription?: string;
   previousShotCharacters?: string[];
   // 角色详细信息
   characterDetails?: Record<string, CharacterDetail>;
@@ -520,9 +524,13 @@ export const directorPromptService = {
     const result = this.generateVideoPrompt(shotContext, scriptAnalysis);
 
     // 关键帧不需要时序分解，替换为画面定格描述
+    const frameContent = shotContext.frameSpecificDescription || shotContext.actionDescription;
+    const frameKindText = shotContext.frameType === 'last'
+      ? '这是镜头结束的最后一帧，画面内容为动作完成后的结果定格：人物姿势、位置、表情、道具均处于动作结束后的状态。本帧必须与首帧画面有明确的动作状态差异（例如首帧举鞭欲抽，本帧鞭已抽下）'
+      : '这是镜头开始的第一帧，画面内容为动作起始瞬间的静态定格：人物姿势、位置、表情、道具均处于动作开始前的状态。后续视频将从本帧画面对应状态出发展开动作';
     const keyframePrompt = result.prompt
       .replace(/【时序分解】[\s\S]*?(?=\n【动作详解】|\n【动作描述】)/, 
-        `【画面定格】这是镜头开始的第一帧，捕捉动作的关键瞬间。\n画面内容：${shotContext.actionDescription}\n要求：画面稳定，焦点清晰，光影自然，为后续视频生成提供准确的参考。`);
+        `【画面定格】${frameKindText}\n画面内容：${frameContent}\n要求：画面稳定，焦点清晰，光影自然，为后续视频生成提供准确的参考。`);
 
     return {
       ...result,

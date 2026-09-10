@@ -6,6 +6,8 @@ import { sceneExtractPrompt } from '../../prompts/sceneExtract';
 import { parseAiJsonOrThrow } from '../../../utils/aiJsonParser';
 import type { AutoPipelineTask } from '../types';
 import { getFirstModel, getOrCreateScriptAnalysis, getProjectStylePreset } from '../helpers';
+import { UserPreferenceDAO } from '../../../models';
+import { getPromptSkillForVideoModel, applySkillRules } from '../../promptSkills';
 
 export async function stageScenes(db: Database, task: AutoPipelineTask): Promise<void> {
   const episodes = NovelEpisodeDAO.listByProject(db, task.projectId);
@@ -22,9 +24,14 @@ export async function stageScenes(db: Database, task: AutoPipelineTask): Promise
   if (!model) throw new Error('请先配置文本模型');
 
   const { systemPrompt, prompt } = sceneExtractPrompt(first.script_content);
+
+  // ── 提示词 Skill：资产提取阶段按用户预选视频模型加载官方规范 ──
+  const promptSkill = getPromptSkillForVideoModel(UserPreferenceDAO.getByUser(db, task.userId)?.default_video_model);
+  if (promptSkill) console.log(`[AutoPipeline] 场景提取加载官方提示词 skill: ${promptSkill.displayName}`);
+  const finalSystem = applySkillRules(systemPrompt, promptSkill, 'assetRule');
   const result = await aiProxy.generateText({
     db, userId: task.userId, provider: model.provider, modelName: model.modelName,
-    prompt, systemPrompt, responseFormat: 'json', maxTokens: 4096,
+    prompt, systemPrompt: finalSystem, responseFormat: 'json', maxTokens: 4096,
   });
 
   const scenes = parseAiJsonOrThrow<any[]>(result.content);
@@ -76,6 +83,10 @@ export async function stageScenes(db: Database, task: AutoPipelineTask): Promise
         scenePrompt += `，时段：${scene.time_of_day || 'day'}`;
         scenePrompt += `。${stylePreset.visualStyle}`;
         scenePrompt += '。空场景，无人物，完整空间展示，透视正确，高细节，8K分辨率，电影级画质';
+        // ── 提示词 Skill：追加官方参考图约束（供后续视频生成锁定场景）──
+        if (promptSkill?.assetRule) {
+          scenePrompt += '。此图将作为视频生成的场景参考图：画面中绝对不能出现任何文字/字母/数字/logo/招牌/水印，光影方向一致，陈设布局清晰完整';
+        }
 
         // 负面提示词
         const sceneNegativePrompt = '低质量，模糊，变形，丑陋，水印，文字，卡通，动漫，3d渲染感，塑料质感，过度光滑，AI伪影，CG感，人物，角色，人脸，不自然对称，透视错误，光照不一致，阴影错误';

@@ -235,6 +235,42 @@ export const FLF2V_MODEL_KEYS = new Set<string>([
   'kling:kling-v3',
 ]);
 
+
+
+// ═══════════════════════════════════════════════════════════════
+// 提示词 Skill（官方提示词模板）支持判定
+// 每个视频模型一个官方提示词 skill：解析剧本后、生成分镜/提取资产前自动加载，
+// 用大模型官网的提示词规范指导分镜/关键帧/视频各阶段提示词构造。
+// 后端命中集合与 server/src/services/promptSkills/ 一致：
+//   minimax-h3 → providers: minimax/comfyui, modelKeys: minimax-h3/h3/flf2v...
+// ═══════════════════════════════════════════════════════════════
+const PROMPT_SKILL_MODEL_KEYS: Array<{ providers: string[]; keys: string[]; skillName: string }> = [
+  { providers: ['minimax', 'comfyui'], keys: ['minimax-h3', 'minimaxh3', 'h3', 'flf2v', 'hailuo3'], skillName: 'MiniMax H3 官方提示词' },
+  // 后续模型追加：如 kling / jimeng / seedance 官方 skill
+];
+
+/** 该模型是否配置了官方提示词 Skill（前端据此显示“官方提示词模板”标识） */
+export function hasPromptSkillForModel(provider: string, modelName: string): boolean {
+  const p = (provider || '').toLowerCase();
+  const m = (modelName || '').toLowerCase();
+  return PROMPT_SKILL_MODEL_KEYS.some((entry) => {
+    const providerHit = entry.providers.some((pr) => p.includes(pr) || pr.includes(p));
+    const keyHit = entry.keys.some((k) => m.includes(k) || k.includes(m));
+    return providerHit && keyHit;
+  });
+}
+
+/** 获取模型的提示词 Skill 名称（用于 UI 展示） */
+export function getPromptSkillName(provider: string, modelName: string): string | null {
+  const p = (provider || '').toLowerCase();
+  const m = (modelName || '').toLowerCase();
+  for (const entry of PROMPT_SKILL_MODEL_KEYS) {
+    const providerHit = entry.providers.some((pr) => p.includes(pr) || pr.includes(p));
+    const keyHit = entry.keys.some((k) => m.includes(k) || k.includes(m));
+    if (providerHit && keyHit) return entry.skillName;
+  }
+  return null;
+}
 /** 该视频模型是否支持首尾帧（前端据此显示备注，提示用户首尾帧出片质量更稳） */
 export function supportsFLF2V(modelKey: string): boolean {
   if (!modelKey) return false;

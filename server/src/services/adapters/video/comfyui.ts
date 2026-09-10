@@ -144,9 +144,11 @@ export class ComfyUIVideoAdapter implements VideoAdapter {
         // 任务还在队列/执行中：查询 ComfyUI 实时渲染进度（/progress + /queue 原生接口）
         const liveProgress = await this.getLiveProgress(taskId);
         if (liveProgress === undefined) {
-          // 既不在队列也不在 running 也不在 history：任务已不存在（ComfyUI 重启/记录丢失），
-          // 标记失败防止僵尸任务永久卡住轮询队列
-          return { taskId, status: 'failed', error: '任务已不在 ComfyUI 队列/历史中（可能因重启丢失），请重新生成该镜头' };
+          // 提交后极短窗口内任务尚未进入 /queue 数组（ComfyUI 内部排队延迟），
+          // 不能据此判定失败——否则批量提交时大量任务被误标 failed（任务实际仍在生成）。
+          // 这里统一按 processing 处理（progress=0），由上游 getVideoStatus 的 24h 超时兜底；
+          // 若任务真因 ComfyUI 重启丢失，用户可手动重新生成该镜头。
+          return { taskId, status: 'processing', progress: 0 };
         }
         return { taskId, status: 'processing', progress: liveProgress };
       }

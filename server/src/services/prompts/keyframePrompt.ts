@@ -6,6 +6,8 @@ export interface KeyframePromptParams {
   characters?: Array<{ name: string; visualDescription: string }>;
   scene?: { name: string; description: string; timeOfDay: string; atmosphere: string };
   frameType: 'first' | 'last' | 'middle';
+  /** 帧专属画面描述：首帧=动作起始状态，尾帧=动作结束状态。有值时优先使用，保证首尾帧画面差异化 */
+  frameSpecificDescription?: string;
   stylePrompt?: string;
   negativePrompt?: string;
 }
@@ -19,8 +21,9 @@ export function keyframePrompt(params: KeyframePromptParams): { prompt: string; 
     parts.push(`时间：${params.scene.timeOfDay}，氛围：${params.scene.atmosphere}`);
   }
 
-  // 镜头动作
-  parts.push(`画面内容：${params.shotDescription}`);
+  // 镜头动作：优先使用帧专属描述（首尾帧差异化核心）
+  const frameContent = params.frameSpecificDescription || params.shotDescription;
+  parts.push(`画面内容：${frameContent}`);
 
   // 角色描述
   if (params.characters && params.characters.length > 0) {
@@ -31,9 +34,15 @@ export function keyframePrompt(params: KeyframePromptParams): { prompt: string; 
 
   // 帧类型提示
   if (params.frameType === 'first') {
-    parts.push('这是镜头开始的第一帧，展现场景建立');
+    parts.push('这是镜头开始的第一帧，画面内容为动作起始瞬间的静态定格：人物姿势、位置、表情、道具均处于动作开始前的状态。后续视频将从本帧画面对应状态出发展开动作');
+    if (params.frameSpecificDescription) {
+      parts.push('⚠️ 本帧画面内容已指定为动作起始状态，不得画成动作完成后的结果状态');
+    }
   } else if (params.frameType === 'last') {
-    parts.push('这是镜头结束的最后一帧，展现动作结果');
+    parts.push('这是镜头结束的最后一帧，画面内容为动作完成后的结果定格：人物姿势、位置、表情、道具均处于动作结束后的状态。本帧必须与首帧画面有明确的动作状态差异（例如首帧举鞭欲抽，本帧鞭已抽下）');
+    if (params.frameSpecificDescription) {
+      parts.push('⚠️ 本帧画面内容已指定为动作结束状态，不得画成动作起始状态');
+    }
   } else {
     parts.push('这是镜头中间的关键帧，展现动作高潮');
   }

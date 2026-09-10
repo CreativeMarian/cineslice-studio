@@ -10,6 +10,7 @@ import {
   ScriptCharacterDAO,
   ScriptSceneDAO,
   ProjectDAO,
+  UserPreferenceDAO,
 } from '../models';
 import { createError } from '../middleware/errorHandler';
 import { aiProxy } from './aiProxy';
@@ -35,6 +36,8 @@ import {
 import { parseSpeaker, stripSpeakerPrefix } from './voiceAssignment';
 import type { Database } from '../types';
 import { assessVideoClip } from './videoQualityGate';
+import { getPromptSkillForVideoModel, applySkillRules, getPromptSkill } from './promptSkills';
+import type { PromptSkill } from './promptSkills/types';
 
 const DEFAULT_STYLE_OBJ = {
   visualStyle: '电影级写实风格，cinematic lighting，高细节，8k分辨率，统一色调',
@@ -63,6 +66,22 @@ function resolveStylePreset(db: Database, projectId: string | undefined): {
     // 获取风格预设失败，使用默认
   }
   return { stylePresetObj: { ...DEFAULT_STYLE_OBJ }, unifiedStyle: DEFAULT_STYLE_OBJ.visualStyle };
+}
+
+/**
+ * 按用户预选视频模型加载提示词 Skill。
+ * 加载时机：剧本解析后、生成分镜和提取资产前（每个视频模型一个官方提示词 skill）。
+ * 通过偏好 default_video_model（格式 "provider:modelName"）解析，命中注册表返回对应 skill。
+ */
+function resolvePromptSkillForUser(db: Database, userId?: string | null): PromptSkill | undefined {
+  if (!userId) return undefined;
+  try {
+    const pref = UserPreferenceDAO.getByUser(db, userId);
+    return getPromptSkillForVideoModel(pref?.default_video_model || undefined);
+  } catch (err) {
+    console.error('[PromptSkill] 加载提示词 skill 失败:', err);
+    return undefined;
+  }
 }
 
 /** 将本地相对路径图片转换为 base64 data URL（视频模型 API 需要可访问的图片） */
@@ -254,9 +273,16 @@ export async function generateShotsForEpisode(
     episodeTheme: episode.theme || undefined,
   });
 
+  // ── 提示词 Skill：按用户预选视频模型加载官方规范，注入分镜阶段 ──
+  const promptSkill = resolvePromptSkillForUser(db, userId);
+  if (promptSkill) {
+    console.log(`[PromptSkill] 分镜阶段加载官方提示词 skill: ${promptSkill.displayName}`);
+  }
+  const finalSystem = applySkillRules(systemPrompt, promptSkill, 'shotRule');
+
   const result = await aiProxy.generateText({
     db, userId, provider: textProvider, modelName: textModel,
-    prompt, systemPrompt, responseFormat: 'json', maxTokens: 32000,
+    prompt, systemPrompt: finalSystem, responseFormat: 'json', maxTokens: 32000,
   });
 
   let shots: any[];
@@ -398,11 +424,22 @@ export async function generateKeyframesForShot(
   for (const frameType of types) {
     try {
       console.log('[Keyframe] generating frame:', frameType);
+      // 从 action_description 提取动作弧三段式：首帧=起始状态、尾帧=结束状态、中帧=动作过程
+      // （分镜生成时三段式混在 action_description 中，未拆独立列；此处按帧型提取实现首尾帧画面差异化）
+      const actionDesc = shot.action_description || '';
+      let frameSpecificDescription: string | undefined;
+      const segStart = actionDesc.match(/【起始状态】([^【]*)/);
+      const segProc = actionDesc.match(/【动作过程】([^【]*)/);
+      const segEnd = actionDesc.match(/【结束状态】([^【]*)/);
+      if (frameType === 'first' && segStart) frameSpecificDescription = segStart[1].trim();
+      else if (frameType === 'last' && segEnd) frameSpecificDescription = segEnd[1].trim();
+      else if (frameType === 'middle' && segProc) frameSpecificDescription = segProc[1].trim();
       const { prompt: basePrompt, negativePrompt: baseNegativePrompt } = keyframePrompt({
-        shotDescription: shot.action_description,
+        shotDescription: frameSpecificDescription || shot.action_description,
         characters,
         scene: scene ? { name: scene.name, description: scene.description, timeOfDay: scene.time_of_day, atmosphere: scene.atmosphere } : undefined,
         frameType: frameType as 'first' | 'last' | 'middle',
+        frameSpecificDescription,
         stylePrompt: unifiedStyle,
       });
 
@@ -431,11 +468,39 @@ export async function generateKeyframesForShot(
         console.log('[Keyframe] 提示词优化:', promptOptimizationService.getOptimizationSummary(optimized));
       }
 
+      // ── 提示词 Skill：按本次实际使用的视频模型优先匹配官方提示词规范（其次回退用户预选偏好） ──
+      const promptSkill = getPromptSkill(provider, modelName) || resolvePromptSkillForUser(db, userId);
+      if (promptSkill) {
+        const anchor = promptSkill.keyframeAnchor?.(frameType as 'first' | 'last' | 'middle');
+        if (anchor) {
+          finalPrompt += '\n' + anchor;
+          console.log(`[PromptSkill] 关键帧(${frameType})加载官方提示词 skill: ${promptSkill.displayName}`);
+        }
+      }
+
       console.log('[Keyframe] prompt generated:', finalPrompt.substring(0, 100));
+
+      // Pollinations FLUX 对英文提示词理解远优于中文：先经 deepseek 翻译成英文
+      let effectivePrompt = finalPrompt;
+      if (provider === 'pollinations') {
+        try {
+          const trans = await aiProxy.generateText({
+            db, userId,
+            provider: 'deepseek', modelName: 'deepseek-chat',
+            prompt: 'You are a professional prompt translator for AI image generation models. Translate the following Chinese image prompt into fluent, detailed English. Keep EVERY visual detail: characters, clothing, props, scene, background, action, body pose, camera angle, lighting, color tone, mood and art style. For Chinese-style elements (costume, architecture, props) use clear English descriptions instead of raw pinyin. Output ONLY the English translation with no explanation, no quotes.\n\n' + finalPrompt,
+            temperature: 0.3,
+            maxTokens: 900,
+          });
+          const t = (trans.content || '').trim();
+          if (t.length > 20) effectivePrompt = t;
+        } catch (transErr) {
+          console.warn('[Keyframe] FLUX提示词翻译失败，使用中文原词:', (transErr as Error).message);
+        }
+      }
 
       const imgResult = await aiProxy.generateImage({
         db, userId, projectId: episode.project_id,
-        provider, modelName, prompt: finalPrompt, negativePrompt: finalNegativePrompt,
+        provider, modelName, prompt: effectivePrompt, negativePrompt: finalNegativePrompt,
         count: 1, size: '2560x1440',
         referenceImages: referenceImages.length > 0 ? referenceImages : undefined,
         saveSubDir: 'keyframes',
@@ -446,7 +511,7 @@ export async function generateKeyframesForShot(
         user_id: userId,
         shot_id: shot.id,
         frame_type: frameType,
-        prompt: finalPrompt,
+        prompt: effectivePrompt,
         negative_prompt: finalNegativePrompt,
         image_url: imgResult.images[0]?.url,
         image_model_used: modelName,
@@ -511,6 +576,16 @@ export async function regenerateKeyframe(
       console.log('[Keyframe Regenerate] 提示词优化:', promptOptimizationService.getOptimizationSummary(optimized));
     } catch (err) {
       console.error('[Keyframe Regenerate] 提示词优化失败（使用原始提示词）:', (err as Error).message);
+    }
+  }
+
+  // ── 提示词 Skill：追加官方关键帧锚定句 ──
+  const promptSkill = resolvePromptSkillForUser(db, userId);
+  if (promptSkill?.keyframeAnchor) {
+    const anchor = promptSkill.keyframeAnchor((keyframe.frame_type as 'first' | 'last' | 'middle') || 'first');
+    if (anchor && !finalPrompt.includes('锚定')) {
+      finalPrompt += '\n' + anchor;
+      console.log(`[PromptSkill] 关键帧重生成加载官方提示词 skill: ${promptSkill.displayName}`);
     }
   }
 
@@ -797,6 +872,31 @@ export async function generateVideoForShot(
         console.warn('[Video] 场景描述注入失败:', (err as Error).message);
       }
     }
+
+    // ── 提示词 Skill：按本次实际使用的视频模型优先匹配官方规范（其次回退用户预选偏好），
+    // 用官方三段式结构包装最终视频提示词 ──
+    // 结构：integrated_multimodal_description（时间线画面/动作/台词）+ overall_soundscape（环境声）+ non_diegetic_music（配乐）
+    const promptSkill = getPromptSkill(provider, modelName) || resolvePromptSkillForUser(db, userId);
+    if (promptSkill) {
+      const skPrompt = promptSkill.buildVideoPrompt({
+        actionDescription: finalPrompt,
+        shotSize: shot.shot_size || 'medium',
+        cameraMovement: shot.camera_movement || 'static',
+        duration: duration || 5,
+        ratio: ratio || '16:9',
+        charactersInShot,
+        sceneName: shotContext.sceneName,
+        dialogue: (shot.dialogue || '').trim() || undefined,
+        stylePrompt: stylePresetObj.visualStyle,
+        isImageToVideo: true,
+        isFirstLastFrame: isFlf2vMode || !!lastFrameImageUrl,
+      });
+      if (skPrompt) {
+        finalPrompt = skPrompt;
+        console.log(`[PromptSkill] 视频生成加载官方提示词 skill: ${promptSkill.displayName}（${isFlf2vMode || !!lastFrameImageUrl ? 'FL2VA首尾帧' : 'I2VA首帧'}模式，${(finalPrompt || '').length}字符）`);
+      }
+    }
+
     finalMotionPrompt = finalPrompt;
     console.log('[Video] 提示词优化:', promptOptimizationService.getOptimizationSummary(optimized));
     console.log('[Video] 角色数:', charactersInShot.length, '场景:', sceneName || '未知');
@@ -982,13 +1082,13 @@ export async function batchGenerateKeyframes(
   db: Database,
   userId: string,
   episodeId: string,
-  opts: { provider: string; modelName: string; shotIds?: string[]; candidatesPerShot?: number },
+  opts: { provider: string; modelName: string; shotIds?: string[]; candidatesPerShot?: number; frameTypes?: Array<'first' | 'last' | 'middle'> },
   onProgress?: (p: { index: number; total: number; shotId: string; status: 'ok' | 'failed' }) => void
 ) {
   const episode = NovelEpisodeDAO.getByIdAndUser(db, episodeId, userId);
   if (!episode) throw createError(404, 'NOT_FOUND', '剧集不存在');
 
-  const { provider, modelName, shotIds, candidatesPerShot } = opts;
+  const { provider, modelName, shotIds, candidatesPerShot, frameTypes } = opts;
   const candidateCount = Math.min(Math.max(candidatesPerShot || 1, 1), 9);
 
   let shots = ShotDAO.listByEpisode(db, episode.id);
@@ -1022,7 +1122,7 @@ export async function batchGenerateKeyframes(
       const kfs = await generateKeyframesForShot(db, userId, shot.id, {
         provider,
         modelName,
-        frameTypes: ['first'],
+        frameTypes: opts.frameTypes || ['first'],
       });
       const keyframe = kfs[0];
 
@@ -1038,7 +1138,14 @@ export async function batchGenerateKeyframes(
       console.error(`[BatchKeyframe] 镜头 ${shot.id} 生成失败:`, errorMsg);
       errors.push({ shotId: shot.id, error: errorMsg });
       results.push({ shotId: shot.id, success: false, error: errorMsg });
+      // 速率限制：额外冷却再继续（Agnes 免费额度分钟级限流）
+      if (errorMsg.includes('rate limit') || errorMsg.includes('限流') || err.code === 'AI_RATE_LIMITED') {
+        await new Promise(resolve => setTimeout(resolve, Number(process.env.BATCH_KEYFRAME_RATE_LIMIT_BACKOFF_MS) || 30000));
+      }
     }
+
+    // 请求间隔：避免速率限制（Agnes AI 免费额度分钟级限流），可用环境变量 BATCH_KEYFRAME_INTERVAL_MS 调整
+    await new Promise(resolve => setTimeout(resolve, Number(process.env.BATCH_KEYFRAME_INTERVAL_MS) || 20000));
   }
 
   return {

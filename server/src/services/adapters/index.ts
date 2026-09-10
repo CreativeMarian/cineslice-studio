@@ -34,6 +34,7 @@ import './image/flux';
 import './image/siliconflow-image';
 import './image/wan-image';
 import './image/custom-openai-image';
+import './image/pollinations';
 
 // 视频适配器
 import './video/doubao-video';

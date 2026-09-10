@@ -1,0 +1,10 @@
+const db = require('better-sqlite3')('data/cineslice-studio.db');
+const ep = 'ep_9007ad738958ec66';
+const rows = db.prepare("SELECT s.shot_number, v.status FROM shot_video_intervals v JOIN shots s ON v.shot_id=s.id WHERE s.episode_id=? ORDER BY s.shot_number").all(ep);
+const by = {};
+for (const r of rows) by[r.status] = (by[r.status]||0)+1;
+console.log("状态:", JSON.stringify(by), "总", rows.length);
+const done = new Set(rows.filter(r=>r.status==='completed').map(r=>r.shot_number));
+const miss = [];
+for (let i=1;i<=30;i++) if(!done.has(i)) miss.push(i);
+console.log("完成", done.size, "/30  缺失:", miss.join(','));

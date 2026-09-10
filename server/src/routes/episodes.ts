@@ -357,6 +357,7 @@ const batchKeyframesSchema = z.object({
   modelName: z.string(),
   shotIds: z.array(z.string()).optional(), // 不传则全部
   candidatesPerShot: z.number().min(1).max(9).optional(), // >1 时生成九宫格候选（不选首帧，待用户挑选）
+  frameTypes: z.array(z.enum(['first', 'last', 'middle'])).optional(), // 默认 ['first']；首尾帧链路传 ['first','last']
   stream: z.boolean().optional(), // true 时以 NDJSON 逐镜推送真实进度
 });
 
@@ -368,6 +369,7 @@ router.post('/episodes/:id/keyframes/batch', validateBody(batchKeyframesSchema),
     modelName: req.body.modelName,
     shotIds: req.body.shotIds,
     candidatesPerShot: req.body.candidatesPerShot,
+    frameTypes: req.body.frameTypes,
   };
   if (req.body.stream === true) {
     res.setHeader('Content-Type', 'application/x-ndjson');
