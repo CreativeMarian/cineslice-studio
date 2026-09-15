@@ -1,6 +1,7 @@
 # CineSlice Studio（切片式影视锻造工厂）
 
 > AI 驱动的全流程影视创作工具 —— 从一部小说到一支视频，只需 9 个阶段。
+> **v1.2** —— 新增提示词 Skill 机制、短剧方法论注入（shuohao-skills 整合）、质量门后置校验、台词超时自动拆镜、本地 ComfyUI 视频接入、免费 Edge TTS 配音。
 
 CineSlice Studio 是一款面向内容创作者的 AI 影视创作平台。它将"小说 → 剧集 → 剧本 → 角色 → 场景 → 分镜 → 关键帧 → 配音 → 视频"这一完整影视生产链路抽象为 **9 阶段流水线**，支持全自动与半自动两种模式，内置 30+ 主流 AI 模型适配，覆盖文本、图像、视频、音频四大模态。
 
@@ -22,7 +23,23 @@ CineSlice Studio 是一款面向内容创作者的 AI 影视创作平台。它�
 - **AI 配音与视频合成**：TTS 语音合成 + FFmpeg 视频拼接，输出完整成片。
 - **风格预设**：内置多种影视风格预设（视觉风格、镜头语言、色彩 palette、节奏、视频参数），一键套用。
 - **成本追踪**：自动记录每次 AI 调用的 Token 消耗与费用，便于成本管控。
+- **提示词 Skill 机制**：每个视频模型配官方提示词 Skill（MiniMax H3 / 可灵 / Seedance / 通用），AI 分析剧情前自动注入适配规范，转换后保证语句通顺、剧情连贯、资产一致。
+- **短剧方法论注入（shuohao-skills 整合）**：内置开源 AI 短剧制作技能集（novel-outline / novel-characters / novel-art / novel-script / novel-storyboard，Apache-2.0），将其质量门方法论注入 5 个流水线节点：剧集（角色分档/爽点节奏/钩子悬念）、角色（出图提示词禁人名/区分度）、场景（一致性锚点/光照变体）、分镜（切镜节奏/参考图纪律）、关键帧（风格统一）。
+- **质量门后置校验**：分镜 / 角色 / 场景生成后自动运行确定性检查——台词装得下镜头（4.5 字/秒折算）、同框 ≤3 人、镜头序号连续、角色/场景重名、资产描述完整性等，结果写入任务进度。
+- **台词超时自动拆镜**：台词折算超过 5 秒镜头容量的镜头，自动拆成多个连续短镜（每镜 5 秒、台词 ≤20 字，最多两轮，防烧额度），"话说不完"的镜头不再流入视频生成。
+- **本地 ComfyUI 视频生成**：支持接入本地 ComfyUI（首尾帧 / 图生视频工作流），首帧、尾帧由图像模型分别生成后交给视频模型续写，人物一致性显著提升。
+- **免费 Edge TTS 配音**：开源免费语音合成，台词逐句对齐镜头，音色可配。
 - **本地优先**：默认本地模式（SQLite + 单用户），零配置启动；同时预留服务端多用户模式。
+
+### v1.2 新增
+
+- **提示词 Skill 机制（每个视频模型一个官方 Skill）**：内置 MiniMax H3、可灵、Seedance 2.0/2.5、通用视频模型的官方提示词规范，换模型后自动注入适配提示词；模型配置页展示模型徽标。
+- **shuohao-skills 方法论注入**：5 个开源 AI 短剧技能（Apache-2.0，1170 项确定性断言全过）完整落地 `stageSkills/vendor`，方法论规则注入 episodes / characters / scenes / shots / keyframes 五节点（幂等去重）。
+- **质量门检查器（gates.ts）**：分镜 / 角色 / 场景三阶段生成后自动后置校验：台词容量（4.5 字/秒 × 镜头秒数）、同框上限 3 人、镜头序号连续、资产描述完整性、重名检测、概念图提示词禁其他角色名；只读不阻断，结果记入任务进度。
+- **台词超时自动拆镜**：检测到台词折算超时的镜头，自动调用文本模型拆成 2-3 个连续短镜（每镜 5 秒、台词 ≤20 字、景别/机位变化），事务内替换并重排镜号，复检最多两轮，防止死循环烧额度。
+- **本地 ComfyUI 视频生成链路**：视频生成支持本地 ComfyUI 适配器（首尾帧工作流），首帧 / 尾帧由图像模型生成，视频模型据此续写；模型选择界面标注"支持首尾帧"。
+- **免费配音（Edge TTS）**：开源 Edge TTS 适配器替代付费 TTS，台词逐句对齐分镜，支持音色与语速配置。
+- **半自动流程引导**：每阶段完成后提示下一步操作；一键生成全自动运行，只提醒预估时间。
 
 ### v1.1 新增
 
@@ -48,7 +65,7 @@ CineSlice Studio 是一款面向内容创作者的 AI 影视创作平台。它�
 | **表单校验** | Zod |
 | **HTTP 客户端** | Axios |
 | **后端框架** | Express 4 + TypeScript |
-| **数据库** | SQLite（better-sqlite3），迁移脚本 12 个 |
+| **数据库** | SQLite（better-sqlite3），迁移脚本 25 个 |
 | **认证** | JWT + bcryptjs（本地模式免登录） |
 | **AI 接入** | OpenAI SDK + Axios 自定义适配器（适配器模式，30+ 模型） |
 | **视频处理** | ffmpeg-static + Python 辅助脚本 |
@@ -232,6 +249,11 @@ CineSlice-Studio/
 │       │   ├── audioComposer.ts  # 音频合成
 │       │   ├── videoComposer.ts  # 视频合成（FFmpeg）
 │       │   ├── novelParser.ts    # 小说解析
+│       │   ├── stageSkills/      # 短剧技能集整合（shuohao-skills）
+│       │   │   ├── index.ts        # 技能注册表 + applyStageRules（幂等注入）
+│       │   │   ├── gates.ts        # 质量门检查器（分镜/角色/场景）
+│       │   │   └── vendor/         # novel-outline/characters/art/script/storyboard 全量技能
+│       │   ├── promptSkills/       # 视频模型官方提示词 Skill（H3/可灵/Seedance/通用）
 │       │   ├── costTracker.ts    # 成本追踪
 │       │   ├── exportService.ts  # 项目导出
 │       │   ├── importService.ts  # 项目导入
@@ -242,8 +264,11 @@ CineSlice-Studio/
 │       │   │   ├── registry.ts   # 适配器注册中心
 │       │   │   ├── text/         # 文本模型适配器（13 个 provider）
 │       │   │   ├── image/        # 图像模型适配器（12 个 provider）
-│       │   │   ├── video/        # 视频模型适配器（6 个 provider）
-│       │   │   └── audio/        # 音频模型适配器（3 个 provider）
+│       │   │   ├── video/        # 视频模型适配器（含本地 ComfyUI）
+│       │   │   │   ├── comfyui.ts  # 本地 ComfyUI（首尾帧工作流）
+│       │   │   │   └── ...         # 豆包/可灵/即梦/海螺/MiniMax 等
+│       │   │   └── audio/        # 音频模型适配器（含免费 Edge TTS）
+│       │   │       └── edge-tts.ts # 开源免费语音合成
 │       │   └── prompts/          # AI 提示词模板
 │       │       ├── novelToScript.ts      # 小说转剧本
 │       │       ├── characterExtract.ts    # 角色提取
@@ -301,4 +326,4 @@ CineSlice-Studio/
 
 ## 📄 License
 
-Private / Internal Use.
+Apache-2.0（公开仓库）。内置第三方技能集 shuohao-skills 遵循 Apache-2.0；内置视频模型提示词规范归各厂商所有，仅作接入适配。
