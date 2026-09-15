@@ -66,11 +66,15 @@ if (combinedPrompt) { content.push({ type: 'text', text: combinedPrompt }); }
       });
     }
 
-    // Seedance 2.5 r2v 模式只支持特定 duration 值（5/10/11秒），其他值会报 InvalidParameter
+    // r2v 模式各版本支持的 duration 值不同，超范围会报 InvalidParameter：
+    // - Seedance 2.5：仅 5/10/11 秒
+    // - Seedance 2.0 / 2.0 Mini / 2.0 Fast：5/10/15 秒（官方 4-15s 区间，整档按 5/10/15）
     // 修正为最接近的支持值，t2v 模式不受此限制
     let duration = params.duration || 5;
     if (isR2V) {
-      const supportedDurations = [5, 10, 11];
+      const supportedDurations = /2-5/.test(this.modelName)
+        ? [5, 10, 11]
+        : [5, 10, 15];
       if (!supportedDurations.includes(duration)) {
         // 找到最接近的支持值
         duration = supportedDurations.reduce((prev, curr) =>

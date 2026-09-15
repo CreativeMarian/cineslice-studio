@@ -4,7 +4,8 @@
 
 import type { Database } from '../types';
 import { aiProxy } from './aiProxy';
-import { NovelEpisodeDAO, ScriptCharacterDAO, ScriptSceneDAO, ShotDAO, ModelRegistryDAO } from '../models';
+import { NovelEpisodeDAO, ScriptCharacterDAO, ScriptSceneDAO, ShotDAO, ModelRegistryDAO, UserPreferenceDAO } from '../models';
+import { getPromptSkillForVideoModel, applySkillRules } from './promptSkills';
 import { parseAiJsonOrThrow } from '../utils/aiJsonParser';
 import { generateId, now } from '../models/index';
 
@@ -218,6 +219,11 @@ export const scriptAnalysisService = {
   ): Promise<ScriptAnalysisResult> {
     console.log(`[ScriptAnalysis] 开始分析剧本 episode=${episodeId}`);
 
+    // ── 提示词 Skill：AI 分析剧情之前，按用户预选视频模型自动传入并适配官方提示词规范 ──
+    const videoModelUsed = UserPreferenceDAO.getByUser(db, userId)?.default_video_model;
+    const promptSkill = getPromptSkillForVideoModel(videoModelUsed);
+    if (promptSkill) console.log(`[ScriptAnalysis] 注入官方提示词 skill: ${promptSkill.displayName}（视频模型: ${videoModelUsed || '未设置'}）`);
+
     // 获取剧集内容
     const episode = NovelEpisodeDAO.getById(db, episodeId);
     if (!episode) {
@@ -226,10 +232,11 @@ export const scriptAnalysisService = {
 
     // 落库缓存命中：直接复用（剧集剧本更新后自动失效重分析）
     // v2.0：此前每次关键帧/视频生成都全量重分析，手动路径每镜一次 AI 调用，浪费且慢
-    const cachedRow = db.prepare('SELECT analysis_json, updated_at, model_used FROM script_analysis WHERE episode_id = ?').get(episodeId) as any;
+    const cachedRow = db.prepare('SELECT analysis_json, updated_at, model_used, video_skill FROM script_analysis WHERE episode_id = ?').get(episodeId) as any;
     if (cachedRow && !opts?.forceRefresh) {
       const episodeUpdated = new Date(episode.updated_at || 0).getTime();
       const cachedUpdated = new Date(cachedRow.updated_at || 0).getTime();
+      // 重构式：分析保持纯导演视角，不随视频模型变化重分析（换模型只重跑提示词重构层，省额度）
       if (episodeUpdated <= cachedUpdated) {
         try {
           const parsed = JSON.parse(cachedRow.analysis_json);
@@ -284,21 +291,39 @@ export const scriptAnalysisService = {
 
     const fullPrompt = ANALYSIS_PROMPT + episode.script_content + context;
 
-    // 调用AI分析
-    const result = await aiProxy.generateText({
-      db,
-      userId,
-      provider,
-      modelName,
-      prompt: fullPrompt,
-      systemPrompt: '你是一位专业的影视剧本分析师，擅长从剧情、场景、角色、情绪、节奏、视觉风格等多个维度深度拆解剧本。输出严格的JSON格式。',
-      temperature: 0.3,  // 低温度保证分析准确性
-      maxTokens: 4000,
-      responseFormat: 'json',
-    });
+    // 调用AI分析 + JSON 解析失败自动重试（AI 输出偶发含未转义引号/裸换行导致解析失败）
+    // 最多 3 次尝试：重新生成通常能得到规范 JSON，比无限加固解析器更可靠
+    const MAX_AI_TRIES = 3;
+    let analysis: ScriptAnalysisResult | null = null;
+    let lastParseError = '';
+    for (let attempt = 1; attempt <= MAX_AI_TRIES && !analysis; attempt++) {
+      if (attempt > 1) {
+        console.log(`[ScriptAnalysis] JSON 解析失败，第 ${attempt}/${MAX_AI_TRIES} 次重试: ${lastParseError.slice(0, 100)}`);
+      }
+      const result = await aiProxy.generateText({
+        db,
+        userId,
+        provider,
+        modelName,
+        prompt: fullPrompt,
+        systemPrompt: applySkillRules(
+          '你是一位专业的影视剧本分析师，擅长从剧情、场景、角色、情绪、节奏、视觉风格等多个维度深度拆解剧本。输出严格的JSON格式。',
+          promptSkill, 'shotRule'
+        ) + '\n\n【转换质量硬性要求】以上分析结果将直接转化为当前视频模型的官方提示词输入：1) 所有描述语句必须通顺完整，禁止碎片化关键词堆砌；2) 场景/角色/分镜描述必须按上述官方提示词规范组织；3) 人物外观（面容/发型/服装/体型）、场景陈设、关键道具的描述词必须在全部分析结果中保持一致，供后续生成分镜、概念图与视频时跨镜头复用，保证剧情连贯与资产一致性。',
+        temperature: 0.3,  // 低温度保证分析准确性
+        maxTokens: 8000,   // v1.1：4000→8000，降低长剧本分析 JSON 被截断导致解析失败的概率
+        responseFormat: 'json',
+      });
 
-    // 解析JSON结果
-    const analysis = parseAiJsonOrThrow<ScriptAnalysisResult>(result.content);
+      // 解析JSON结果
+      try {
+        analysis = parseAiJsonOrThrow<ScriptAnalysisResult>(result.content);
+      } catch (e) {
+        lastParseError = (e as Error).message;
+        if (attempt === MAX_AI_TRIES) throw e;
+      }
+    }
+    analysis = analysis as ScriptAnalysisResult;
 
     // 补充元数据
     analysis.analyzedAt = new Date().toISOString();
@@ -314,13 +339,14 @@ export const scriptAnalysisService = {
     // 写缓存（upsert，幂等）
     try {
       const ts = now();
-      db.prepare(`INSERT INTO script_analysis (id, user_id, episode_id, analysis_json, model_used, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+      db.prepare(`INSERT INTO script_analysis (id, user_id, episode_id, analysis_json, model_used, video_skill, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(episode_id) DO UPDATE SET
           analysis_json = excluded.analysis_json,
           model_used = excluded.model_used,
+          video_skill = excluded.video_skill,
           updated_at = excluded.updated_at`)
-        .run(generateId('sana'), userId, episodeId, JSON.stringify(analysis), `${provider}/${modelName}`, ts, ts);
+        .run(generateId('sana'), userId, episodeId, JSON.stringify(analysis), `${provider}/${modelName}`, promptSkill.id, ts, ts);
     } catch (cacheErr) {
       console.warn('[ScriptAnalysis] 缓存写入失败（不影响主流程）:', (cacheErr as Error).message);
     }

@@ -8,6 +8,8 @@ import type { AutoPipelineTask } from '../types';
 import { getFirstModel, getOrCreateScriptAnalysis, getProjectStylePreset } from '../helpers';
 import { UserPreferenceDAO } from '../../../models';
 import { getPromptSkillForVideoModel, applySkillRules } from '../../promptSkills';
+import { runStageGates } from '../../stageSkills';
+import { applyStageRules } from '../../stageSkills';
 
 export async function stageScenes(db: Database, task: AutoPipelineTask): Promise<void> {
   const episodes = NovelEpisodeDAO.listByProject(db, task.projectId);
@@ -28,7 +30,7 @@ export async function stageScenes(db: Database, task: AutoPipelineTask): Promise
   // ── 提示词 Skill：资产提取阶段按用户预选视频模型加载官方规范 ──
   const promptSkill = getPromptSkillForVideoModel(UserPreferenceDAO.getByUser(db, task.userId)?.default_video_model);
   if (promptSkill) console.log(`[AutoPipeline] 场景提取加载官方提示词 skill: ${promptSkill.displayName}`);
-  const finalSystem = applySkillRules(systemPrompt, promptSkill, 'assetRule');
+  const finalSystem = applyStageRules(applySkillRules(systemPrompt, promptSkill, 'assetRule'), 'scenes');
   const result = await aiProxy.generateText({
     db, userId: task.userId, provider: model.provider, modelName: model.modelName,
     prompt, systemPrompt: finalSystem, responseFormat: 'json', maxTokens: 4096,
@@ -190,5 +192,20 @@ export async function stageScenes(db: Database, task: AutoPipelineTask): Promise
         }
       }
     }
+  }
+
+  // ── 质量门（shuohao-skills 移植）：只读检查，不阻断流水线 ──
+  try {
+    const gate = runStageGates(db, 'scenes', first.id);
+    console.log(`[AutoPipeline][质量门] ${gate.summary}`);
+    const errs = gate.issues.filter((i: any) => i.severity === 'error');
+    if (errs.length > 0) {
+      errs.slice(0, 5).forEach((e: any) => console.warn(`[AutoPipeline][质量门]   - ${e.message}`));
+      task.stageProgress['scenes'] += `｜质量门:${errs.length}错`;
+    } else {
+      task.stageProgress['scenes'] += `｜质量门:通过`;
+    }
+  } catch (gateErr: any) {
+    console.warn('[AutoPipeline] scenes 质量门执行失败:', gateErr.message);
   }
 }

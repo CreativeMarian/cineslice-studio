@@ -21,6 +21,7 @@ import { projectStorage } from './projectStorage';
 import { downloadToFile } from '../utils/download';
 import { parseAiJsonOrThrow, parseAiJson , parseShotListArray } from '../utils/aiJsonParser';
 import { scriptAnalysisService } from './scriptAnalysisService';
+import { promptRefactorService } from './promptRefactorService';
 import { promptOptimizationService } from './promptOptimizationService';
 import { getProjectStylePreset } from './autoPipeline/helpers';
 import { directorPromptService } from './directorPromptService';
@@ -36,7 +37,7 @@ import {
 import { parseSpeaker, stripSpeakerPrefix } from './voiceAssignment';
 import type { Database } from '../types';
 import { assessVideoClip } from './videoQualityGate';
-import { getPromptSkillForVideoModel, applySkillRules, getPromptSkill } from './promptSkills';
+import { getPromptSkillForVideoModel, getPromptSkill } from './promptSkills';
 import type { PromptSkill } from './promptSkills/types';
 
 const DEFAULT_STYLE_OBJ = {
@@ -82,6 +83,26 @@ function resolvePromptSkillForUser(db: Database, userId?: string | null): Prompt
     console.error('[PromptSkill] 加载提示词 skill 失败:', err);
     return undefined;
   }
+}
+
+/**
+ * 解析生成环节使用的提示词 Skill（关键帧/概念图/视频共用）：
+ * 1. 优先按"本次实际调用的模型"命中专属 Skill（如图片模型未来有专属图片规范）；
+ * 2. 未命中专属（getPromptSkill 返回 generic 兜底）时，回退"用户预选视频模型"的 Skill——
+ *    因为关键帧/概念图是给视频模型做参考输入/首尾帧的，必须按视频模型官方规范生成；
+ * 3. 视频模型也没有时，才用 generic 通用兜底。
+ * 语义：提示词规范跟随"产物的最终消费者"（视频模型），而非执行调用的模型。
+ */
+function resolveSkillForGeneration(
+  db: Database,
+  provider?: string | null,
+  modelName?: string | null,
+  userId?: string | null
+): PromptSkill {
+  const direct = getPromptSkill(provider, modelName);
+  if (direct && direct.id !== 'generic-video') return direct;
+  const userSkill = resolvePromptSkillForUser(db, userId);
+  return userSkill || direct;
 }
 
 /** 将本地相对路径图片转换为 base64 data URL（视频模型 API 需要可访问的图片） */
@@ -273,12 +294,8 @@ export async function generateShotsForEpisode(
     episodeTheme: episode.theme || undefined,
   });
 
-  // ── 提示词 Skill：按用户预选视频模型加载官方规范，注入分镜阶段 ──
-  const promptSkill = resolvePromptSkillForUser(db, userId);
-  if (promptSkill) {
-    console.log(`[PromptSkill] 分镜阶段加载官方提示词 skill: ${promptSkill.displayName}`);
-  }
-  const finalSystem = applySkillRules(systemPrompt, promptSkill, 'shotRule');
+  // ── 重构式：分镜保持导演视角，官方公式适配统一交给提示词重构层（promptRefactorService）──
+  const finalSystem = systemPrompt;
 
   const result = await aiProxy.generateText({
     db, userId, provider: textProvider, modelName: textModel,
@@ -347,6 +364,22 @@ export async function generateShotsForEpisode(
       phase_name: s.phaseName || null,
     })));
   })();
+
+  // ── 提示词重构：分镜落库后按视频模型 Skill 官方公式重构成品提示词 ──
+  // 失败不阻塞主流程（下次视频生成时若缺成品会自动补重构）
+  try {
+    const created = episode ? ShotDAO.listByEpisode(db, episode!.id) : [];
+    const pref = UserPreferenceDAO.getByUser(db, userId);
+    const vp = pref?.default_video_model?.split(':')[0];
+    const vm = pref?.default_video_model?.split(':')[1];
+    console.log(`[GenerateShots] 开始重构 ${created.length} 个镜头的官方提示词成品...`);
+    for (const s of created) {
+      await promptRefactorService.refactorShotVideoPrompt(db, userId, s.id, { videoProvider: vp, videoModelName: vm });
+    }
+    console.log(`[GenerateShots] 分镜提示词重构完成`);
+  } catch (refactorErr) {
+    console.warn('[GenerateShots] 分镜提示词重构失败（不影响分镜主流程）:', (refactorErr as Error).message);
+  }
 }
 
 // ============ 关键帧 ============
@@ -468,8 +501,8 @@ export async function generateKeyframesForShot(
         console.log('[Keyframe] 提示词优化:', promptOptimizationService.getOptimizationSummary(optimized));
       }
 
-      // ── 提示词 Skill：按本次实际使用的视频模型优先匹配官方提示词规范（其次回退用户预选偏好） ──
-      const promptSkill = getPromptSkill(provider, modelName) || resolvePromptSkillForUser(db, userId);
+      // ── 提示词 Skill：图片模型命中专属规范则用专属，否则回退用户预选视频模型的官方规范（关键帧是视频模型的首尾帧/参考输入） ──
+      const promptSkill = resolveSkillForGeneration(db, provider, modelName, userId);
       if (promptSkill) {
         const anchor = promptSkill.keyframeAnchor?.(frameType as 'first' | 'last' | 'middle');
         if (anchor) {
@@ -579,8 +612,8 @@ export async function regenerateKeyframe(
     }
   }
 
-  // ── 提示词 Skill：追加官方关键帧锚定句 ──
-  const promptSkill = resolvePromptSkillForUser(db, userId);
+  // ── 提示词 Skill：图片模型命中专属规范则用专属，否则回退用户预选视频模型的官方规范 ──
+  const promptSkill = resolveSkillForGeneration(db, provider, modelName, userId);
   if (promptSkill?.keyframeAnchor) {
     const anchor = promptSkill.keyframeAnchor((keyframe.frame_type as 'first' | 'last' | 'middle') || 'first');
     if (anchor && !finalPrompt.includes('锚定')) {
@@ -873,11 +906,26 @@ export async function generateVideoForShot(
       }
     }
 
-    // ── 提示词 Skill：按本次实际使用的视频模型优先匹配官方规范（其次回退用户预选偏好），
-    // 用官方三段式结构包装最终视频提示词 ──
-    // 结构：integrated_multimodal_description（时间线画面/动作/台词）+ overall_soundscape（环境声）+ non_diegetic_music（配乐）
-    const promptSkill = getPromptSkill(provider, modelName) || resolvePromptSkillForUser(db, userId);
-    if (promptSkill) {
+    // ── 提示词 Skill（重构式）：优先消费分镜重构成品（官方公式），缺成品/换模型时自动补重构 ──
+    const promptSkill = resolveSkillForGeneration(db, provider, modelName, userId);
+    let usedRefactored = false;
+    if (shot.video_prompt && shot.video_skill === promptSkill.id) {
+      finalPrompt = shot.video_prompt;
+      usedRefactored = true;
+      console.log(`[PromptSkill] 视频生成使用分镜重构成品提示词（${promptSkill.displayName}，${finalPrompt.length}字符）`);
+    } else {
+      try {
+        const refactored = await promptRefactorService.refactorShotVideoPrompt(db, userId, shot.id, { videoProvider: provider, videoModelName: modelName });
+        if (refactored) {
+          finalPrompt = refactored;
+          usedRefactored = true;
+          console.log(`[PromptSkill] 视频生成前自动补重构完成（${promptSkill.displayName}，${finalPrompt.length}字符）`);
+        }
+      } catch (refErr) {
+        console.warn('[PromptSkill] 分镜成品补重构失败，回退运行期包装:', (refErr as Error).message);
+      }
+    }
+    if (!usedRefactored && promptSkill) {
       const skPrompt = promptSkill.buildVideoPrompt({
         actionDescription: finalPrompt,
         shotSize: shot.shot_size || 'medium',
@@ -893,7 +941,7 @@ export async function generateVideoForShot(
       });
       if (skPrompt) {
         finalPrompt = skPrompt;
-        console.log(`[PromptSkill] 视频生成加载官方提示词 skill: ${promptSkill.displayName}（${isFlf2vMode || !!lastFrameImageUrl ? 'FL2VA首尾帧' : 'I2VA首帧'}模式，${(finalPrompt || '').length}字符）`);
+        console.log(`[PromptSkill] 视频生成运行期包装官方提示词 skill: ${promptSkill.displayName}（${isFlf2vMode || !!lastFrameImageUrl ? 'FL2VA首尾帧' : 'I2VA首帧'}模式，${(finalPrompt || '').length}字符）`);
       }
     }
 
@@ -1211,16 +1259,21 @@ export async function batchGenerateVideos(
     } catch { /* 尾帧解析失败，退化为单首帧生成 */ }
     const shotReferenceImages = collectShotReferenceImages(db, shot);
 
-    // 检查是否已有处理中的视频（清理超时超过2分钟的任务）
+    // 检查是否已有处理中的视频（超时清理）
+    // ⚠️ 注意：ComfyUI 本地渲染（MiniMaxH3 等）单镜头可达 30 分钟以上，且队列按序渲染。
+    // 之前按"超过2分钟即失败"清理，会把排队/渲染中的本地任务误杀，重复点击批量生成时
+    // 更是直接作废正在跑的任务（用户反馈"只有前几秒后面空白/只剩一个视频"的重要成因之一）。
+    // 修复：ComfyUI 任务不设短超时（24h 兜底，与 getVideoStatus 一致）；云端任务保留 10 分钟超时。
     const existingVideos = ShotVideoIntervalDAO.listByShot(db, shot.id);
-    const TWO_MINUTES = 2 * 60 * 1000;
     const now = Date.now();
     for (const v of existingVideos) {
       if ((v.status === 'processing' || v.status === 'pending') && v.created_at) {
         const createdTime = new Date(v.created_at).getTime();
-        if (now - createdTime > TWO_MINUTES) {
+        const isLocalComfy = (v.video_model_used || '').startsWith('comfyui');
+        const timeoutMs = isLocalComfy ? 24 * 60 * 60 * 1000 : 10 * 60 * 1000;
+        if (now - createdTime > timeoutMs) {
           // 超时任务标记为失败
-          ShotVideoIntervalDAO.update(db, v.id, { status: 'failed', error_message: '任务超时（超过2分钟）' });
+          ShotVideoIntervalDAO.update(db, v.id, { status: 'failed', error_message: isLocalComfy ? '任务超时（ComfyUI本地渲染超过24小时）' : '任务超时（超过10分钟）' });
         }
       }
     }

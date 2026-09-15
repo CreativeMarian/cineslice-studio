@@ -3,6 +3,7 @@ import { Sparkles, ChevronDown, Zap, DollarSign, Star, Check } from 'lucide-reac
 import { Select } from '../ui';
 import { useModelStore } from '../../stores/useModelStore';
 import { getModelKey } from '../../types/model';
+import { sortModelsWithDefaultFirst } from '../../utils';
 import { modelConfigService } from '../../services/modelConfigService';
 import type { ModelType, ModelConfig } from '../../types';
 
@@ -59,7 +60,7 @@ export function ModelRecommendSelector({ modelType, value, onChange, stage }: Mo
       .finally(() => setLoadingRecommend(false));
   }, [stage]);
 
-  const configuredModels = useMemo(() => configs[modelType]?.filter((m) => m.is_active) || [], [configs, modelType]);
+  const configuredModels = useMemo(() => sortModelsWithDefaultFirst(configs[modelType]?.filter((m) => m.is_active) || []), [configs, modelType]);
 
   // 自动选默认/推荐
   useEffect(() => {

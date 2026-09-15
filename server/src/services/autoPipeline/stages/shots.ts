@@ -11,7 +11,9 @@ import type { AutoPipelineTask } from '../types';
 import { getFirstModel, getOrCreateScriptAnalysis } from '../helpers';
 import { saveTask } from '../taskStore';
 import { getPromptSkillForVideoModel, applySkillRules } from '../../promptSkills';
+import { applyStageRules } from '../../stageSkills';
 import { UserPreferenceDAO } from '../../../models';
+import { runStageGates } from '../../stageSkills';
 
 export async function stageShots(db: Database, task: AutoPipelineTask): Promise<void> {
   const episodes = NovelEpisodeDAO.listByProject(db, task.projectId);
@@ -48,7 +50,10 @@ export async function stageShots(db: Database, task: AutoPipelineTask): Promise<
   if (promptSkill) {
     console.log(`[AutoPipeline] 分镜阶段加载官方提示词 skill: ${promptSkill.displayName}`);
   }
-  const finalSystemPrompt = applySkillRules(systemPrompt, promptSkill, 'shotRule');
+  const finalSystemPrompt = applyStageRules(applySkillRules(systemPrompt, promptSkill, 'shotRule'), 'shots')
+
+  // ── 台词容量硬规则（novel-script 4.5字/秒 × 固定5秒镜头）──
+    + `\n\n【台词容量硬规则（必须遵守）】\n- 每个镜头固定 5 秒（durationSeconds=5），中文台词按 4.5 字/秒折算，5 秒镜头最多装约 20 字台词（留 0.5 秒缓冲）。\n- 若某个镜头台词超过 20 字，必须自动拆分为多个连续镜头：前一镜说完前半句（<=20字），下一镜接后半句，保持动作连贯，景别/机位要有变化（如中景→特写）。\n- 严禁单个镜头台词超过 20 字；长对白必须拆镜，宁多勿塞。`;
 
   // 提示词优化（基于剧本分析结果细化分镜提示词）
   let finalPrompt = prompt;
@@ -122,6 +127,38 @@ export async function stageShots(db: Database, task: AutoPipelineTask): Promise<
   })();
 
   task.stageProgress['shots'] = `生成 ${created.length} 个镜头`;
+
+  // ── 质量门（shuohao-skills 移植）：只读检查 + 台词超时自动拆镜修复 ──
+  try {
+    let gate = runStageGates(db, 'shots', first.id);
+    console.log(`[AutoPipeline][质量门] ${gate.summary}`);
+    let errs = gate.issues.filter((i: any) => i.severity === 'error');
+
+    // 台词装不下镜头（4.5字/秒折算）→ 自动拆镜，最多两轮，防止死循环烧额度
+    if (errs.some((e: any) => e.rule.includes('台词'))) {
+      console.warn(`[AutoPipeline] 检测到台词超时镜头，自动拆镜（最多两轮）...`);
+      const r1 = await fixLongDialogueShots(db, task, first.id);
+      task.stageProgress['shots'] += `｜自动拆镜:${r1.fixed}成功/${r1.failed}失败`;
+      gate = runStageGates(db, 'shots', first.id);
+      errs = gate.issues.filter((i: any) => i.severity === 'error');
+      if (errs.some((e: any) => e.rule.includes('台词'))) {
+        const r2 = await fixLongDialogueShots(db, task, first.id);
+        task.stageProgress['shots'] += `｜再拆:${r2.fixed}成功/${r2.failed}失败`;
+        gate = runStageGates(db, 'shots', first.id);
+        errs = gate.issues.filter((i: any) => i.severity === 'error');
+      }
+      console.log(`[AutoPipeline][质量门] 拆镜后复检: ${gate.summary}`);
+    }
+
+    if (errs.length > 0) {
+      errs.slice(0, 5).forEach((e: any) => console.warn(`[AutoPipeline][质量门]   - ${e.message}`));
+      task.stageProgress['shots'] += `｜质量门:${errs.length}错`;
+    } else {
+      task.stageProgress['shots'] += `｜质量门:通过`;
+    }
+  } catch (gateErr: any) {
+    console.warn('[AutoPipeline] shots 质量门执行失败:', gateErr.message);
+  }
 }
 
 const _SHOT_SIZE_MAP: Record<string, string> = { '大远景': 'extreme_wide', '远景': 'long', '全景': 'full', '中景': 'medium', '近景': 'medium_closeup', '特写': 'closeup', '大特写': 'extreme_closeup' };
@@ -153,4 +190,84 @@ function normalizeShotValueSafe(shot: any): any {
   }
   if (!out.subject && Array.isArray(out.charactersInShot) && out.charactersInShot.length > 0) out.subject = out.charactersInShot[0];
   return out;
+}
+
+// ── 台词超时自动拆镜：把台词折算超时的镜头拆成多个连续短镜头（每镜5秒、台词≤20字）──
+const SPLIT_SYSTEM = `你是一个短剧分镜拆分助手。将台词超长的单个分镜拆成 2-3 个连续的短镜头。硬性要求：每个镜头固定 5 秒（durationSeconds=5），中文台词不超过 20 字（约4.5字/秒×5秒，留缓冲）；拆分后剧情连贯、动作连续；相邻镜头景别/机位要有变化（如中景→特写、推镜→固定）；说话人不变，前后镜头接续同一句话。输出 JSON 数组，每项字段：shotNumber(从1开始)、shotSize、cameraMovement、actionDescription、dialogue、durationSeconds、charactersInShot、propsInShot、subject、lighting、mood。`;
+
+const cjkLenOf = (t: string) => (t.match(/[\u4e00-\u9fa5]/g) || []).length;
+const dialogueNeedSeconds = (d: string) => cjkLenOf(d || '') / 4.5;
+
+function buildSplitPrompt(shot: any, prev: any, next: any): string {
+  return `以下分镜台词超过镜头容量，请拆分。\n\n前一镜：${prev ? `镜头${prev.shot_number}「${prev.action_description || ''}」台词「${prev.dialogue || ''}」` : '无'}\n本镜（需拆分）：镜头${shot.shot_number}「${shot.action_description || ''}」台词「${shot.dialogue || ''}」同框角色：${shot.characters_in_shot || '无'}\n后一镜：${next ? `镜头${next.shot_number}「${next.action_description || ''}」台词「${next.dialogue || ''}」` : '无'}\n\n请输出拆分后的镜头 JSON 数组（只输出数组，不要其他文字）。`;
+}
+
+async function fixLongDialogueShots(db: Database, task: AutoPipelineTask, episodeId: string): Promise<{ fixed: number; failed: number }> {
+  const model = getFirstModel(db, task.userId, 'text');
+  if (!model) return { fixed: 0, failed: 0 };
+  const shots = ShotDAO.listByEpisode(db, episodeId);
+  const over = shots.filter((s) => {
+    const d = s.dialogue || '';
+    if (!d.trim()) return false;
+    return dialogueNeedSeconds(d) > (s.duration_seconds || 5) + 0.5;
+  });
+  if (over.length === 0) return { fixed: 0, failed: 0 };
+
+  let fixed = 0, failed = 0;
+  for (const shot of over) {
+    try {
+      const idx = shots.findIndex((s) => s.id === shot.id);
+      const prev = idx > 0 ? shots[idx - 1] : null;
+      const next = idx < shots.length - 1 ? shots[idx + 1] : null;
+      const result = await aiProxy.generateText({
+        db, userId: task.userId, provider: model.provider, modelName: model.modelName,
+        prompt: buildSplitPrompt(shot, prev, next), systemPrompt: SPLIT_SYSTEM,
+        responseFormat: 'json', maxTokens: 8000,
+      });
+      const raw = parseShotListArray<any[]>(result.content);
+      const newShots = raw.map((s: any) => normalizeShotValueSafe(s)).filter((s: any) => s && s.dialogue);
+      if (newShots.length < 2) { failed++; console.warn(`[AutoPipeline] 拆镜结果不足2镜，跳过镜头${shot.shot_number}`); continue; }
+
+      const usable = newShots.slice(0, 3).map((s: any) => ({ ...s, durationSeconds: 5 }));
+      const insertCount = usable.length;
+      db.transaction(() => {
+        ShotDAO.delete(db, shot.id);
+        // 该镜之后的镜头号整体后移
+        const after = ShotDAO.listByEpisode(db, episodeId)
+          .filter((s) => s.shot_number > shot.shot_number)
+          .sort((a, b) => a.shot_number - b.shot_number);
+        for (const a of after) ShotDAO.update(db, a.id, { shot_number: a.shot_number + insertCount - 1 });
+        // 插入新镜头（保持原位置）
+        let n = shot.shot_number;
+        for (const s of usable) {
+          ShotDAO.create(db, {
+            user_id: task.userId, episode_id: episodeId, scene_id: shot.scene_id ?? undefined,
+            shot_number: n,
+            shot_size: s.shotSize || s.shot_size || shot.shot_size || 'medium',
+            camera_movement: s.cameraMovement || s.camera_movement || shot.camera_movement || 'static',
+            action_description: s.actionDescription || s.action_description || shot.action_description || '',
+            dialogue: s.dialogue || '',
+            duration_seconds: 5,
+            characters_in_shot: s.charactersInShot ? JSON.stringify(s.charactersInShot) : (shot.characters_in_shot ? JSON.stringify(shot.characters_in_shot) : undefined),
+            props_in_shot: s.propsInShot ? JSON.stringify(s.propsInShot) : (shot.props_in_shot ? JSON.stringify(shot.props_in_shot) : undefined),
+            subject: s.subject || shot.subject || undefined,
+            lighting: s.lighting || shot.lighting || undefined,
+            mood: s.mood || shot.mood || undefined,
+            transition: s.transition || shot.transition || 'cut',
+            pace: s.pace || shot.pace || 'normal',
+            character_outfits: shot.character_outfits ?? undefined,
+            phase: shot.phase ?? null,
+            phase_name: shot.phase_name || null,
+          });
+          n++;
+        }
+      })();
+      console.log(`[AutoPipeline] 镜头${shot.shot_number} 拆成 ${insertCount} 镜`);
+      fixed++;
+    } catch (e: any) {
+      console.warn(`[AutoPipeline] 拆镜失败（镜头${shot.shot_number}）:`, e.message);
+      failed++;
+    }
+  }
+  return { fixed, failed };
 }

@@ -336,20 +336,16 @@ export function resolveLastFrameForShot(
   shot: Shot,
   shots: Shot[]
 ): ResolvedLastFrame | null {
-  // 1. 显式尾帧（'end' 手动生成；'last' 为批量关键帧生成的镜头结尾画面，二者都作为首尾帧插值的尾端）
-  const keyframes = ShotKeyframeDAO.listByShot(db, shot.id);
-  const endFrame = keyframes.find(k => k.frame_type === 'end' && k.image_url)
-    || keyframes.find(k => k.frame_type === 'last' && k.image_url);
-  if (endFrame?.image_url) {
-    return { keyframeId: endFrame.id, imageUrl: endFrame.image_url, source: 'explicit_end' };
-  }
-
-  // 2. 下一镜首帧（use_next_first_frame 默认 1）
-  if (shot.use_next_first_frame !== 0) {
-    const nextShots = shots
-      .filter(s => s.shot_number > shot.shot_number)
-      .sort((a, b) => a.shot_number - b.shot_number);
-    for (const next of nextShots) {
+  // v2.0 - 同场景连戏优先：本镜尾帧 = 下一镜首帧（尾帧硬锁定下一镜画面 → 镜头间无缝衔接，人物/场景不跳变）；
+  //        换场景（scene_id 不同）或无下一镜时回退本镜显式尾帧（动作弧完整定格，作为镜头收尾）。
+  //        修复“镜头间跳变/人物变脸”：旧逻辑 explicit_end 恒优先，每镜独立首尾帧，镜头之间没有任何连戏锚点。
+  const nextShots = shots
+    .filter(s => s.shot_number > shot.shot_number)
+    .sort((a, b) => a.shot_number - b.shot_number);
+  const next = nextShots[0];
+  if (next && shot.use_next_first_frame !== 0) {
+    const sameScene = !shot.scene_id || !next.scene_id || shot.scene_id === next.scene_id;
+    if (sameScene) {
       const nextKeyframes = ShotKeyframeDAO.listByShot(db, next.id);
       const nextFirst = nextKeyframes.find(k => k.frame_type === 'first' && k.image_url)
         || nextKeyframes.find(k => k.image_url);
@@ -357,6 +353,14 @@ export function resolveLastFrameForShot(
         return { keyframeId: nextFirst.id, imageUrl: nextFirst.image_url, source: 'next_shot_first' };
       }
     }
+  }
+
+  // 回退：本镜显式尾帧（'end' 手动生成；'last' 为批量关键帧生成的镜头结尾画面，二者都作为首尾帧插值的尾端）
+  const keyframes = ShotKeyframeDAO.listByShot(db, shot.id);
+  const endFrame = keyframes.find(k => k.frame_type === 'end' && k.image_url)
+    || keyframes.find(k => k.frame_type === 'last' && k.image_url);
+  if (endFrame?.image_url) {
+    return { keyframeId: endFrame.id, imageUrl: endFrame.image_url, source: 'explicit_end' };
   }
 
   return null;

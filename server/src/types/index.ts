@@ -281,6 +281,8 @@ export interface Shot {
   use_next_first_frame: number; // 1=视频生成时自动用下一镜首帧作尾帧（首尾帧插值）
   first_frame_description: string | null; // 首帧画面描述（动作弧起始状态，用于首帧关键帧生成）
   last_frame_description: string | null;  // 尾帧画面描述（动作弧结束状态，用于尾帧关键帧生成）
+  video_prompt: string | null;  // 提示词重构成品：分镜生成后按视频模型 Skill 官方公式重构，视频生成直接消费
+  video_skill: string | null;   // 重构该成品时使用的提示词 Skill id（换模型时据此失效重跑重构）
   created_at: string;
   updated_at: string;
 }

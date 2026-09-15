@@ -77,6 +77,8 @@ const VIDEO_COST_PER_SECOND: Record<string, number> = {
   'doubao-video:doubao-seedance-1-0-pro': 0.002,
   'doubao-video:doubao-seedance-1-0-lite': 0.001,
   'doubao-video:doubao-seedance-2-5-260628': 0.003,
+  'doubao-video:doubao-seedance-2-0-mini-260615': 0.001,
+  'doubao-video:doubao-seedance-2-0-fast-260128': 0.002,
   'openai-video:sora': 0.02,
   'kling:kling-v1': 0.005,
   'runway:gen-3': 0.01,

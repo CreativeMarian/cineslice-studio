@@ -40,6 +40,40 @@ export const VIDEO_MODEL_CONFIGS: Record<string, VideoModelParamConfig> = {
     defaultResolution: '1080p',
     defaultDuration: 5,
   },
+  'doubao:doubao-seedance-2-0-mini-260615': {
+    ratios: COMMON_RATIOS,
+    resolutions: [
+      { value: '480p', label: '480p (标准)' },
+      { value: '720p', label: '720p (推荐)' },
+    ],
+    durations: [
+      { value: 5, label: '5秒' },
+      { value: 10, label: '10秒' },
+      { value: 15, label: '15秒' },
+    ],
+    supportsSubtitles: false,
+    recommendation: 'Seedance 2.0 Mini：高性价比，480P/720P、4-15秒；支持首尾帧与全模态参考；适合批量高频出片',
+    defaultRatio: '16:9',
+    defaultResolution: '720p',
+    defaultDuration: 5,
+  },
+  'doubao:doubao-seedance-2-0-fast-260128': {
+    ratios: COMMON_RATIOS,
+    resolutions: [
+      { value: '480p', label: '480p (标准)' },
+      { value: '720p', label: '720p (推荐)' },
+    ],
+    durations: [
+      { value: 5, label: '5秒' },
+      { value: 10, label: '10秒' },
+      { value: 15, label: '15秒' },
+    ],
+    supportsSubtitles: false,
+    recommendation: 'Seedance 2.0 Fast：速度与成本平衡，480P/720P、4-15秒；支持首尾帧与全模态参考；适合快节奏批量出片',
+    defaultRatio: '16:9',
+    defaultResolution: '720p',
+    defaultDuration: 5,
+  },
   'doubao:doubao-seedance-2-0-260128': {
     ratios: COMMON_RATIOS,
     resolutions: [
@@ -230,6 +264,11 @@ export const VIDEO_MODEL_CONFIGS: Record<string, VideoModelParamConfig> = {
 // - kling:kling-v2 / kling:kling-v3：可灵 image2video 的 image_tail 尾帧
 export const FLF2V_MODEL_KEYS = new Set<string>([
   'comfyui:minimax-h3-flf2v.json',
+  'doubao:doubao-seedance-2-0-260128',
+  'doubao:doubao-seedance-2-0-mini-260615',
+  'doubao:doubao-seedance-2-0-fast-260128',
+  'doubao:doubao-seedance-2-5-260628',
+  'comfyui:minimax-h3-flf2v.json',
   'jimeng:jimeng-video-3-0',
   'kling:kling-v2',
   'kling:kling-v3',
@@ -246,31 +285,53 @@ export const FLF2V_MODEL_KEYS = new Set<string>([
 // ═══════════════════════════════════════════════════════════════
 const PROMPT_SKILL_MODEL_KEYS: Array<{ providers: string[]; keys: string[]; skillName: string }> = [
   { providers: ['minimax', 'comfyui'], keys: ['minimax-h3', 'minimaxh3', 'h3', 'flf2v', 'hailuo3'], skillName: 'MiniMax H3 官方提示词' },
+  { providers: ['kling', 'klingai'], keys: ['kling', 'kling-v2', 'kling-v3'], skillName: '可灵 Kling 官方提示词' },
+  { providers: ['seedance', 'doubao', 'volcengine', 'ark', 'jimeng'], keys: ['seedance-2.5', 'seedance-2-5', 'seedance25', 'seedance-2-5-pro', 'seedance-2-5-turbo', 'seedance-3'], skillName: 'Seedance 2.5 官方提示词' },
+  { providers: ['seedance', 'doubao', 'volcengine', 'ark', 'jimeng'], keys: ['seedance-2-0-mini', 'seedance-2-0-fast', 'seedance-2.0-mini', 'seedance-2.0-fast', 'seedance-2.0', 'seedance-2-0', 'seedance20', 'seedance-1', 'seed-1', 'seed-2'], skillName: 'Seedance 2.0 官方提示词' },
   // 后续模型追加：如 kling / jimeng / seedance 官方 skill
 ];
 
-/** 该模型是否配置了官方提示词 Skill（前端据此显示“官方提示词模板”标识） */
-export function hasPromptSkillForModel(provider: string, modelName: string): boolean {
+/** modelName 命中该条目的最大 key 匹配长度（用于 2.0/2.5 等版本消歧） */
+function matchEntryKeyLen(entry: { providers: string[]; keys: string[]; skillName: string }, provider: string, modelName: string): number {
   const p = (provider || '').toLowerCase();
   const m = (modelName || '').toLowerCase();
-  return PROMPT_SKILL_MODEL_KEYS.some((entry) => {
-    const providerHit = entry.providers.some((pr) => p.includes(pr) || pr.includes(p));
-    const keyHit = entry.keys.some((k) => m.includes(k) || k.includes(m));
-    return providerHit && keyHit;
-  });
+  const providerHit = entry.providers.some((pr) => p.includes(pr) || pr.includes(p));
+  if (!providerHit) return 0;
+  let best = 0;
+  for (const k of entry.keys) {
+    if (m.includes(k) || k.includes(m)) best = Math.max(best, Math.min(k.length, m.length));
+  }
+  return best;
 }
 
-/** 获取模型的提示词 Skill 名称（用于 UI 展示） */
-export function getPromptSkillName(provider: string, modelName: string): string | null {
-  const p = (provider || '').toLowerCase();
-  const m = (modelName || '').toLowerCase();
-  for (const entry of PROMPT_SKILL_MODEL_KEYS) {
-    const providerHit = entry.providers.some((pr) => p.includes(pr) || pr.includes(p));
-    const keyHit = entry.keys.some((k) => m.includes(k) || k.includes(m));
-    if (providerHit && keyHit) return entry.skillName;
-  }
-  return null;
+/** 该模型是否配置了专属官方提示词 Skill（前端据此显示“官方提示词模板”标识） */
+export function hasPromptSkillForModel(provider: string, modelName: string): boolean {
+  return PROMPT_SKILL_MODEL_KEYS.some((entry) => matchEntryKeyLen(entry, provider, modelName) > 0);
 }
+
+/** 获取模型的提示词 Skill 名称（用于 UI 展示；版本类模型按最长 key 匹配消歧） */
+export function getPromptSkillName(provider: string, modelName: string): string | null {
+  let bestEntry: { providers: string[]; keys: string[]; skillName: string } | null = null;
+  let bestLen = 0;
+  for (const entry of PROMPT_SKILL_MODEL_KEYS) {
+    const len = matchEntryKeyLen(entry, provider, modelName);
+    if (len > bestLen) { bestLen = len; bestEntry = entry; }
+  }
+  return bestEntry ? bestEntry.skillName : null;
+}
+
+
+/**
+ * 是否已自动适配提示词规范（任何视频模型都返回 true）：
+ * 有专属官方 Skill 用专属规范，没有则后端自动用"通用视频提示词规范"兜底注入。
+ * 用于前端展示"已自动适配官方提示词规范"状态。
+ */
+export function hasPromptSkillAutoAdapt(provider: string, modelName: string): boolean {
+  return Boolean(provider || modelName);
+}
+
+
+
 /** 该视频模型是否支持首尾帧（前端据此显示备注，提示用户首尾帧出片质量更稳） */
 export function supportsFLF2V(modelKey: string): boolean {
   if (!modelKey) return false;

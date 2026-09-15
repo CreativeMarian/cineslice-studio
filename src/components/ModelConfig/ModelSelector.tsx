@@ -3,7 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import { Select } from '../ui';
 import { useModelStore } from '../../stores/useModelStore';
 import { getModelKey } from '../../types/model';
-import { supportsFLF2V, hasPromptSkillForModel } from '../../config/videoModelConfig';
+import { sortModelsWithDefaultFirst } from '../../utils';
+import { supportsFLF2V, hasPromptSkillForModel, hasPromptSkillAutoAdapt } from '../../config/videoModelConfig';
 import type { ModelType } from '../../types';
 
 const TYPE_ICONS: Record<ModelType, string> = {
@@ -42,7 +43,7 @@ export function ModelSelector({ modelType, value, onChange, placeholder, showTyp
 
   // 严格按类型过滤，确保不会混淆
   const configuredModels = useMemo(
-    () => configs[modelType]?.filter((m) => m.is_active && m.model_type === modelType) || [],
+    () => sortModelsWithDefaultFirst(configs[modelType]?.filter((m) => m.is_active && m.model_type === modelType) || []),
     [configs, modelType]
   );
 
@@ -84,10 +85,16 @@ export function ModelSelector({ modelType, value, onChange, placeholder, showTyp
                       🔄
                     </span>
                   )}
-                  {hasPromptSkillForModel(model.provider, model.model_name) && (
+                  {hasPromptSkillForModel(model.provider, model.model_name) ? (
                     <span className="text-xs flex-shrink-0" title="已内置该模型的官方提示词 Skill：解析剧本后自动按官方提示词规范生成分镜/关键帧/视频提示词，出片质量更稳">
                       🎯
                     </span>
+                  ) : (
+                    hasPromptSkillAutoAdapt(model.provider, model.model_name) && (
+                      <span className="text-xs flex-shrink-0 text-[var(--ink-3)]" title="已自动适配通用视频提示词规范（语句通顺/剧情连贯/资产一致），换模型无需手动配置">
+                        ⚙️
+                      </span>
+                    )
                   )}
                   <span className="text-xs flex-shrink-0" title={model.supports_audio ? '该模型支持生成带音频的视频' : '该模型只生成无声视频'}>
                     {model.supports_audio ? '🔊' : '🔇'}

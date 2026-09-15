@@ -6,6 +6,7 @@ import { novelToScriptPrompt } from '../../prompts/novelToScript';
 import { parseAiJsonOrThrow, parseAiJson } from '../../../utils/aiJsonParser';
 import type { AutoPipelineTask } from '../types';
 import { getFirstModel } from '../helpers';
+import { applyStageRules } from '../../stageSkills';
 
 export async function stageEpisodes(db: Database, task: AutoPipelineTask): Promise<void> {
   const existing = NovelEpisodeDAO.listByProject(db, task.projectId);
@@ -20,10 +21,11 @@ export async function stageEpisodes(db: Database, task: AutoPipelineTask): Promi
   const chapters = NovelChapterDAO.listByProject(db, task.projectId);
   const allContent = chapters.map(c => c.content).join('\n\n');
 
-  const { systemPrompt, prompt } = novelToScriptPrompt({
+  const { systemPrompt: baseSystemPrompt, prompt } = novelToScriptPrompt({
     novelContent: allContent,
     episodesCount: 1,
   });
+  const systemPrompt = applyStageRules(baseSystemPrompt, 'episodes');
 
   const result = await aiProxy.generateText({
     db, userId: task.userId, provider: model.provider, modelName: model.modelName,

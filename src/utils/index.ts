@@ -117,6 +117,11 @@ export const GENDER_LABELS: Record<string, string> = {
   other: '其他',
 };
 
+// 模型排序：默认模型永远排在首位，其余保持原顺序（稳定排序，不修改原数组）
+export function sortModelsWithDefaultFirst<T extends { is_default?: boolean | number }>(models: T[]): T[] {
+  return [...models].sort((a, b) => (b.is_default ? 1 : 0) - (a.is_default ? 1 : 0));
+}
+
 // 时段中文映射
 export const TIME_OF_DAY_LABELS: Record<string, string> = {
   day: '白天',

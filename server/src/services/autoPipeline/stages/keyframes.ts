@@ -170,7 +170,11 @@ export async function stageKeyframes(db: Database, task: AutoPipelineTask): Prom
 
       // 局部函数：生成一帧关键帧并入库（first=镜头起始画面 / last=镜头结尾画面）
       const genFrame = async (frameType: 'first' | 'last', promptText: string): Promise<boolean> => {
-        try {
+        let attempts = 0;
+        const MAX_ATTEMPTS = 6;
+        while (attempts < MAX_ATTEMPTS) {
+          attempts++;
+          try {
           // ── 提示词 Skill：追加官方关键帧锚定句（H3 I2VA/FL2VA）──
           if (promptSkill?.keyframeAnchor) {
             const anchor = promptSkill.keyframeAnchor(frameType);
@@ -214,10 +218,20 @@ export async function stageKeyframes(db: Database, task: AutoPipelineTask): Prom
           generated++;
           task.stageProgress['keyframes'] = `生成中 ${generated} 帧（${frameType}）`;
           return true;
-        } catch (err: any) {
-          console.error(`[AutoPipeline] keyframe shot=${shot.id} ${frameType} 生成失败:`, err.message);
-          return false;
+          } catch (err: any) {
+            const msg = (err as Error).message || '';
+            const isRateLimit = /rate[_\- ]?limit|限流|429|Too Many Requests/i.test(msg);
+            if (isRateLimit && attempts < MAX_ATTEMPTS) {
+              const waitMs = 15000 * attempts; // 15s/30s/45s/60s/75s 逐次加长
+              console.warn(`[AutoPipeline] keyframe shot=${shot.shot_number} ${frameType} 触发限流，第 ${attempts}/${MAX_ATTEMPTS} 次退避 ${waitMs}ms 后重试`);
+              await new Promise<void>(r => setTimeout(r, waitMs));
+              continue;
+            }
+            console.error(`[AutoPipeline] keyframe shot=${shot.id} ${frameType} 生成失败:`, msg);
+            return false;
+          }
         }
+        return false;
       };
 
       // first：镜头起始画面（动作起点状态）

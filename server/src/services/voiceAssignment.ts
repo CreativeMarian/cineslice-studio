@@ -1,8 +1,35 @@
 // 音色分配共享模块
-// v1.0 - 手动路径（routes/audio.ts）与自动流水线（autoPipeline/stages/audio.ts）共用的
+// v1.1 - 手动路径（routes/audio.ts）与自动流水线（autoPipeline/stages/audio.ts）共用的
 // 角色音色解析：voice_profile（用户固定音色档案）优先 → 动态按性别/角色类型/性格/年龄分配
+//         + edge-tts 音色映射：resolveVoiceForCharacter 返回的 MiniMax 风格音色（zh_male_* / zh_female_*）
+//           经 toEdgeTtsVoice() 归一化为 edge-tts 中文神经语音（zh-CN-*），保证免费 TTS 链路按角色分声
 import type { Database } from '../types';
 import { ScriptCharacterDAO } from '../models';
+
+// MiniMax 风格音色 → edge-tts 中文神经语音 映射（edge-tts 免费链路的音色归一化）
+export const EDGE_TTS_VOICE_MAP: Record<string, string> = {
+  zh_male_qianhou: 'zh-CN-YunjianNeural', // 浑厚男主 → 沉稳男声
+  zh_male_xiaoshen: 'zh-CN-YunxiNeural', // 小生/阴险 → 年轻男声
+  zh_male_yangguang: 'zh-CN-YunyangNeural', // 阳光/正义 → 阳光青年
+  zh_male_chenwen: 'zh-CN-YunfengNeural', // 沉稳中年/权威 → 浑厚男声
+  zh_female_qingxin: 'zh-CN-XiaoxiaoNeural', // 清新女声 → 温暖女声
+  zh_female_wener: 'zh-CN-XiaomoNeural', // 温柔女声 → 温柔女声
+  zh_female_tianmei: 'zh-CN-XiaoyiNeural', // 甜美女声 → 活泼甜美女声
+  zh_female_shenhou: 'zh-CN-XiaozhenNeural', // 深厚威严女声 → 成熟女声
+};
+
+/**
+ * 把任意音色 ID 归一化为 edge-tts 可用音色：
+ *  - zh-CN-*（edge-tts 原生格式）→ 原样透传
+ *  - zh_male_* / zh_female_*（MiniMax/豆包格式）→ 按映射表转换
+ *  - 其他未知值 → 返回 null（由调用方决定兜底）
+ */
+export function toEdgeTtsVoice(voice: string | null | undefined): string | null {
+  if (!voice) return null;
+  if (/^zh-CN-[A-Za-z]+Neural$/.test(voice)) return voice;
+  const mapped = EDGE_TTS_VOICE_MAP[voice];
+  return mapped || null;
+}
 
 // 音色库（豆包 TTS 支持的 8 种音色，与前端角色音色选择 UI 对齐）
 export const VOICE_LIBRARY: Record<string, { voice: string; desc: string }> = {

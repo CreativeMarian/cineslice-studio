@@ -67,7 +67,11 @@ export function VideoParamsPanel({
           const skillName = provider && modelName ? getPromptSkillName(provider, modelName) : null;
           return skillName ? (
             <p className="text-[10px] text-[var(--accent)] mt-1 flex items-center gap-1">
-              🎯 已内置{skillName} Skill：分镜/关键帧/视频提示词自动按官方规范生成，出片质量更稳
+              🎯 已内置{skillName} Skill：AI 分析剧情前自动按官方规范生成分镜/资产/关键帧/视频提示词，出片质量更稳
+            </p>
+          ) : provider && modelName ? (
+            <p className="text-[10px] text-[var(--ink-3)] mt-1 flex items-center gap-1">
+              ⚙️ 已自动适配通用视频提示词规范（语句通顺/剧情连贯/资产一致），换模型无需手动配置
             </p>
           ) : null;
         })()}

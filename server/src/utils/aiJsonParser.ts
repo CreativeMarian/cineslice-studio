@@ -80,6 +80,35 @@ export function parseAiJson<T = unknown>(raw: string): ParseResult<T> {
 /**
  * 修复常见的 JSON 格式问题
  */
+/**
+ * 只转义 JSON 字符串值内部的裸换行/回车/Tab（JSON.parse 不允许字符串值内出现裸换行），
+ * 保留字符串外部的格式化换行（JSON 合法空白）。
+ * 用状态机扫描：仅当处于双引号字符串内且未处于转义序列中时替换。
+ */
+function escapeNewlinesInJsonStrings(str: string): string {
+  let out = '';
+  let inStr = false;
+  for (let i = 0; i < str.length; i++) {
+    const ch = str[i];
+    if (inStr) {
+      if (ch === '\\') {
+        out += ch;
+        if (i + 1 < str.length) { out += str[i + 1]; i++; }
+        continue;
+      }
+      if (ch === '"') { inStr = false; out += ch; continue; }
+      if (ch === '\n') { out += '\\n'; continue; }
+      if (ch === '\r') { out += '\\r'; continue; }
+      if (ch === '\t') { out += '\\t'; continue; }
+      out += ch;
+    } else {
+      if (ch === '"') inStr = true;
+      out += ch;
+    }
+  }
+  return out;
+}
+
 function repairJson(str: string): string {
   let repaired = str;
 
@@ -92,11 +121,8 @@ function repairJson(str: string): string {
   // 修复没有引号的键名: { key: "value" } -> { "key": "value" }
   repaired = repaired.replace(/([{,]\s*)([a-zA-Z_][a-zA-Z0-9_]*)\s*:/g, '$1"$2":');
 
-  // 修复换行符在字符串内的问题
-  repaired = repaired.replace(/\n/g, '\\n');
-  repaired = repaired.replace(/\r/g, '\\r');
-  repaired = repaired.replace(/\t/g, '\\t');
-
+  // 修复字符串值内的裸换行/回车/Tab（保留字符串外的格式化换行）
+  repaired = escapeNewlinesInJsonStrings(repaired);
   return repaired;
 }
 

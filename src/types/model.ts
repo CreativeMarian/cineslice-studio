@@ -770,6 +770,22 @@ const VIDEO_MODELS: ModelMeta[] = [
   },
   {
     provider: 'doubao', providerName: '字节豆包视频',
+    modelName: 'doubao-seedance-2-0-mini-260615', displayName: '豆包 Seedance 2.0 Mini',
+    modelType: 'video', description: '高性价比视频生成模型，480P/720P，4-15秒，支持首尾帧/全模态参考/编辑延长，音画同生',
+    supports: { referenceImage: true, customEndpoint: true, audio: true },
+    costEstimate: { perVideo: 0.06 },
+    docsUrl: 'https://console.volcengine.com/ark/',
+  },
+  {
+    provider: 'doubao', providerName: '字节豆包视频',
+    modelName: 'doubao-seedance-2-0-fast-260128', displayName: '豆包 Seedance 2.0 Fast',
+    modelType: 'video', description: '高速视频生成模型，成本与速度平衡，480P/720P，4-15秒，支持首尾帧/全模态参考，音画同生',
+    supports: { referenceImage: true, customEndpoint: true, audio: true },
+    costEstimate: { perVideo: 0.09 },
+    docsUrl: 'https://console.volcengine.com/ark/',
+  },
+  {
+    provider: 'doubao', providerName: '字节豆包视频',
     modelName: 'doubao-seedance-1-5-pro-251215', displayName: '豆包 Seedance 1.5 Pro',
     modelType: 'video', description: '视频生成模型，稳定可靠，性价比高，支持图生视频',
     supports: { referenceImage: true, customEndpoint: true, audio: false },

@@ -252,6 +252,32 @@ async function getVideoDuration(ffmpeg: string, videoPath: string): Promise<numb
 }
 
 /**
+ * 归一化单个片段：统一编码参数；无音轨片段补静音轨，有音轨片段保留原音轨。
+ * （ffmpeg 多输入无 map 时默认音频取最后输入=anullsrc 静音，会吞掉配音，必须显式 map）
+ */
+async function normalizeClip(ffmpeg: string, clip: string, outPath: string, resolution: string, fps: number): Promise<void> {
+  // 探测片段是否含音轨（不带 ? 的可选 map：无音轨会报错 → hasAudio=false）
+  let hasAudio = false;
+  try {
+    await execFileAsync(ffmpeg, ['-v', 'error', '-i', clip, '-map', '0:a', '-f', 'null', '-'], { timeout: 60000 });
+    hasAudio = true;
+  } catch { hasAudio = false; }
+
+  const args = [
+    '-i', clip,
+    '-f', 'lavfi', '-i', 'anullsrc=r=44100:cl=stereo',
+    '-map', '0:v',
+    hasAudio ? '-map' : '-map', hasAudio ? '0:a' : '1:a',
+    '-c:v', 'libx264', '-preset', 'medium', '-crf', '23',
+    '-pix_fmt', 'yuv420p', '-r', String(fps), '-s', resolution,
+    '-c:a', 'aac', '-b:a', '192k', '-ar', '44100', '-ac', '2',
+    '-shortest',
+    '-y', outPath,
+  ];
+  await execFileAsync(ffmpeg, args, { timeout: 300000, maxBuffer: 1024 * 1024 * 50 });
+}
+
+/**
  * 使用 xfade 滤镜实现带淡入淡出转场的视频合成
  */
 async function composeWithXfade(
@@ -267,15 +293,7 @@ async function composeWithXfade(
   const normalized: string[] = [];
   for (let i = 0; i < clips.length; i++) {
     const normPath = path.resolve(tempDir, `norm_${i}.mp4`);
-    await execFileAsync(ffmpeg, [
-      '-i', clips[i],
-      '-f', 'lavfi', '-i', 'anullsrc=r=44100:cl=stereo',
-      '-c:v', 'libx264', '-preset', 'medium', '-crf', '23',
-      '-pix_fmt', 'yuv420p', '-r', String(fps), '-s', resolution,
-      '-c:a', 'aac', '-b:a', '192k', '-ar', '44100', '-ac', '2',
-      '-shortest',
-      '-y', normPath,
-    ], { timeout: 300000, maxBuffer: 1024 * 1024 * 50 });
+    await normalizeClip(ffmpeg, clips[i], normPath, resolution, fps);
     normalized.push(normPath);
   }
 
@@ -394,17 +412,24 @@ async function composeClipsToFile(
     taskResult.progress = Math.round((kept / Math.max(clips.length, 1)) * 30);
   }
 
-  // 生成 concat 列表文件
-  const listFile = path.resolve(tempDir, 'concat.txt');
-  const listContent = finalClips.map(p => `file '${p.replace(/'/g, "'\\''")}'`).join('\n');
-  fs.writeFileSync(listFile, listContent, 'utf-8');
-
-  taskResult.progress = 40;
-
   const ffmpeg = getFfmpegPath();
 
   if (transition === 'none' || finalClips.length <= 1) {
     // 简单拼接（重新编码以保证兼容性）
+    // v1.1 - 先逐段归一化：无音轨片段补静音轨（anullsrc），统一编码参数，
+    //        否则 concat demuxer 遇 无音轨+有音轨 混合输入会丢弃全部音频流
+    const normalized: string[] = [];
+    for (let i = 0; i < finalClips.length; i++) {
+      const normPath = path.resolve(tempDir, `norm_concat_${i}.mp4`);
+      await normalizeClip(ffmpeg, finalClips[i], normPath, resolution, fps);
+      normalized.push(normPath);
+    }
+
+    // 生成 concat 列表文件
+    const listFile = path.resolve(tempDir, 'concat.txt');
+    const listContent = normalized.map(p => `file '${p.replace(/'/g, "'\\''")}'`).join('\n');
+    fs.writeFileSync(listFile, listContent, 'utf-8');
+
     const args = [
       '-f', 'concat',
       '-safe', '0',

@@ -55,19 +55,7 @@ export function ModelConfigPage() {
   const [showCustomModal, setShowCustomModal] = useState(false);
   const cardRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
-  // 初始化展开状态：已配置模型的厂商默认展开
-  useEffect(() => {
-    if (!isLoading && configs) {
-      const initial: Record<string, boolean> = {};
-      for (const type of Object.keys(configs) as ModelType[]) {
-        const configured = configs[type]?.filter(c => c.is_active) || [];
-        for (const c of configured) {
-          initial[`${c.provider}-${type}`] = true;
-        }
-      }
-      setExpandedProviders(prev => ({ ...initial, ...prev }));
-    }
-  }, [isLoading, configs]);
+
 
   const toggleProvider = (provider: string, type: ModelType) => {
     const key = `${provider}-${type}`;
@@ -93,7 +81,7 @@ export function ModelConfigPage() {
   };
 
   const isProviderExpanded = (provider: string, type: ModelType) => {
-    return expandedProviders[`${provider}-${type}`] ?? true; // 默认展开
+    return expandedProviders[`${provider}-${type}`] ?? false; // 默认收起，点击厂商抽屉式展开
   };
 
   useEffect(() => {
@@ -162,6 +150,7 @@ export function ModelConfigPage() {
   const scrollToModel = (provider: string, modelName: string, type: ModelType) => {
     setActiveTab(type);
     setSearchQuery('');
+    setExpandedProviders(prev => ({ ...prev, [`${provider}-${type}`]: true }));
     setTimeout(() => {
       const key = `${provider}-${modelName}-${type}`;
       const el = cardRefs.current[key];
@@ -406,7 +395,9 @@ export function ModelConfigPage() {
                             </div>
                           </button>
 
-                          {expanded && (
+                          <div style={{ display: 'grid', gridTemplateRows: expanded ? '1fr' : '0fr', transition: 'grid-template-rows 0.28s ease' }}>
+                            <div style={{ overflow: 'hidden', minHeight: 0 }}>
+                              {expanded && (
                             <div className="p-4 pt-0 border-t border-[var(--border)]">
                               {/* 厂商级统一 API Key 配置 */}
                               <div className="mb-4 p-3 rounded-xl bg-[var(--panel-2)] border border-[var(--border)]">
@@ -464,8 +455,10 @@ export function ModelConfigPage() {
                                   </div>
                                 ))}
                               </div>
+                              </div>
+                              )}
                             </div>
-                          )}
+                          </div>
                         </section>
                         );
                       })}

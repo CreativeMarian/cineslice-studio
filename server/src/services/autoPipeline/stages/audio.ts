@@ -3,7 +3,7 @@
 import fs from 'fs';
 import path from 'path';
 import type { Database } from '../../../types';
-import { NovelEpisodeDAO, ShotDAO, ScriptCharacterDAO, ShotAudioDAO } from '../../../models';
+import { NovelEpisodeDAO, ShotDAO, ScriptCharacterDAO, ShotAudioDAO, ModelRegistryDAO } from '../../../models';
 import { aiProxy } from '../../aiProxy';
 import { downloadToFile } from '../../../utils/download';
 import { projectStorage } from '../../projectStorage';
@@ -29,7 +29,18 @@ export async function stageAudio(db: Database, task: AutoPipelineTask): Promise<
     return;
   }
 
-  const model = getFirstModel(db, task.userId, 'audio');
+  // 用户偏好：配音用开源免费 Edge-TTS（不用豆包等付费 TTS）。
+  // 优先选择 edge-tts 提供者；未配置时回退到当前默认音频模型。
+  let model = getFirstModel(db, task.userId, 'audio');
+  const edgeModel = (() => {
+    try {
+      const all = ModelRegistryDAO.listByUserAndType(db, task.userId, 'audio');
+      return all.find(m => m.provider === 'edge-tts') || null;
+    } catch { return null; }
+  })();
+  if (edgeModel) {
+    model = { provider: edgeModel.provider, modelName: edgeModel.model_name };
+  }
   if (!model) throw new Error('请先配置音频模型');
 
   // 预加载所有角色信息，用于按角色分配音色

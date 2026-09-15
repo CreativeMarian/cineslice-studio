@@ -1,26 +1,35 @@
 // Edge TTS 音频适配器
-// v1.1 - 微软Edge浏览器免费TTS，完全免费，支持400+音色
+// v2.0 - 本地 CLI 合成（默认，稳定可靠，无需常驻 Python 服务）
+//       - 兼容 HTTP 服务模式（配置 endpointUrl 时优先走 HTTP）
 // 
-// ⚠️ 重要：Edge TTS 需要启动本地 Python 服务
-// 
-// 部署步骤：
-// 1. 安装 Python 3.8+
-// 2. 安装 edge-tts: pip install edge-tts
-// 3. 启动服务: python edge_tts_server.py (脚本在 server/scripts/ 目录)
-// 4. 默认服务地址: http://127.0.0.1:5000
-//
-// 支持的音色（中文）：
-// - zh-CN-XiaoxiaoNeural (晓晓，女声，自然)
-// - zh-CN-YunxiNeural (云希，男声，沉稳)
-// - zh-CN-YunyangNeural (云扬，男声，新闻)
-// - zh-CN-XiaoyiNeural (晓伊，女声，活泼)
-// - zh-CN-XiaohanNeural (晓涵，女声，温柔)
-// - zh-CN-XiaomengNeural (晓梦，女声，甜美)
-// 更多音色: edge-tts --list-voices
+// ⚠️ 需要安装 edge-tts：pip install edge-tts（提供 edge-tts.exe CLI）
+// CLI 定位顺序：EDGE_TTS_CLI 环境变量 > 常见 Scripts 路径 > PATH
 
+import { execFile } from 'child_process';
+import { promisify } from 'util';
+import os from 'os';
+import path from 'path';
+import fs from 'fs';
 import type { AudioAdapter, AudioGenerateParams, AudioGenerateResult } from '../base';
 import { AIError, httpBinaryRequest } from '../base';
 import { registerAudioFactory } from '../registry';
+import { toEdgeTtsVoice } from '../../voiceAssignment';
+
+const execFileAsync = promisify(execFile);
+
+function resolveCli(): string | null {
+  const env = process.env.EDGE_TTS_CLI;
+  if (env && fs.existsSync(env)) return env;
+  // 常见安装位置（python Scripts）
+  const candidates = [
+    process.env.EDGE_TTS_CLI,
+    'edge-tts',
+  ];
+  for (const c of candidates) {
+    if (c) return c; // edge-tts 依赖 PATH 解析
+  }
+  return null;
+}
 
 export class EdgeTTSAdapter implements AudioAdapter {
   readonly provider = 'edge-tts';
@@ -28,7 +37,8 @@ export class EdgeTTSAdapter implements AudioAdapter {
   private voice: string;
   private rate: string;
   private pitch: string;
-  private baseUrl: string;
+  private baseUrl: string | null;
+  private cli: string;
 
   constructor(modelName: string, _apiKey?: string, endpointUrl?: string, config?: string) {
     this.modelName = modelName || 'edge-tts-zh-CN-XiaoxiaoNeural';
@@ -51,8 +61,32 @@ export class EdgeTTSAdapter implements AudioAdapter {
       }
     }
     
-    // Edge TTS 服务地址（需要本地启动 Python 服务）
-    this.baseUrl = (endpointUrl || 'http://127.0.0.1:5000').replace(/\/$/, '');
+    // HTTP 服务模式（配置了非默认 endpoint 时走 HTTP；默认 endpointUrl 为空 → 本地 CLI）
+    this.baseUrl = endpointUrl && endpointUrl.trim() ? endpointUrl.replace(/\/$/, '') : null;
+    this.cli = resolveCli() || 'edge-tts';
+  }
+
+  private async synthViaCli(text: string, rate: string, voice: string): Promise<Buffer> {
+    const outfile = path.join(os.tmpdir(), `edge_tts_${Date.now()}_${Math.random().toString(36).slice(2, 8)}.mp3`);
+    const args = ['--text', text, '--voice', voice, '--rate', rate, '--pitch', this.pitch, '--write-media', outfile];
+    let lastErr = 'unknown';
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try {
+        if (fs.existsSync(outfile)) fs.unlinkSync(outfile);
+        await execFileAsync(this.cli, args, { timeout: 120000, windowsHide: true, maxBuffer: 64 * 1024 * 1024 });
+        if (fs.existsSync(outfile)) {
+          const data = fs.readFileSync(outfile);
+          if (data.length > 0) return data;
+          lastErr = 'empty audio';
+        } else {
+          lastErr = 'no output file';
+        }
+      } catch (e: any) {
+        lastErr = e.message || String(e);
+      }
+      if (attempt < 3) await new Promise(r => setTimeout(r, 2000));
+    }
+    throw new AIError('AI_CALL_FAILED', `Edge TTS 本地合成失败: ${lastErr}`);
   }
 
   async generate(params: AudioGenerateParams): Promise<AudioGenerateResult> {
@@ -61,36 +95,56 @@ export class EdgeTTSAdapter implements AudioAdapter {
       throw new AIError('AI_CALL_FAILED', '文本内容不能为空');
     }
 
+    // 按角色分配音色（v1.1）：params.voice 为角色音色档案/动态分配结果。
+    // MiniMax 风格音色（zh_male_*/zh_female_*）经映射归一化为 edge-tts 音色；zh-CN-* 直接透传；
+    // 未传或无法映射时保持模型默认音色（避免男角色出女声等错位）。
+    let effectiveVoice = this.voice;
+    if (params.voice) {
+      const mapped = toEdgeTtsVoice(params.voice);
+      if (mapped) effectiveVoice = mapped;
+    }
+
+    // 按目标时长自动计算语速：中文常速约 4.2 字/秒（+0%），
+    // 目标 5 秒镜头 → 超过约 21 字的台词自动加速，保证说话不被画面截断
+    const targetSec = 5;
+    const chars = text.replace(/\s/g, '').length;
+    let ratePercent = 0;
+    if (chars > 0 && targetSec > 0) {
+      const needed = Math.ceil((chars / 4.2) / targetSec * 100); // 需要的语速百分比
+      ratePercent = Math.max(0, Math.min(80, Math.round((needed - 100) / 5) * 5)); // clamp 0%~+80%，按5%取整
+    }
+    const rateStr = `${ratePercent >= 0 ? '+' : ''}${ratePercent}%`;
+
     try {
-      // 调用本地 Edge TTS Python 服务（二进制接口：mp3 字节流不能走 text 解码）
-      const response = await httpBinaryRequest(`${this.baseUrl}/tts`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: {
-          text: text,
-          voice: this.voice,
-          rate: this.rate,
-          pitch: this.pitch,
-        },
-      });
+      let audioBuffer: Buffer;
+      if (this.baseUrl) {
+        // HTTP 服务模式
+        const response = await httpBinaryRequest(`${this.baseUrl}/tts`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: {
+            text: text,
+            voice: effectiveVoice,
+            rate: rateStr,
+            pitch: this.pitch,
+          },
+        });
+        audioBuffer = response;
+      } else {
+        // 本地 CLI 模式（默认）
+        audioBuffer = await this.synthViaCli(text, rateStr, effectiveVoice);
+      }
 
       // 转换为 base64
-      const audioBase64 = Buffer.from(response).toString('base64');
+      const audioBase64 = audioBuffer.toString('base64');
       
       return {
         audioUrl: `data:audio/mpeg;base64,${audioBase64}`,
         durationSeconds: Math.ceil(text.length / 5),
-        voice: this.voice,
+        voice: effectiveVoice,
       };
     } catch (err: any) {
-      if (err.code === 'ECONNREFUSED') {
-        throw new AIError('AI_CALL_FAILED', 
-          '无法连接 Edge TTS 服务。请按以下步骤启动：\n' +
-          '1. pip install edge-tts\n' +
-          '2. python server/scripts/edge_tts_server.py\n' +
-          '3. 服务默认运行在 http://127.0.0.1:5000'
-        );
-      }
+      if (err instanceof AIError) throw err;
       throw new AIError('AI_CALL_FAILED', `Edge TTS 调用失败: ${err.message}`);
     }
   }

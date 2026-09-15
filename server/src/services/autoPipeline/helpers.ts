@@ -92,15 +92,18 @@ export function isStageComplete(db: Database, projectId: string, stage: string):
 
 /**
  * 获取第一个已配置的指定类型模型
- * 视频类型：优先本地 ComfyUI flf2v（MiniMax H3 首尾帧）——首尾帧硬锁定、免费无额度、质量最稳；
- *           未配置 flf2v 时回退到用户配置的第一个视频模型
+ * 视频类型：尊重用户默认模型（is_default=1 优先，DAO 已按 is_default DESC 排序）；
+ *           仅当没有任何默认视频模型时，才回退本地 ComfyUI flf2v（MiniMax H3 首尾帧——免费无额度、质量最稳）
  */
 export function getFirstModel(db: Database, userId: string, modelType: string): { provider: string; modelName: string } | null {
   const models = ModelRegistryDAO.listByUserAndType(db, userId, modelType);
   if (models.length === 0) return null;
   if (modelType === 'video') {
-    const flf = models.find(m => m.provider === 'comfyui' && String(m.model_name).toLowerCase().includes('flf2v'));
-    if (flf) return { provider: flf.provider, modelName: flf.model_name };
+    const first = models[0];
+    if (first && first.is_default !== 1) {
+      const flf = models.find(m => m.provider === 'comfyui' && String(m.model_name).toLowerCase().includes('flf2v'));
+      if (flf) return { provider: flf.provider, modelName: flf.model_name };
+    }
   }
   return { provider: models[0].provider, modelName: models[0].model_name };
 }

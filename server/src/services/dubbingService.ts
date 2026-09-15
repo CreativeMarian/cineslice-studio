@@ -49,7 +49,13 @@ async function pythonExec(args: string[]): Promise<string> {
 }
 
 // 用 edge-tts 生成语音（mp3）
+// v1.1 - 改用 edge-tts CLI（库直连在部分网络下 NoAudioReceived 不稳定；CLI 已验证稳定）
 async function synthVoice(text: string, voice: string, outPath: string): Promise<void> {
+  // 尝试 CLI；若 PATH 无 edge-tts，回退内联 Python 库直连
+  try {
+    await execFileP('edge-tts', ['--text', text, '--voice', voice, '--rate', '-5%', '--write-media', outPath], { timeout: 120000, windowsHide: true });
+    if (fs.existsSync(outPath) && fs.statSync(outPath).size > 0) return;
+  } catch { /* CLI 不可用，回退库直连 */ }
   const script = `
 import asyncio, sys, edge_tts
 async def main():

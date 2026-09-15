@@ -5,6 +5,7 @@
 import type { Database } from '../types';
 import { aiProxy } from './aiProxy';
 import { ModelRegistryDAO } from '../models';
+import { applyStageRules } from './stageSkills';
 import type { DirectorShotContext } from './directorPromptService';
 
 // ═══════════════════════════════════════════════════════════════
@@ -263,7 +264,7 @@ export const aiPromptOptimizerService = {
         userId,
         provider: textModel.provider,
         modelName: textModel.modelName,
-        systemPrompt: keyframeSystemPrompt,
+        systemPrompt: applyStageRules(keyframeSystemPrompt, 'keyframes'),
         prompt: userPrompt,
         temperature: 0.3,
         maxTokens: 4000,

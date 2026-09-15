@@ -25,6 +25,7 @@ import { getFirstModel, getOrCreateScriptAnalysis, getProjectStylePreset, buildD
 import { saveTask } from '../taskStore';
 import { UserPreferenceDAO } from '../../../models';
 import { getPromptSkillForVideoModel, getPromptSkill } from '../../promptSkills';
+import { promptRefactorService } from '../../promptRefactorService';
 import { assessVideoClip } from '../../videoQualityGate';
 import { parseCharactersInShot } from '../../../models/shot';
 
@@ -225,8 +226,29 @@ export async function stageVideo(db: Database, task: AutoPipelineTask): Promise<
 
       let videoMotionPrompt = `${finalPrompt}\n\n【负面提示词·绝对避免】${finalNegativePrompt}`;
 
-      // ── 提示词 Skill：官方三段式结构包装（integrated_multimodal_description + overall_soundscape + non_diegetic_music）──
-      if (promptSkill?.buildVideoPrompt) {
+      // ── 提示词 Skill（重构式）：优先消费分镜重构成品（官方公式，skill 匹配时），
+      // 缺成品/换模型时自动补重构；两者都不行才用运行期包装兜底 ──
+      let usedRefactored = false;
+      if (shot.video_prompt && shot.video_skill === promptSkill?.id) {
+        videoMotionPrompt = shot.video_prompt;
+        usedRefactored = true;
+        console.log(`[AutoPipeline] video shot=${shot.shot_number} 使用分镜重构成品提示词（${promptSkill?.displayName}）`);
+      } else {
+        try {
+          const refactored = await promptRefactorService.refactorShotVideoPrompt(db, task.userId, shot.id, {
+            videoProvider: model.provider,
+            videoModelName: model.modelName,
+          });
+          if (refactored) {
+            videoMotionPrompt = refactored;
+            usedRefactored = true;
+            console.log(`[AutoPipeline] video shot=${shot.shot_number} 自动补重构完成`);
+          }
+        } catch (refErr) {
+          console.warn(`[AutoPipeline] video shot=${shot.shot_number} 补重构失败，回退运行期包装:`, (refErr as Error).message);
+        }
+      }
+      if (!usedRefactored && promptSkill?.buildVideoPrompt) {
         const skPrompt = promptSkill.buildVideoPrompt({
           actionDescription: videoMotionPrompt,
           shotSize: shot.shot_size || 'medium',
@@ -244,7 +266,7 @@ export async function stageVideo(db: Database, task: AutoPipelineTask): Promise<
           console.log(`[AutoPipeline] video shot=${shot.shot_number} 官方提示词 skill 包装完成（${promptSkill.displayName}）`);
         }
       }
-      // 合并正面提示词和负面提示词（视频模型通常不支持独立的负面提示词参数）
+      // 合并正面提示词和负面提示词（视频模型通常不支持独立的负面提示词参数）      // 合并正面提示词和负面提示词（视频模型通常不支持独立的负面提示词参数）
       console.log(`[AutoPipeline] video shot=${shot.shot_number} 提示词生成完成`);
 
       // ═══════════════════════════════════════════════════════════
@@ -297,10 +319,16 @@ export async function stageVideo(db: Database, task: AutoPipelineTask): Promise<
           });
 
           // 轮询任务状态（默认最多 10 分钟，可用 VIDEO_MAX_WAIT_MS 调整）
-          const maxWait = Number(process.env.VIDEO_MAX_WAIT_MS) || 600000;
+          // v1.1：ComfyUI 本地渲染（MiniMaxH3 等）单镜 20-40 分钟且按队列顺序渲染，
+          // 云端 10 分钟超时会把健康任务误判失败（shot1/2 反复超时的根因）——本地任务放宽到 24h 兜底
+          const isLocalComfy = String(model.provider).includes('comfy');
+          const maxWait = isLocalComfy
+            ? 24 * 60 * 60 * 1000
+            : (Number(process.env.VIDEO_MAX_WAIT_MS) || 600000);
           const interval = Number(process.env.VIDEO_POLL_INTERVAL_MS) || 5000;
           const startTime = Date.now();
           let completed = false;
+          let pollErrors = 0;
 
           while (Date.now() - startTime < maxWait && !task.cancelled) {
             await new Promise(r => setTimeout(r, interval));
@@ -310,6 +338,7 @@ export async function stageVideo(db: Database, task: AutoPipelineTask): Promise<
                 provider: model.provider, modelName: model.modelName,
                 taskId: result.taskId,
               });
+              pollErrors = 0; // 单次成功即清零连续错误计数
 
               if (taskResult.status === 'completed' && taskResult.videoUrl) {
                 // 下载视频到本地
@@ -373,7 +402,16 @@ export async function stageVideo(db: Database, task: AutoPipelineTask): Promise<
                 break;
               }
             } catch (pollErr: any) {
+              pollErrors++;
               console.error(`[AutoPipeline] video poll shot=${shot.id} error:`, pollErr.message);
+              // 连续 6 次轮询失败（约 30 秒）视为查询链路故障，提前终止本轮尝试，避免本地 24h 超时白等
+              if (pollErrors >= 6) {
+                lastError = `轮询连续失败: ${pollErr.message}`;
+                ShotVideoIntervalDAO.updateStatus(db, videoInterval.id, 'failed', lastError);
+                console.warn(`[AutoPipeline] video shot=${shot.shot_number} 第${attempt}次轮询连续失败，终止本轮`);
+                completed = true;
+                break;
+              }
             }
           }
 

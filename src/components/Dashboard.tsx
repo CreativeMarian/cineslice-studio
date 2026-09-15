@@ -464,7 +464,7 @@ export function Dashboard() {
                     <div
                       key={project.id}
                       onClick={isArchived ? undefined : () => navigate(`/projects/${project.id}`)}
-                      className={`glass-hover rounded-[var(--radius-control)] border border-[var(--border)] bg-[var(--card-bg)]/40 px-4 py-3 flex items-center gap-4 backdrop-blur transition-all duration-200 hover:border-[var(--border-hover)] hover:bg-[var(--card-bg)]/70 marquee-border ${
+                      className={`group glass-hover rounded-[var(--radius-control)] border border-[var(--border)] bg-[var(--card-bg)]/40 px-4 py-3 flex items-center gap-4 backdrop-blur transition-all duration-200 hover:border-[var(--border-hover)] hover:bg-[var(--card-bg)]/70 marquee-border ${
                         isArchived ? 'opacity-80' : 'cursor-pointer'
                       } ${menuOpenId === project.id ? 'z-40' : ''}`}
                     >
@@ -512,7 +512,7 @@ export function Dashboard() {
                         <div className="relative">
                           <button
                             type="button"
-                            className={`w-8 h-8 rounded-md flex items-center justify-center text-[var(--ink-3)] hover:text-[var(--ink-1)] hover:bg-[var(--panel-3)] ${isArchived ? '' : 'opacity-0 group-hover:opacity-100'} transition-opacity`}
+                            className={`w-8 h-8 rounded-md flex items-center justify-center text-[var(--ink-3)] hover:text-[var(--ink-1)] hover:bg-[var(--panel-3)] ${isArchived ? '' : 'opacity-45 hover:opacity-100'} transition-opacity`}
                             onClick={(e) => {
                               e.stopPropagation();
                               setMenuOpenId(menuOpenId === project.id ? null : project.id);
