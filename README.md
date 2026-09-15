@@ -7,6 +7,28 @@ CineSlice Studio 是一款面向内容创作者的 AI 影视创作平台。它�
 
 ---
 
+## 📸 项目截图
+
+### 亮色主题
+
+<div align="center">
+  <img src="docs/screenshots/light-dashboard.png" alt="创作仪表盘（亮色）" width="48%" />
+  <img src="docs/screenshots/light-director.png" alt="导演工作台（亮色）" width="48%" />
+  <img src="docs/screenshots/light-models.png" alt="模型配置（亮色）" width="48%" />
+  <img src="docs/screenshots/light-costs.png" alt="成本统计（亮色）" width="48%" />
+</div>
+
+### 暗色主题
+
+<div align="center">
+  <img src="docs/screenshots/dark-dashboard.png" alt="创作仪表盘（暗色）" width="48%" />
+  <img src="docs/screenshots/dark-director.png" alt="导演工作台（暗色）" width="48%" />
+  <img src="docs/screenshots/dark-models.png" alt="模型配置（暗色）" width="48%" />
+  <img src="docs/screenshots/dark-costs.png" alt="成本统计（暗色）" width="48%" />
+</div>
+
+---
+
 ## ✨ 核心功能
 
 - **9 阶段全自动流水线**：小说上传 → 剧集拆分 → 剧本生成 → 角色设定 → 场景设定 → 分镜生成 → 关键帧 → 配音生成 → 视频生成，一键启动，断点可恢复。
