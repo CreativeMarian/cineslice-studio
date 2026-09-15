@@ -16,6 +16,7 @@ CineSlice Studio 是一款面向内容创作者的 AI 影视创作平台。它�
   <img src="docs/screenshots/light-director.png" alt="导演工作台（亮色）" width="48%" />
   <img src="docs/screenshots/light-models.png" alt="模型配置（亮色）" width="48%" />
   <img src="docs/screenshots/light-costs.png" alt="成本统计（亮色）" width="48%" />
+  <img src="docs/screenshots/light-mindmap.png" alt="项目思维导图（亮色）" width="48%" />
 </div>
 
 ### 暗色主题
@@ -25,6 +26,7 @@ CineSlice Studio 是一款面向内容创作者的 AI 影视创作平台。它�
   <img src="docs/screenshots/dark-director.png" alt="导演工作台（暗色）" width="48%" />
   <img src="docs/screenshots/dark-models.png" alt="模型配置（暗色）" width="48%" />
   <img src="docs/screenshots/dark-costs.png" alt="成本统计（暗色）" width="48%" />
+  <img src="docs/screenshots/dark-mindmap.png" alt="项目思维导图（暗色）" width="48%" />
 </div>
 
 ---
