@@ -10,4 +10,3 @@ export { Toast } from './Toast';
 export { Select } from './Select';
 export { ImageModal } from './ImageModal';
 export { GenerationProgress } from './GenerationProgress';
-export { useGenerationProgress } from '../../hooks/useGenerationProgress';
