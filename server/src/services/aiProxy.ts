@@ -489,8 +489,8 @@ export const aiProxy = {
     if (!modelConfig) {
       throw createError(400, 'MODEL_NOT_CONFIGURED', '音频模型未配置');
     }
-    // Edge TTS 为本地免费服务，不需要 API Key
-    if (!modelConfig.api_key && params.provider !== 'edge-tts') {
+    // 本地免费服务不需要 API Key（Edge TTS / VoiceStudio）
+    if (!modelConfig.api_key && params.provider !== 'edge-tts' && params.provider !== 'voicestudio') {
       throw createError(400, 'MODEL_NOT_CONFIGURED', '音频模型 API Key 未配置');
     }
 
