@@ -73,7 +73,7 @@ const EXPORT_OPTIONS: ExportOption[] = [
 ];
 
 export function StageExport() {
-  const { currentProject, episodes, currentEpisodeId, shots } = useProjectStore();
+  const { currentProject, episodes, currentEpisodeId } = useProjectStore();
   const { showToast } = useUIStore();
   const [exportingType, setExportingType] = useState<string | null>(null);
   const [isImporting, setIsImporting] = useState(false);

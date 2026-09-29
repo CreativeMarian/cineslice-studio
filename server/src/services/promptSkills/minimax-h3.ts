@@ -17,38 +17,6 @@
 
 import type { PromptSkill, PromptSkillVideoParams } from './types';
 
-const SHOT_SIZE_LABELS: Record<string, string> = {
-  extreme_wide: '大远景，交代环境全貌',
-  long: '远景，人物全身与环境关系',
-  full: '全景，完整动作',
-  medium: '中景，人物膝盖以上',
-  medium_closeup: '近景，人物胸部以上',
-  closeup: '特写，人物肩部以上，情绪聚焦',
-  extreme_closeup: '大特写，眼睛/手部/物品细节',
-};
-
-const CAMERA_LABELS: Record<string, string> = {
-  push_in: '镜头缓慢推近，聚焦主体',
-  pull_out: '镜头缓慢拉远，展现场景',
-  pan: '镜头水平摇移，跟随动作',
-  tilt: '镜头垂直升降',
-  truck: '摄像机平行移动跟随人物',
-  crane: '镜头升降运动，宏大场面',
-  handheld: '手持镜头，轻微晃动，纪实紧张感',
-  steadicam: '稳定器平滑跟随，长镜头',
-  static: '固定镜头，稳定画面',
-};
-
-/** 景别中文标签（缺省返回原值） */
-function shotLabel(size?: string): string {
-  return (size && SHOT_SIZE_LABELS[size]) || size || '中景';
-}
-
-/** 运镜中文标签（缺省返回原值） */
-function camLabel(move?: string): string {
-  return (move && CAMERA_LABELS[move]) || move || '固定镜头';
-}
-
 export const minimaxH3PromptSkill: PromptSkill = {
   id: 'minimax-h3',
   displayName: 'MiniMax H3（海螺3.0）官方提示词',

@@ -35,7 +35,7 @@ export function calculateProgress(elapsed: number, stages: Array<{ label: string
  * Hook for managing generation progress state with automatic timing and stage simulation.
  * Returns state and helpers to use with GenerationProgress component.
  */
-export function useGenerationProgress(defaultStages?: Array<{ label: string; startAt: number; duration: number }>) {
+export function useGenerationProgress() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [stage, setStage] = useState('');
   const [progress, setProgress] = useState<number | undefined>(undefined);
@@ -44,8 +44,7 @@ export function useGenerationProgress(defaultStages?: Array<{ label: string; sta
   const [success, setSuccess] = useState<string | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const start = useCallback((initialStage?: string) => {
-    // 先清掉上一次的计时器：连续两次 start 会泄漏旧 interval（每 500ms 白写状态）
+  const start = useCallback((initialStage?: string) => {    // 先清掉上一次的计时器：连续两次 start 会泄漏旧 interval（每 500ms 白写状态）
     if (timerRef.current) clearInterval(timerRef.current);
     setIsGenerating(true);
     setError(null);
@@ -59,7 +58,7 @@ export function useGenerationProgress(defaultStages?: Array<{ label: string; sta
     timerRef.current = setInterval(() => {
       setElapsed(Math.floor((Date.now() - startTime) / 1000));
     }, 1000);
-  }, [defaultStages]);
+  }, []);
 
   const finish = useCallback((successMsg?: string) => {
     if (timerRef.current) clearInterval(timerRef.current);

@@ -1131,12 +1131,12 @@ export async function batchGenerateKeyframes(
   userId: string,
   episodeId: string,
   opts: { provider: string; modelName: string; shotIds?: string[]; candidatesPerShot?: number; frameTypes?: Array<'first' | 'last' | 'middle'> },
-  onProgress?: (p: { index: number; total: number; shotId: string; status: 'ok' | 'failed' }) => void
+  _onProgress?: (p: { index: number; total: number; shotId: string; status: 'ok' | 'failed' }) => void
 ) {
   const episode = NovelEpisodeDAO.getByIdAndUser(db, episodeId, userId);
   if (!episode) throw createError(404, 'NOT_FOUND', '剧集不存在');
 
-  const { provider, modelName, shotIds, candidatesPerShot, frameTypes } = opts;
+  const { provider, modelName, shotIds, candidatesPerShot } = opts;
   const candidateCount = Math.min(Math.max(candidatesPerShot || 1, 1), 9);
 
   let shots = ShotDAO.listByEpisode(db, episode.id);

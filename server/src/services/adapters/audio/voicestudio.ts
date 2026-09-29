@@ -52,7 +52,6 @@ export class VoiceStudioAudioAdapter implements AudioAdapter {
         );
       }
 
-      const audioId = response.headers.get('X-Audio-Id') || 'unknown';
       const durationRaw = response.headers.get('X-Audio-Duration');
       const arrayBuffer = await response.arrayBuffer();
       const audioBase64 = Buffer.from(arrayBuffer).toString('base64');

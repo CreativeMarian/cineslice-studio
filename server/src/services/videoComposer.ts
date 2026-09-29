@@ -738,13 +738,6 @@ function composeEpisodeByPhase(
 
       // 第二步：阶段视频拼接为整集
       const finalOutputPath = path.resolve(videosDir, `episode_${episode.episode_number}_byphase_${Date.now()}.mp4`);
-      const finalResult = {
-        taskId: taskId + '_final',
-        status: 'processing' as const,
-        totalClips: phaseResults.length,
-        completedClips: 0,
-        progress: 60,
-      };
 
       // 用 concat 简单拼接阶段视频（阶段间转场由阶段内镜头承载）
       const finalClips = phaseResults.map(p => p.path);

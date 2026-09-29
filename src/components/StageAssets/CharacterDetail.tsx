@@ -116,7 +116,6 @@ export function CharacterDetail({ character, onClose, onUpdate }: CharacterDetai
       }
     }
     if (character) loadOutfits(character.id);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [character, generateDefaultImagePrompt, generateDefaultFourViewPrompt]);
 
   // 外貌描述变化时更新提示词

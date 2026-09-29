@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useRef } from 'react';
 import { Film, Sparkles, ChevronRight, Clock, FileText, Wand2, BookOpen, ArrowRight, AlertTriangle, RefreshCw, Trash2, CheckSquare, Square } from 'lucide-react';
 import { Button, Card, EmptyState, Badge, Modal, Select } from '../ui';
 import { ConfigPanel } from './ConfigPanel';

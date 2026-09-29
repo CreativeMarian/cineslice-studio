@@ -5,7 +5,7 @@ import { NovelEpisodeDAO, ShotDAO, ScriptCharacterDAO } from '../../../models';
 import { aiProxy } from '../../aiProxy';
 import { shotGenerationPrompt } from '../../prompts/shotGeneration';
 import { promptOptimizationService } from '../../promptOptimizationService';
-import { parseShotListArray, normalizeZhKeys } from '../../../utils/aiJsonParser';
+import { parseShotListArray } from '../../../utils/aiJsonParser';
 import { buildShotSceneMap } from '../../shotConsistencyService';
 import type { AutoPipelineTask } from '../types';
 import { getFirstModel, getOrCreateScriptAnalysis } from '../helpers';

@@ -1,13 +1,12 @@
-﻿import { useState, useEffect, useRef } from 'react';
+﻿import { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Plus, Film, MoreVertical, Pencil, Trash2, FolderOpen, Search, Clock, Sun, Moon, HelpCircle, Radio,
-  BookOpen, Wand2, FileUp, ChevronRight, Zap, Settings, Users, Archive, ArchiveRestore,
-  AlertTriangle, Coins, Sparkles, Layers, Server, RefreshCw, Activity, Boxes, GitBranch,
+  BookOpen, Wand2, ChevronRight, Zap, Settings, Archive, ArchiveRestore,
+  AlertTriangle, Sparkles, Server, RefreshCw, Activity, Boxes, GitBranch,
 } from 'lucide-react';
 import { Button, Card, EmptyState, Modal, Input, Badge } from './ui';
 import { projectService } from '../services/projectService';
-import { exportService } from '../services/exportService';
 import { modelConfigService } from '../services/modelConfigService';
 import { useUIStore } from '../stores/useUIStore';
 import { StylePresetSelector } from './StylePreset/StylePresetSelector';
@@ -29,13 +28,11 @@ export function Dashboard() {
   const [newStylePresetId, setNewStylePresetId] = useState<string | undefined>(undefined);
   const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
-  const [isCreatingFromNovel] = useState(false);
   const [modelCount, setModelCount] = useState(0);
   const [refreshing, setRefreshing] = useState(false);
   const [renameTarget, setRenameTarget] = useState<Project | null>(null);
   const [renameTitle, setRenameTitle] = useState('');
   const [permanentTarget, setPermanentTarget] = useState<Project | null>(null);
-  const importFileRef = useRef<HTMLInputElement>(null);
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const { showToast, theme, toggleTheme } = useUIStore();
@@ -180,22 +177,6 @@ export function Dashboard() {
       loadProjects(tab);
     } catch {
       showToast('重命名失败', 'error');
-    }
-  };
-
-  const handleImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    try {
-      const res = await exportService.importProject(file);
-      if (res.success) {
-        showToast('项目导入成功', 'success');
-        loadProjects('active');
-      }
-    } catch {
-      showToast('导入失败，请检查文件格式', 'error');
-    } finally {
-      e.target.value = '';
     }
   };
 

@@ -1,6 +1,6 @@
 // 阶段5：场景提取
 import type { Database } from '../../../types';
-import { NovelEpisodeDAO, ScriptSceneDAO, ScriptPropDAO, ProjectDAO } from '../../../models';
+import { NovelEpisodeDAO, ScriptSceneDAO, ScriptPropDAO } from '../../../models';
 import { aiProxy } from '../../aiProxy';
 import { sceneExtractPrompt } from '../../prompts/sceneExtract';
 import { parseAiJsonOrThrow } from '../../../utils/aiJsonParser';

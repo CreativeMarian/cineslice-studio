@@ -2,7 +2,7 @@
 import { useState, useCallback } from 'react';
 import { Image, Wand2 } from 'lucide-react';
 import { ModelSelector } from '../ModelConfig/ModelSelector';
-import { Button, Select } from '../ui';
+import { Button } from '../ui';
 import { createService, type ImageSize } from '../../services/createService';
 import { parseModelKey } from '../../types/model';
 import type { GalleryImage } from './CreateStudio';

@@ -19,8 +19,7 @@ export interface VideoGenResult {
 export type VideoRatio = '16:9' | '9:16' | '1:1' | '4:3' | '3:4' | '21:9';
 export type VideoResolution = '720p' | '1080p' | '2k' | '4k';
 
-const IMAGE_SIZES = ['512x512', '1024x1024', '1024x1792', '1792x1024', '2048x2048', '2048x1152', '2560x1440', '1440x2560'] as const;
-export type ImageSize = (typeof IMAGE_SIZES)[number];
+export type ImageSize = '512x512' | '1024x1024' | '1024x1792' | '1792x1024' | '2048x2048' | '2048x1152' | '2560x1440' | '1440x2560';
 
 export const createService = {
   /** 上传参考图（图生图 / 图生视频），返回可访问 URL */

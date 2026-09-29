@@ -366,7 +366,6 @@ export function MindMapPage() {
       const isHovered = hoveredNode === node.id;
       const isMatched = matchedIds.size > 0 && matchedIds.has(node.id);
       const isDimmed = matchedIds.size > 0 && !isMatched;
-      const isRelated = relatedIds.has(node.id);
       const isCollapsed = collapsed.has(node.id);
 
       return (
