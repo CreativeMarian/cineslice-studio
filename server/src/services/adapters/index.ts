@@ -53,3 +53,4 @@ import './audio/doubao-audio';
 import './audio/edge-tts';
 import './audio/minimax-audio';
 import './audio/custom-openai-audio';
+import './audio/voicestudio';

@@ -78,7 +78,9 @@ export function CustomModelModal({ isOpen, onClose, onSave, defaultType = 'text'
 
   const validateForm = useCallback((): string | null => {
     if (!modelName.trim()) return '请输入模型名称';
-    if (!apiKey.trim()) return '请输入 API Key';
+    // VoiceStudio 本地服务免认证，不需要 API Key
+    const isVoiceStudioLocal = endpointUrl.toLowerCase().includes('3900');
+    if (!isVoiceStudioLocal && !apiKey.trim()) return '请输入 API Key';
     if (!endpointUrl.trim()) return '请输入端点 URL';
     if (selectedTypes.length === 0) return '请至少选择一种模型类型';
     return null;
@@ -107,7 +109,8 @@ export function CustomModelModal({ isOpen, onClose, onSave, defaultType = 'text'
     if (autoDetectedProvider) configObj.detectedProvider = autoDetectedProvider;
 
     await onSave({
-      provider: 'custom-openai',
+      // VoiceStudio 本地服务走专用适配器（本地 REST /generate），其余自定义模型统一走 custom-openai
+      provider: autoDetectedProvider === 'VoiceStudio 本地' ? 'voicestudio' : 'custom-openai',
       model_name: modelName.trim(),
       model_types: selectedTypes,
       api_key: apiKey.trim(),
@@ -198,6 +201,7 @@ export function CustomModelModal({ isOpen, onClose, onSave, defaultType = 'text'
     else if (url.includes('replicate.com')) setAutoDetectedProvider('Replicate');
     else if (url.includes('huggingface.co') || url.includes('hf.co')) setAutoDetectedProvider('HuggingFace');
     // ========== 本地部署 ==========
+    else if (url.includes('localhost:3900') || url.includes('127.0.0.1:3900') || url.includes(':3900')) setAutoDetectedProvider('VoiceStudio 本地');
     else if (url.includes('localhost:8188') || url.includes('127.0.0.1:8188') || url.includes(':8188')) setAutoDetectedProvider('ComfyUI 本地');
     else if (url.includes('localhost:11434') || url.includes('127.0.0.1:11434')) setAutoDetectedProvider('Ollama 本地');
     else if (url.includes('localhost') || url.includes('127.0.0.1')) setAutoDetectedProvider('本地部署');

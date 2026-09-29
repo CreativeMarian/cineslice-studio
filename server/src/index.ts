@@ -69,6 +69,11 @@ async function main() {
   const { startVideoTaskPoller } = await import('./services/videoTaskPoller');
   startVideoTaskPoller(() => db);
 
+  // 4.1.2 VoiceStudio 本地语音服务：未运行时自动拉起（后台执行，不阻塞启动；
+  //       已在线则直接复用；未安装/未配置时仅告警）
+  const { ensureVoiceStudio } = await import('./services/voiceStudioLauncher');
+  ensureVoiceStudio();
+
   // 4.2 初始化内置风格预设
   seedStylePresets(db);
 

@@ -71,7 +71,17 @@ export async function stageAudio(db: Database, task: AutoPipelineTask): Promise<
         text: dialogueText, voice: baseVoice, speed: finalSpeed,
       });
 
-      const fileName = `tts_shot_${shot.shot_number}_${Date.now()}.mp3`;
+      // 扩展名跟随实际音频格式：data URL 看 mime 前缀，http URL 看路径后缀。
+      // VoiceStudio 本地 TTS 返回 WAV；其余适配器多为 MP3。固定 .mp3 会让 WAV 内容
+      // 被 ffmpeg 按扩展名误判，导致后续合成阶段解码失败。
+      let ext = 'mp3';
+      if (result.audioUrl.startsWith('data:audio/wav')) {
+        ext = 'wav';
+      } else if (/^https?:\/\//.test(result.audioUrl)) {
+        const m = result.audioUrl.match(/\.(wav|mp3|ogg|opus|m4a|aac)(?:$|\?)/i);
+        if (m) ext = m[1].toLowerCase();
+      }
+      const fileName = `tts_shot_${shot.shot_number}_${Date.now()}.${ext}`;
       const localPath = path.resolve(audioDir, fileName);
       if (/^https?:\/\//.test(result.audioUrl)) {
         // 适配器可能返回音频文件 URL（如 MiniMax audio_file），直接下载为二进制；

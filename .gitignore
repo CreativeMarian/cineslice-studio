@@ -1,6 +1,10 @@
 # Dependencies
 node_modules/
 
+# Vendored third-party runtimes (VoiceStudio: source + .venv + models, 5GB+).
+# Reinstall anytime with: npm run setup:voicestudio
+vendor/
+
 # Build outputs
 dist/
 server/dist/

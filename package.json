@@ -21,7 +21,10 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "migrate": "tsx server/src/scripts/migrate.ts",
-    "seed": "tsx server/src/scripts/seed.ts"
+    "seed": "tsx server/src/scripts/seed.ts",
+    "setup:voicestudio": "node server/src/scripts/setupVoiceStudio.mjs",
+    "voicestudio:start": "cd vendor/voicestudio && uv run python backend/main.py",
+    "voicestudio:stop": "powershell -Command \"Get-Process | Where-Object { $_.ProcessName -like '*main*' -or $_.CommandLine -like '*backend/main.py*' } | Stop-Process -Force\""
   },
   "dependencies": {
     "@radix-ui/react-dialog": "^1.1.2",

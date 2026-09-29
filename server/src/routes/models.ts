@@ -20,7 +20,7 @@ const modelSchema = z.object({
   model_name: z.string(),
   model_type: z.enum(['text', 'image', 'video', 'audio', 'vision']).optional(),
   model_types: z.array(z.enum(['text', 'image', 'video', 'audio', 'vision'])).optional(),
-  api_key: z.string(),
+  api_key: z.string().optional(),
   endpoint_url: z.string().url().optional(),
   is_default: z.boolean().optional(),
   config: z.string().optional(),
