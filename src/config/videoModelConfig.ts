@@ -235,7 +235,7 @@ export const VIDEO_MODEL_CONFIGS: Record<string, VideoModelParamConfig> = {
     supportsSubtitles: false,
     recommendation: '本地 ComfyUI + MiniMax H3 首尾帧：首帧+尾帧双端硬锁定，人物/场景/道具一致性最强；免费无额度；固定 1280×704/5秒，每镜约20分钟（本机推理）。已在 ComfyUI 运行并配好 flf2v 工作流即可选用',
     defaultRatio: '16:9',
-    defaultResolution: '704p',
+    defaultResolution: '720p',
     defaultDuration: 5,
   },
 

@@ -112,12 +112,16 @@ export function runMigrations(db: SQLiteDatabase, migrationsDir: string): void {
   console.log('[DB] 迁移完成');
 }
 
-// 迁移文件均为简单 DDL（无触发器/BEGIN 块，字符串字面量不含分号），可按 ';' 安全拆分
+// 迁移文件均为简单 DDL（无触发器/BEGIN 块，字符串字面量不含分号），可按 ';' 安全拆分。
+// 注意：整行注释（-- 开头）必须先剔除——注释正文可能含分号，会被误拆成独立语句执行。
 function splitSqlStatements(sql: string): string[] {
   return sql
+    .split('\n')
+    .filter((line) => !line.trim().startsWith('--'))
+    .join('\n')
     .split(';')
-    .map(s => s.trim())
-    .filter(s => s.length > 0);
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
 }
 
 // 匹配 ALTER TABLE ... ADD COLUMN 语句（表名/列名限定为常见标识符）

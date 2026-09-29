@@ -5,7 +5,7 @@ import reactRefresh from 'eslint-plugin-react-refresh';
 import globals from 'globals';
 
 export default tseslint.config(
-  { ignores: ['dist', 'server/dist', 'node_modules', 'data', 'uploads'] },
+  { ignores: ['dist', 'server/dist', 'node_modules', 'data', 'uploads', 'server/src/services/stageSkills/vendor'] },
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {

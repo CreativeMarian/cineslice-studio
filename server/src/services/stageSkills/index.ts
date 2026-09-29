@@ -11,6 +11,9 @@
 
 export * from './gates';
 
+import fs from 'fs';
+import path from 'path';
+
 export type StageSkillId = 'outline' | 'script' | 'characters' | 'art' | 'storyboard' | 'keyframe';
 
 export type PipelineStage = 'episodes' | 'characters' | 'scenes' | 'shots' | 'keyframes';
@@ -147,11 +150,10 @@ export function getStageRuleText(stage: PipelineStage): string {
 
 /** 查询某技能的 vendor 目录绝对路径（质量门脚本可在此运行；dist 缺失时回退源码目录） */
 export function getStageSkillVendorDir(id: StageSkillId): string {
-  const fs = require('fs');
-  const dist = require('path').join(__dirname, 'vendor', STAGE_SKILLS[id].vendorDir);
+  const dist = path.join(__dirname, 'vendor', STAGE_SKILLS[id].vendorDir);
   if (fs.existsSync(dist)) return dist;
   // 开发/构建未拷贝 vendor 时回退 src（__dirname=server/dist/services/stageSkills → ../../.. = server）
-  return require('path').join(__dirname, '..', '..', '..', 'src', 'services', 'stageSkills', 'vendor', STAGE_SKILLS[id].vendorDir);
+  return path.join(__dirname, '..', '..', '..', 'src', 'services', 'stageSkills', 'vendor', STAGE_SKILLS[id].vendorDir);
 }
 
 /** 列出全部已注册阶段技能（供前端/日志展示） */
