@@ -34,5 +34,14 @@ export default tseslint.config(
     rules: {
       'react-refresh/only-export-components': 'off',
     },
+  },
+  // Node 脚本（.mjs/.cjs，如 VoiceStudio 安装脚本）声明 Node 全局，避免 no-undef 误报
+  {
+    files: ['**/*.{mjs,cjs}'],
+    languageOptions: {
+      ecmaVersion: 'latest',
+      sourceType: 'module',
+      globals: { ...globals.node },
+    },
   }
 );

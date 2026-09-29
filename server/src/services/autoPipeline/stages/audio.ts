@@ -29,16 +29,21 @@ export async function stageAudio(db: Database, task: AutoPipelineTask): Promise<
     return;
   }
 
-  // 用户偏好：配音用开源免费 Edge-TTS（不用豆包等付费 TTS）。
-  // 优先选择 edge-tts 提供者；未配置时回退到当前默认音频模型。
+  // 用户偏好：配音用开源免费本地 TTS（不用豆包等付费 TTS）。
+  // 优先级：VoiceStudio 本地（v3.1 集成，免费）→ edge-tts（免费）→ 用户默认音频模型兜底。
+  // 只要本地免费引擎可用，就不消耗豆包等付费额度。
   let model = getFirstModel(db, task.userId, 'audio');
-  const edgeModel = (() => {
+  const audioModels = (() => {
     try {
-      const all = ModelRegistryDAO.listByUserAndType(db, task.userId, 'audio');
-      return all.find(m => m.provider === 'edge-tts') || null;
-    } catch { return null; }
+      return ModelRegistryDAO.listByUserAndType(db, task.userId, 'audio');
+    } catch { return []; }
   })();
-  if (edgeModel) {
+  const voiceStudioModel = audioModels.find(m => m.provider === 'voicestudio') || null;
+  const edgeModel = audioModels.find(m => m.provider === 'edge-tts') || null;
+  if (voiceStudioModel) {
+    model = { provider: voiceStudioModel.provider, modelName: voiceStudioModel.model_name };
+    console.log('[AutoPipeline] 配音使用 VoiceStudio 本地免费 TTS');
+  } else if (edgeModel) {
     model = { provider: edgeModel.provider, modelName: edgeModel.model_name };
   }
   if (!model) throw new Error('请先配置音频模型');
