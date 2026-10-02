@@ -823,7 +823,7 @@ const IMAGE_MODELS: ModelMeta[] = [
   },
 ];
 
-// ---------- 视频模型（14个） ----------
+// ---------- 视频模型（16个） ----------
 
 const VIDEO_MODELS: ModelMeta[] = [
   // 豆包（火山方舟最新视频模型）
@@ -873,6 +873,22 @@ const VIDEO_MODELS: ModelMeta[] = [
     modelType: 'video', description: '字节火山引擎最新视频生成模型，高速版，图生视频，支持1080p，支持音频',
     supports: { referenceImage: true, customEndpoint: true, audio: true },
     costEstimate: { perVideo: 0.15 },
+    docsUrl: 'https://console.volcengine.com/ark/',
+  },
+  {
+    provider: 'doubao', providerName: '字节豆包视频',
+    modelName: 'doubao-seedance-1-0-pro-250528', displayName: '豆包 Seedance 1.0 Pro',
+    modelType: 'video', description: '字节火山引擎视频生成模型，高画质，稳定可靠，图生视频，支持1080p',
+    supports: { referenceImage: true, customEndpoint: true, audio: false },
+    costEstimate: { perVideo: 0.12 },
+    docsUrl: 'https://console.volcengine.com/ark/',
+  },
+  {
+    provider: 'doubao', providerName: '字节豆包视频',
+    modelName: 'doubao-seedance-1-0-lite-t2v-250428', displayName: '豆包 Seedance 1.0 Lite',
+    modelType: 'video', description: '字节火山引擎轻量视频生成，文生视频，速度快成本低，480P/720P',
+    supports: { referenceImage: false, customEndpoint: true, audio: false },
+    costEstimate: { perVideo: 0.05 },
     docsUrl: 'https://console.volcengine.com/ark/',
   },
   // 可灵
