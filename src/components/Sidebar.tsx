@@ -23,7 +23,7 @@ import { Lock, CheckCircle2 } from 'lucide-react';
 const navItems = [
   { path: 'script', label: '剧本', icon: Film, description: '小说/剧集/分镜', requiredStage: null },
   { path: 'assets', label: '资产', icon: Users, description: '角色/场景/道具', requiredStage: 'script' },
-  { path: 'director', label: '导演', icon: Clapperboard, description: '视频生成', requiredStage: 'shots' },
+  { path: 'director', label: '导演', icon: Clapperboard, description: '视频生成', requiredStage: null },
   { path: 'export', label: '导出', icon: Download, description: '成片导出', requiredStage: 'video' },
 ];
 

@@ -1,3 +1,5 @@
+import { useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { Tabs } from '../ui';
 import { NovelManager } from './NovelManager';
 import { EpisodeManager } from './EpisodeManager';
@@ -17,6 +19,15 @@ type StepValue = typeof steps[number]['value'];
 
 export function StageScript() {
   const { pipelineStep, updatePipelineStep, chapters, episodes, shots } = useProjectStore();
+  const [searchParams] = useSearchParams();
+
+  // 支持通过 URL 参数 ?tab=shots 自动切换到分镜表标签页
+  useEffect(() => {
+    const tab = searchParams.get('tab');
+    if (tab && steps.some(s => s.value === tab)) {
+      updatePipelineStep(tab as StepValue);
+    }
+  }, [searchParams, updatePipelineStep]);
 
   // 计算每个步骤的完成状态
   const getStepStatus = (step: StepValue): 'completed' | 'current' | 'pending' => {

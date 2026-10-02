@@ -1,7 +1,8 @@
 // 导演工作台编排器：剧集初始化 + 头部 + 批量工具栏 + 流程引导 + 视频音频标签页
 // 拆分结构：BatchToolbar（批量生成）/ ShotCard（单镜头卡片）/ VideoParamsPanel（参数表单）/ AudioPanel（音频合成）
 import { useState, useEffect } from 'react';
-import { Clapperboard, Video, Music, Film } from 'lucide-react';
+import { useNavigate, useParams } from 'react-router-dom';
+import { Clapperboard, Video, Music, Film, ArrowRight } from 'lucide-react';
 import { Card, EmptyState, Badge, Tabs } from '../ui';
 import { useProjectStore } from '../../stores/useProjectStore';
 import { useUIStore } from '../../stores/useUIStore';
@@ -27,6 +28,8 @@ interface ShotReadiness {
 export function StageDirector() {
   const { shots, currentEpisodeId, episodes, setCurrentEpisode, loadShots } = useProjectStore();
   const { showToast } = useUIStore();
+  const navigate = useNavigate();
+  const { projectId } = useParams();
   const [expandedShot, setExpandedShot] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'video' | 'audio'>('video');
   const [sceneMap, setSceneMap] = useState<Record<string, string>>({}); // scene_id → scene_name
@@ -82,8 +85,17 @@ export function StageDirector() {
           <EmptyState
             icon={<Film className="w-12 h-12" />}
             title="还没有分镜"
-            description="请先在「分镜表」阶段生成分镜，然后回到导演工作台生成关键帧和视频"
+            description="导演工作台需要基于分镜来生成关键帧和视频。请先在「剧本」页面的「分镜表」标签页生成分镜。"
           />
+          <div className="flex justify-center pb-6">
+            <button
+              onClick={() => navigate(`/projects/${projectId}/script?tab=shots`)}
+              className="flex items-center gap-2 px-5 py-2.5 rounded-lg bg-gradient-to-r from-[var(--accent)] to-[var(--accent-2)] text-[var(--on-accent)] text-sm font-medium hover:brightness-110 active:brightness-95 transition-all shadow-[0_2px_8px_rgba(249,115,22,0.3)]"
+            >
+              去生成分镜
+              <ArrowRight className="w-4 h-4" />
+            </button>
+          </div>
         </Card>
       </div>
     );

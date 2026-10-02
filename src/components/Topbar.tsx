@@ -20,7 +20,6 @@ const STAGE_LABELS: Record<string, string> = {
 // 目标页面 → 前置阶段（真实数据完成度门控）
 const STAGE_REQUIRE: Record<string, string> = {
   assets: 'script',
-  director: 'shots',
   export: 'video',
 };
 
