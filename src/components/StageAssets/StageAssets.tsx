@@ -212,9 +212,25 @@ export function StageAssets() {
     }
   };
 
-  // 删除场景图片
-  const handleDeleteSceneImage = async (scene: Scene, index: number) => {
+  // 删除角色
+  const handleDeleteCharacter = async (character: Character) => {
+    if (!confirm(`确定删除角色「${character.name}」吗？此操作不可恢复。`)) return;
     try {
+      const res = await characterService.delete(character.id);
+      if (res.success) {
+        const currentChars = useProjectStore.getState().characters;
+        setCharacters(currentChars.filter(c => c.id !== character.id));
+        if (selectedCharacter?.id === character.id) setSelectedCharacter(null);
+        showToast(`角色「${character.name}」已删除`, 'success');
+      }
+    } catch (err: any) {
+      const errorMsg = err?.response?.data?.message || err?.message || '删除角色失败';
+      showToast(errorMsg, 'error');
+    }
+  };
+
+  // 删除场景图片
+  const handleDeleteSceneImage = async (scene: Scene, index: number) => {    try {
       const res = await sceneService.deleteImage(scene.id, index);
       if (res.success) {
         // 直接更新场景列表中的对应场景，移除删除的图片
@@ -395,6 +411,7 @@ export function StageAssets() {
                   key={character.id}
                   character={character}
                   onSelect={setSelectedCharacter}
+                  onDelete={handleDeleteCharacter}
                   onImageClick={(url, char) =>
                     setPreviewImage({ url, title: char.name, desc: char.visual_description || char.description })
                   }
@@ -620,6 +637,7 @@ export function StageAssets() {
         character={selectedCharacter}
         onClose={() => setSelectedCharacter(null)}
         onUpdate={handleCharacterUpdate}
+        onDelete={handleDeleteCharacter}
       />
 
       <ConfigPanel

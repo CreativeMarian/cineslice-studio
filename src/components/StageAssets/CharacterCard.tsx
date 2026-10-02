@@ -1,4 +1,4 @@
-import { User, Image as ImageIcon, Sparkles } from 'lucide-react';
+import { User, Image as ImageIcon, Sparkles, Trash2 } from 'lucide-react';
 import { Card, Badge } from '../ui';
 import { ROLE_TYPE_LABELS, GENDER_LABELS } from '../../utils';
 import type { Character } from '../../types';
@@ -7,9 +7,10 @@ interface CharacterCardProps {
   character: Character;
   onSelect: (character: Character) => void;
   onImageClick?: (imageUrl: string, character: Character) => void;
+  onDelete?: (character: Character) => void;
 }
 
-export function CharacterCard({ character, onSelect, onImageClick }: CharacterCardProps) {
+export function CharacterCard({ character, onSelect, onImageClick, onDelete }: CharacterCardProps) {
   const selectedImage = character.concept_images?.[character.selected_image_index];
   const hasImage = !!selectedImage?.url;
 
@@ -67,6 +68,15 @@ export function CharacterCard({ character, onSelect, onImageClick }: CharacterCa
             >
               <Sparkles className="w-3 h-3" /> 查看详情
             </button>
+            {onDelete && (
+              <button
+                className="px-3 py-2 rounded-lg bg-[var(--color-danger)]/90 text-white text-xs font-medium flex items-center justify-center gap-1 hover:bg-[var(--color-danger)] transition-all"
+                onClick={(e) => { e.stopPropagation(); onDelete(character); }}
+                title="删除角色"
+              >
+                <Trash2 className="w-3 h-3" />
+              </button>
+            )}
           </div>
         </div>
       </div>

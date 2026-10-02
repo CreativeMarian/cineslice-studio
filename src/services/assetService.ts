@@ -39,6 +39,9 @@ export const characterService = {
 
   deleteImage: (id: string, index: number) =>
     apiClient.delete<unknown, ApiResponse<{ message: string; remaining: number }>>(`/characters/${id}/images/${index}`),
+
+  delete: (id: string) =>
+    apiClient.delete<unknown, ApiResponse<void>>(`/characters/${id}`),
 };
 
 // ---------- 场景 ----------

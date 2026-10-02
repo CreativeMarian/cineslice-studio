@@ -91,8 +91,23 @@ router.post('/episodes/:id/characters/extract', validateBody(extractSchema), asy
 
   let characters: any[];
   try {
-    const parsed = parseAiJsonOrThrow<any[]>(result.content);
-    characters = Array.isArray(parsed) ? parsed : [parsed];
+    const parsed = parseAiJsonOrThrow<unknown>(result.content);
+    // 兼容多种返回格式：直接数组 / {characters:[...]} / {data:[...]} / {result:[...]} / 单对象
+    if (Array.isArray(parsed)) {
+      characters = parsed;
+    } else if (parsed && typeof parsed === 'object') {
+      const obj = parsed as Record<string, unknown>;
+      const arr = obj.characters || obj.data || obj.result || obj.list || obj.roles;
+      if (Array.isArray(arr)) {
+        characters = arr;
+      } else {
+        characters = [obj];
+      }
+    } else {
+      characters = [];
+    }
+    // 过滤掉无效角色（没有 name 且没有 description 的）
+    characters = characters.filter((c: any) => c && (c.name || c.characterName || c.description || c.visualDescription));
   } catch (err) {
     throw createError(502, 'AI_CALL_FAILED', (err as Error).message);
   }
@@ -104,11 +119,11 @@ router.post('/episodes/:id/characters/extract', validateBody(extractSchema), asy
   const created = ScriptCharacterDAO.batchCreate(db, characters.map((c: any) => ({
     user_id: req.user.id,
     episode_id: episode.id,
-    name: c.name || '未命名',
-    gender: c.gender || 'other',
-    role_type: c.roleType || 'supporting',
-    description: c.description || '',
-    visual_description: c.visualDescription || '',
+    name: c.name || c.characterName || c.角色名 || c.姓名 || '未命名',
+    gender: c.gender || c.sex || c.性别 || 'other',
+    role_type: c.roleType || c.role || c.角色类型 || c.类型 || 'supporting',
+    description: c.description || c.desc || c.描述 || c.简介 || c.characterDescription || '',
+    visual_description: c.visualDescription || c.visual || c.appearance || c.外貌描述 || c.形象描述 || c.visualDesc || '',
   })));
 
   res.json({ success: true, data: created });
@@ -440,8 +455,17 @@ router.post('/episodes/:id/scenes/extract', validateBody(extractSchema), asyncHa
 
   let scenes: any[];
   try {
-    const parsed = parseAiJsonOrThrow<any[]>(result.content);
-    scenes = Array.isArray(parsed) ? parsed : [parsed];
+    const parsed = parseAiJsonOrThrow<unknown>(result.content);
+    if (Array.isArray(parsed)) {
+      scenes = parsed;
+    } else if (parsed && typeof parsed === 'object') {
+      const obj = parsed as Record<string, unknown>;
+      const arr = obj.scenes || obj.data || obj.result || obj.list || obj.locations;
+      scenes = Array.isArray(arr) ? arr : [obj];
+    } else {
+      scenes = [];
+    }
+    scenes = scenes.filter((s: any) => s && (s.name || s.sceneName || s.description || s.location));
   } catch (err) {
     throw createError(502, 'AI_CALL_FAILED', (err as Error).message);
   }
@@ -452,11 +476,11 @@ router.post('/episodes/:id/scenes/extract', validateBody(extractSchema), asyncHa
   const created = ScriptSceneDAO.batchCreate(db, scenes.map((s: any) => ({
     user_id: req.user.id,
     episode_id: episode.id,
-    name: s.name || '未命名场景',
-    location: s.location || '',
-    time_of_day: s.timeOfDay || 'day',
-    atmosphere: s.atmosphere || '',
-    description: s.description || '',
+    name: s.name || s.sceneName || s.场景名 || s.名称 || '未命名场景',
+    location: s.location || s.place || s.地点 || s.位置 || '',
+    time_of_day: s.timeOfDay || s.time || s.时段 || s.时间 || 'day',
+    atmosphere: s.atmosphere || s.mood || s.氛围 || s.气氛 || '',
+    description: s.description || s.desc || s.描述 || s.简介 || '',
   })));
 
   res.json({ success: true, data: created });
@@ -612,8 +636,17 @@ ${episode.script_content}
 
   let props: any[];
   try {
-    const parsed = parseAiJsonOrThrow<any[]>(result.content);
-    props = Array.isArray(parsed) ? parsed : [parsed];
+    const parsed = parseAiJsonOrThrow<unknown>(result.content);
+    if (Array.isArray(parsed)) {
+      props = parsed;
+    } else if (parsed && typeof parsed === 'object') {
+      const obj = parsed as Record<string, unknown>;
+      const arr = obj.props || obj.data || obj.result || obj.list || obj.items;
+      props = Array.isArray(arr) ? arr : [obj];
+    } else {
+      props = [];
+    }
+    props = props.filter((p: any) => p && (p.name || p.propName || p.description));
   } catch (err) {
     throw createError(502, 'AI_CALL_FAILED', (err as Error).message);
   }
@@ -625,11 +658,11 @@ ${episode.script_content}
   const created = props.map((p: any) => ScriptPropDAO.create(db, {
     user_id: req.user.id,
     episode_id: episode.id,
-    name: p.name || '未命名道具',
-    category: p.category || 'other',
-    description: p.description || '',
+    name: p.name || p.propName || p.道具名 || p.名称 || '未命名道具',
+    category: p.category || p.type || p.类别 || p.类型 || 'other',
+    description: p.description || p.desc || p.描述 || p.简介 || '',
     // 线索道具：AI 显式标记，或 importance=key 且名称含关键/重要/核心字样时兜底
-    is_clue: (p.is_clue === 1 || p.is_clue === true || (p.importance === 'key' && /关键|重要|核心/.test(p.name || ''))) ? 1 : 0,
+    is_clue: (p.is_clue === 1 || p.is_clue === true || p.isClue === 1 || p.isClue === true || (p.importance === 'key' && /关键|重要|核心/.test(p.name || ''))) ? 1 : 0,
     keywords: Array.isArray(p.keywords) ? p.keywords.join(',') : (p.keywords || ''),
   }));
 

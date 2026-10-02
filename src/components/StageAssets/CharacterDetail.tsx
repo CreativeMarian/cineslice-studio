@@ -47,9 +47,10 @@ interface CharacterDetailProps {
   character: Character | null;
   onClose: () => void;
   onUpdate: (character: Character) => void;
+  onDelete?: (character: Character) => void;
 }
 
-export function CharacterDetail({ character, onClose, onUpdate }: CharacterDetailProps) {
+export function CharacterDetail({ character, onClose, onUpdate, onDelete }: CharacterDetailProps) {
   const { showToast } = useUIStore();
   const { getDefaultModel } = useModelStore();
   const [name, setName] = useState(character?.name || '');
@@ -391,6 +392,15 @@ export function CharacterDetail({ character, onClose, onUpdate }: CharacterDetai
         size="xl"
         footer={
           <>
+            {onDelete && character && (
+              <Button
+                variant="outline"
+                className="text-[var(--color-danger)] border-[var(--color-danger)]/30 hover:bg-[var(--color-danger)]/10 mr-auto"
+                onClick={() => onDelete(character)}
+              >
+                <Trash2 className="w-4 h-4 mr-1" /> 删除角色
+              </Button>
+            )}
             <Button variant="secondary" onClick={onClose}>
               关闭
             </Button>
