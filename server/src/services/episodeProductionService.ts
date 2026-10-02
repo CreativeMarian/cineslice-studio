@@ -39,12 +39,33 @@ import type { Database } from '../types';
 import { assessVideoClip } from './videoQualityGate';
 import { getPromptSkillForVideoModel, getPromptSkill } from './promptSkills';
 import type { PromptSkill } from './promptSkills/types';
+import { episodeEnrichService } from './episodeEnrichService';
 
 const DEFAULT_STYLE_OBJ = {
   visualStyle: '电影级写实风格，cinematic lighting，高细节，8k分辨率，统一色调',
   colorPalette: '',
   cameraLanguage: '',
 };
+
+/**
+ * 从段级 h3Prompt 中按 [镜头N]（兼容 [Shot N]）切出单镜提示词段落。
+ * 加料重构产出的段级提示词是整段官方格式（整体视听描述+声景+配乐），
+ * 但本机渲染固定 5s/镜，实际提交需按镜头拆分；最后一镜保留尾部声景/配乐字段。
+ */
+function splitSegmentPromptByShot(h3Prompt: string, shotIndex: number, shotCount: number): string {
+  if (!h3Prompt) return '';
+  const re = /\[(?:镜头|Shot)\s*(\d+)\]/g;
+  const matches: Array<{ num: number; start: number }> = [];
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(h3Prompt))) {
+    matches.push({ num: parseInt(m[1], 10), start: m.index });
+  }
+  if (matches.length === 0) return h3Prompt; // 无镜头标记：整段返回（兜底）
+  const target = matches.find(mm => mm.num === shotIndex);
+  if (!target) return h3Prompt;
+  const next = matches.find(mm => mm.num === shotIndex + 1);
+  return next ? h3Prompt.slice(target.start, next.start).trim() : h3Prompt.slice(target.start).trim();
+}
 
 // ============ 共享工具 ============
 
@@ -252,6 +273,56 @@ export async function generateShotsForEpisode(
 ) {
   const episode = NovelEpisodeDAO.getByIdAndUser(db, episodeId, userId);
   if (!episode) throw createError(404, 'NOT_FOUND', '剧集不存在');
+
+  // ── 加料重构优先（已拍板方案）：该集已通过加料 → 直接用加料结果落库为分镜，
+  //    加料结果即官方格式分镜剧本（含段级 h3Prompt），不做二次翻译 ──
+  const storedEnrich = episodeEnrichService.parseStored(episode);
+  if (episode.enrich_status === 'approved' && storedEnrich?.storyboard?.shots?.length) {
+    console.log(`[GenerateShots] 使用加料重构分镜：${storedEnrich.meta.skillName}，${storedEnrich.storyboard.shots.length}镜 / ${storedEnrich.storyboard.seconds}s`);
+    const en = storedEnrich.storyboard;
+    const PHASE_NAMES = ['开场引入', '矛盾升级', '高潮爆发', '收束悬念'];
+    const total = en.shots.length;
+    return db.transaction(() => {
+      const old = ShotDAO.listByEpisode(db, episode.id);
+      for (const s of old) ShotDAO.delete(db, s.id);
+      const seen = new Set<number>();
+      let nextNum = 1;
+      const created = en.shots.map((sh) => {
+        let num = sh.shot || 0;
+        while (seen.has(num)) num = 10000 + nextNum++;
+        seen.add(num);
+        const phaseNum = Math.min(4, Math.max(1, Math.floor(((num - 1) / Math.max(1, total)) * 4) + 1));
+        let dialogue = '';
+        if (sh.line) {
+          const m = sh.line.match(/^([\u4e00-\u9fa5A-Za-z0-9·]{2,10})[：:]\s*(.+)$/);
+          dialogue = m ? m[2] : sh.line;
+        }
+        const shotRow = ShotDAO.create(db, {
+          user_id: userId,
+          episode_id: episode.id,
+          shot_number: num,
+          shot_size: sh.size || 'medium',
+          action_description: sh.action || sh.frame || '',
+          dialogue,
+          camera_movement: sh.camera || 'static',
+          grid_position: '5',
+          duration_seconds: sh.seconds || 5,
+          notes: `加料重构分镜（${storedEnrich.meta.skillName}）`,
+          phase: phaseNum,
+          phase_name: PHASE_NAMES[phaseNum - 1],
+          first_frame_description: sh.frame || null,
+        });
+        // 段级提示词按镜头切分落库（5s/镜独立提交消费；最后一镜含声景/配乐尾部）
+        ShotDAO.update(db, shotRow.id, {
+          video_prompt: splitSegmentPromptByShot(en.h3Prompt, sh.shot || num, total),
+          video_skill: storedEnrich.meta.skillId,
+        } as any);
+        return shotRow;
+      });
+      console.log(`[GenerateShots] 加料分镜落库完成：${created.length} 镜`);
+      return created;
+    })();
+  }
 
   const { textProvider, textModel, shotDensity, includeDialogue } = opts;
 

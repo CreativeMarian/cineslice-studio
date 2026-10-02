@@ -15,6 +15,7 @@ import {
 } from '../../voiceAssignment';
 import type { AutoPipelineTask } from '../types';
 import { getFirstModel } from '../helpers';
+import { saveTask } from '../taskStore';
 
 export async function stageAudio(db: Database, task: AutoPipelineTask): Promise<void> {
   const episodes = NovelEpisodeDAO.listByProject(db, task.projectId);
@@ -123,10 +124,13 @@ export async function stageAudio(db: Database, task: AutoPipelineTask): Promise<
         }
       }
       generated++;
-      task.stageProgress['audio'] = `生成中 ${generated}/${targetShots.length}（${speaker || '未知'}: ${baseVoice}）`;
+      task.stageProgress['audio'] = `生成中 ${generated}/${targetShots.length}（失败${failed}）`;
+      saveTask(db, task);
     } catch (err: any) {
       console.error(`[AutoPipeline] tts shot=${shot.id} failed:`, err.message);
       failed++;
+      task.stageProgress['audio'] = `生成中 ${generated}/${targetShots.length}（失败${failed}）`;
+      saveTask(db, task);
     }
   }
 

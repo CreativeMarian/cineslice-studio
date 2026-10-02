@@ -25,6 +25,12 @@ const DURATIONS = [
   { value: '10min', label: '10 分钟/集' },
 ];
 
+// 单镜时长：5-60秒，每5秒递增
+const SHOT_DURATIONS = Array.from({ length: 12 }, (_, i) => ({
+  value: String((i + 1) * 5),
+  label: `${(i + 1) * 5} 秒/镜`,
+}));
+
 const LANGUAGES = [
   { value: 'zh', label: '中文' },
   { value: 'en', label: '英文' },
@@ -38,6 +44,7 @@ export function ProjectConfigBar() {
   const [title, setTitle] = useState(currentProject?.title || '');
   const [genre, setGenre] = useState(currentProject?.genre || '');
   const [duration, setDuration] = useState(currentProject?.target_duration || '3min');
+  const [shotDuration, setShotDuration] = useState(String(currentProject?.default_shot_duration || 5));
   const [language, setLanguage] = useState(currentProject?.language || 'zh');
   const [isSaving, setIsSaving] = useState(false);
 
@@ -51,6 +58,7 @@ export function ProjectConfigBar() {
         title: title.trim() || currentProject.title,
         genre,
         target_duration: duration,
+        default_shot_duration: Number(shotDuration),
         language,
       });
       if (res.success && res.data) {
@@ -67,6 +75,7 @@ export function ProjectConfigBar() {
 
   const genreLabel = GENRES.find(g => g.value === currentProject?.genre)?.label || '未设定';
   const durationLabel = DURATIONS.find(d => d.value === currentProject?.target_duration)?.label || '3 分钟/集';
+  const shotDurationLabel = SHOT_DURATIONS.find(d => d.value === String(currentProject?.default_shot_duration || 5))?.label || '5 秒/镜';
   const langLabel = LANGUAGES.find(l => l.value === currentProject?.language)?.label || '中文';
 
   if (!isEditing) {
@@ -91,6 +100,11 @@ export function ProjectConfigBar() {
               </span>
               <span className="w-px h-4 bg-[var(--border)]" />
               <span className="flex items-center gap-1.5 text-[var(--ink-2)]">
+                <span className="text-[var(--ink-3)]">单镜</span>
+                <span className="font-medium text-[var(--ink-1)]">{shotDurationLabel}</span>
+              </span>
+              <span className="w-px h-4 bg-[var(--border)]" />
+              <span className="flex items-center gap-1.5 text-[var(--ink-2)]">
                 <span className="text-[var(--ink-3)]">语言</span>
                 <span className="font-medium text-[var(--ink-1)]">{langLabel}</span>
               </span>
@@ -100,6 +114,7 @@ export function ProjectConfigBar() {
             setTitle(currentProject.title);
             setGenre(currentProject.genre || '');
             setDuration(currentProject.target_duration || '3min');
+            setShotDuration(String(currentProject.default_shot_duration || 5));
             setLanguage(currentProject.language || 'zh');
             setIsEditing(true);
           }}>
@@ -122,7 +137,7 @@ export function ProjectConfigBar() {
             onChange={(e) => setTitle(e.target.value)}
           />
         </div>
-        <div className="grid grid-cols-3 gap-4">
+        <div className="grid grid-cols-4 gap-4">
           <div>
             <label className="block text-xs font-medium text-[var(--ink-3)] mb-1.5">体裁</label>
             <Select value={genre} onValueChange={setGenre} placeholder="选择题材">
@@ -135,6 +150,14 @@ export function ProjectConfigBar() {
             <label className="block text-xs font-medium text-[var(--ink-3)] mb-1.5">单集时长</label>
             <Select value={duration} onValueChange={setDuration} placeholder="选择时长">
               {DURATIONS.map(d => (
+                <Select.Item key={d.value} value={d.value}>{d.label}</Select.Item>
+              ))}
+            </Select>
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-[var(--ink-3)] mb-1.5">单镜时长</label>
+            <Select value={shotDuration} onValueChange={setShotDuration} placeholder="选择单镜时长">
+              {SHOT_DURATIONS.map(d => (
                 <Select.Item key={d.value} value={d.value}>{d.label}</Select.Item>
               ))}
             </Select>

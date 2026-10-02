@@ -64,6 +64,45 @@ export function CharacterDetail({ character, onClose, onUpdate }: CharacterDetai
   const [imagePrompt, setImagePrompt] = useState('');
   const [fourViewPrompt, setFourViewPrompt] = useState('');
 
+  // P1-4: 九宫格表情图
+  const [isGeneratingExpressions, setIsGeneratingExpressions] = useState(false);
+  const [expressionImages, setExpressionImages] = useState<Record<string, string>>({});
+  const EXPRESSION_TYPES = [
+    // 基础表情
+    { key: 'happy', name: '喜', category: 'macro', emoji: '😊' },
+    { key: 'angry', name: '怒', category: 'macro', emoji: '😠' },
+    { key: 'sad', name: '哀', category: 'macro', emoji: '😢' },
+    { key: 'surprised', name: '惊', category: 'macro', emoji: '😲' },
+    { key: 'fear', name: '恐', category: 'macro', emoji: '😨' },
+    { key: 'thinking', name: '思', category: 'macro', emoji: '🤔' },
+    { key: 'calm', name: '平静', category: 'macro', emoji: '😐' },
+    { key: 'smirk', name: '冷笑', category: 'macro', emoji: '😏' },
+    { key: 'crying', name: '哭泣', category: 'macro', emoji: '😭' },
+    // 微表情
+    { key: 'micro_smile', name: '浅笑', category: 'micro', emoji: '🙂' },
+    { key: 'micro_frown', name: '微蹙', category: 'micro', emoji: '😟' },
+    { key: 'micro_glance', name: '眼神闪烁', category: 'micro', emoji: '👀' },
+    { key: 'micro_clench', name: '咬唇', category: 'micro', emoji: '😬' },
+    { key: 'micro_nostril', name: '鼻翼微动', category: 'micro', emoji: '😤' },
+    { key: 'micro_eyeroll', name: '眼波流转', category: 'micro', emoji: '😏' },
+    { key: 'micro_tremble', name: '嘴角微颤', category: 'micro', emoji: '🥺' },
+    { key: 'micro_blink', name: '频繁眨眼', category: 'micro', emoji: '😰' },
+    // 心理活动
+    { key: 'hesitation', name: '犹豫', category: 'psychology', emoji: '🤷' },
+    { key: 'tension', name: '紧张', category: 'psychology', emoji: '😰' },
+    { key: 'anticipation', name: '期待', category: 'psychology', emoji: '🤩' },
+    { key: 'restraint', name: '隐忍', category: 'psychology', emoji: '😣' },
+    { key: 'doubt', name: '怀疑', category: 'psychology', emoji: '🤨' },
+    { key: 'longing', name: '思念', category: 'psychology', emoji: '🥹' },
+    { key: 'determination', name: '决绝', category: 'psychology', emoji: '😠' },
+    { key: 'guilt', name: '愧疚', category: 'psychology', emoji: '😔' },
+  ];
+  const EXPRESSION_CATEGORIES = [
+    { key: 'macro', label: '基础表情', color: 'text-blue-500' },
+    { key: 'micro', label: '微表情', color: 'text-purple-500' },
+    { key: 'psychology', label: '心理活动', color: 'text-pink-500' },
+  ];
+
   // 音色档案（NovelReel 式：跨镜头/跨集声音一致）
   const [voice, setVoice] = useState<string>('');
   const [speed, setSpeed] = useState<number>(1.0);
@@ -135,6 +174,19 @@ export function CharacterDetail({ character, onClose, onUpdate }: CharacterDetai
     return '';
   })();
 
+  // 加载已有表情图（必须在提前返回之前）
+  useEffect(() => {
+    if (character?.expression_images) {
+      try {
+        const parsed = JSON.parse(character.expression_images);
+        setExpressionImages(parsed);
+      } catch {
+        setExpressionImages({});
+      }
+    } else {
+      setExpressionImages({});
+    }
+  }, [character?.expression_images, character?.id]);
 
   if (!character) return null;
 
@@ -224,6 +276,38 @@ export function CharacterDetail({ character, onClose, onUpdate }: CharacterDetai
       console.error('[FourView] 生成失败:', err);
     } finally {
       setIsGeneratingFourView(false);
+    }
+  };
+
+  // ============ P1-4: 九宫格表情图 ============
+  const handleGenerateExpressions = async () => {
+    if (!character) return;
+    const defaultImageModel = getDefaultModel('image');
+    if (!defaultImageModel) {
+      showToast('请先在模型配置中设置默认图像模型', 'error');
+      return;
+    }
+    setIsGeneratingExpressions(true);
+    try {
+      const provider = defaultImageModel.provider;
+      const modelName = defaultImageModel.model_name;
+      const res = await apiClient.post<unknown, { success?: boolean; data?: { expressions: Record<string, string> } }>(
+        `/characters/${character.id}/generate-expressions`,
+        { provider, modelName }
+      );
+      if (res.success && res.data?.expressions) {
+        setExpressionImages(res.data.expressions);
+        const count = Object.keys(res.data.expressions).length;
+        showToast(`表情图生成成功（${count}/25），视频生成将自动匹配表情参考`, 'success');
+      } else {
+        showToast('表情图生成失败', 'error');
+      }
+    } catch (err: any) {
+      const errorMsg = err?.response?.data?.message || err?.message || '表情图生成失败';
+      showToast(errorMsg, 'error');
+      console.error('[Expressions] 生成失败:', err);
+    } finally {
+      setIsGeneratingExpressions(false);
     }
   };
 
@@ -412,6 +496,60 @@ export function CharacterDetail({ character, onClose, onUpdate }: CharacterDetai
                 <div className="aspect-video rounded-lg border border-dashed border-[var(--border)] bg-[var(--panel-2)]/50 flex items-center justify-center">
                   <p className="text-xs text-[var(--ink-3)]">点击「生成四视图」生成面部特写+正面/侧面/背面三视图</p>
                 </div>
+              )}
+            </div>
+
+            {/* P1-4: 九宫格表情图 */}
+            <div className="rounded-xl border border-[var(--border)] bg-[var(--panel)] p-4">
+              <div className="flex items-center justify-between mb-3">
+                <p className="text-xs font-medium text-[var(--ink-2)] flex items-center gap-1">
+                  <span className="text-base">🎭</span> 表情图库（25张 · 基础/微表情/心理活动）
+                </p>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  leftIcon={<Sparkles className="w-3 h-3" />}
+                  onClick={handleGenerateExpressions}
+                  isLoading={isGeneratingExpressions}
+                >
+                  {Object.keys(expressionImages).length > 0 ? '重新生成' : '生成表情图'}
+                </Button>
+              </div>
+              {EXPRESSION_CATEGORIES.map(cat => (
+                <div key={cat.key} className="mb-4 last:mb-0">
+                  <p className={`text-xs font-semibold mb-2 ${cat.color}`}>
+                    {cat.label}（{EXPRESSION_TYPES.filter(e => e.category === cat.key).length}种）
+                  </p>
+                  <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
+                    {EXPRESSION_TYPES.filter(e => e.category === cat.key).map(expr => (
+                      <div
+                        key={expr.key}
+                        className="aspect-square rounded-lg border border-[var(--border)] bg-[var(--panel-2)] overflow-hidden relative group"
+                      >
+                        {expressionImages[expr.key] ? (
+                          <img
+                            src={expressionImages[expr.key]}
+                            alt={`${character.name} ${expr.name}表情`}
+                            className="w-full h-full object-cover"
+                          />
+                        ) : (
+                          <div className="w-full h-full flex flex-col items-center justify-center text-[var(--ink-3)]">
+                            <span className="text-2xl mb-1">{expr.emoji}</span>
+                            <span className="text-xs">{expr.name}</span>
+                          </div>
+                        )}
+                        <div className="absolute bottom-0 left-0 right-0 bg-black/50 text-white text-xs py-0.5 text-center">
+                          {expr.emoji} {expr.name}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+              {Object.keys(expressionImages).length > 0 && (
+                <p className="text-xs text-[var(--ink-3)] mt-2 pt-2 border-t border-[var(--border)]">
+                  已生成 {Object.keys(expressionImages).length}/25 张表情图，视频生成时将根据镜头情绪自动匹配（心理活动优先，微表情次之）
+                </p>
               )}
             </div>
           </div>

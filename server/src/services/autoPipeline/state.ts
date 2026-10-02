@@ -9,6 +9,8 @@ export const tasks = new Map<string, AutoPipelineTask>();
 // 每个条目是大体积 AI 分析对象，长期运行的服务需要上限淘汰（FIFO，保留最新 20 个剧集）
 export const SCRIPT_ANALYSIS_CACHE_MAX = 20;
 export const scriptAnalysisCache = new Map<string, ScriptAnalysisResult>();
+// 进行中的分析 Promise（v2.0：防止 characters/scenes 并行时重复触发同一剧集的 AI 分析）
+export const scriptAnalysisInFlight = new Map<string, Promise<ScriptAnalysisResult | null>>();
 
 export function cacheScriptAnalysis(episodeId: string, result: ScriptAnalysisResult): void {
   if (scriptAnalysisCache.has(episodeId)) {

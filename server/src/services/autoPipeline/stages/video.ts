@@ -17,6 +17,7 @@ import { aiPromptOptimizerService, type ScriptContextForAI } from '../../aiPromp
 import {
   resolveLastFrameForShot,
   collectShotReferenceImages,
+  collectExpressionReferenceImages,
   imageToDataUrl,
 } from '../../shotConsistencyService';
 import type { ScriptAnalysisResult } from '../../scriptAnalysisService';
@@ -28,6 +29,9 @@ import { getPromptSkillForVideoModel, getPromptSkill } from '../../promptSkills'
 import { promptRefactorService } from '../../promptRefactorService';
 import { assessVideoClip } from '../../videoQualityGate';
 import { parseCharactersInShot } from '../../../models/shot';
+import { projectMemoryService } from '../../projectMemoryService';
+import { visualMemoryService } from '../../visualMemoryService';
+import { actionRealismService } from '../../actionRealismService';
 
 
 export async function stageVideo(db: Database, task: AutoPipelineTask): Promise<void> {
@@ -76,9 +80,11 @@ export async function stageVideo(db: Database, task: AutoPipelineTask): Promise<
   }
 
   // 动态调整并发数：根据待生成数量调整，最大3个避免 API 限流
-  const dynamicConcurrency = totalToGenerate < 5 ? 1 : totalToGenerate < 20 ? 2 : 3;
-  const concurrency = Math.min(Math.max(baseConcurrency, dynamicConcurrency), 3);
-  console.log(`[AutoPipeline] video 并发数: ${concurrency}（待生成${totalToGenerate}个，基础${baseConcurrency}，动态${dynamicConcurrency}）`);
+  // P1-3: 首尾帧衔接强化 — 强制顺序生成（并发=1），确保前镜尾帧可作为后镜首帧参考
+  // P1-3: 强制顺序生成（并发=1），保证前镜尾帧可作为后镜首帧参考
+  // 如需提速可设置环境变量 VIDEO_CONCURRENCY，但会降低首尾帧衔接质量
+  const concurrency = Math.min(baseConcurrency, 1);
+  console.log(`[AutoPipeline] video 并发数: ${concurrency}（强制顺序生成保证首尾帧衔接，待生成${totalToGenerate}个）`);
 
   // 第二步：并发池生成视频
   let nextIndex = 0;
@@ -155,6 +161,32 @@ export async function stageVideo(db: Database, task: AutoPipelineTask): Promise<
       const shotReferenceImages = collectShotReferenceImages(db, shot)
         .map(imageToDataUrl);
 
+      // P1-6: 角色表情图参考（根据镜头情绪自动匹配，确保表情一致性）
+      const expressionReferenceImages = collectExpressionReferenceImages(db, shot)
+        .map(imageToDataUrl);
+
+      // ═══════════════════════════════════════════════════════════════
+      // P0-2: 视觉记忆库检索（历史关键帧自动作为参考）
+      // 检索同角色/同场景的近期历史帧 + 前序镜头首帧，增强跨镜头一致性
+      // ═══════════════════════════════════════════════════════════════
+      let visualMemoryRefs: string[] = [];
+      let visualMemoryContext = '';
+      try {
+        const memoryRefs = visualMemoryService.retrieveReferenceImages(
+          db, task.projectId, first.id, shot
+        );
+        visualMemoryRefs = memoryRefs.allDataUrls;
+        visualMemoryContext = memoryRefs.contextText;
+        if (visualMemoryRefs.length > 0) {
+          console.log(`[AutoPipeline] video shot=${shot.shot_number} 视觉记忆检索到 ${visualMemoryRefs.length} 张历史参考图`);
+        }
+      } catch (memErr) {
+        console.warn(`[AutoPipeline] video shot=${shot.shot_number} 视觉记忆检索失败:`, (memErr as Error).message);
+      }
+
+      // 合并资产参考图 + 视觉记忆历史帧 + 角色表情图（去重）
+      const allReferenceImages = [...new Set([...shotReferenceImages, ...visualMemoryRefs, ...expressionReferenceImages])];
+
       // ═══════════════════════════════════════════════════════════
       // 导演级提示词生成（v2.0）
       // 包含：时序控制、动作分解、表情细节、心理活动、环境交互、连贯性、真实性校验
@@ -194,6 +226,20 @@ export async function stageVideo(db: Database, task: AutoPipelineTask): Promise<
         }
       } catch (aiErr) {
         console.warn(`[AutoPipeline] video shot=${shot.shot_number} AI深度优化失败，使用导演级提示词:`, (aiErr as Error).message);
+      }
+
+      // ═══════════════════════════════════════════════════════════
+      // 动作真实性增强（道具细节/物理反应链/心理-行为映射）
+      // 规则驱动，无需 AI 调用，深度提升视频真实度
+      // ═══════════════════════════════════════════════════════════
+      try {
+        const realism = actionRealismService.enhanceRealism(directorContext);
+        if (realism.combinedText) {
+          finalPrompt = finalPrompt + realism.combinedText;
+          console.log(`[AutoPipeline] video shot=${shot.shot_number} 真实性增强: 道具${realism.propDetails.length}+物理${realism.physicsChains.length}+心理${realism.psychologyBehaviors.length}`);
+        }
+      } catch (realismErr) {
+        console.warn(`[AutoPipeline] video shot=${shot.shot_number} 真实性增强失败:`, (realismErr as Error).message);
       }
 
       // 注入项目风格预设（统一画风：关键帧/单镜/批量/自动流水线四路一致）
@@ -266,8 +312,24 @@ export async function stageVideo(db: Database, task: AutoPipelineTask): Promise<
           console.log(`[AutoPipeline] video shot=${shot.shot_number} 官方提示词 skill 包装完成（${promptSkill.displayName}）`);
         }
       }
-      // 合并正面提示词和负面提示词（视频模型通常不支持独立的负面提示词参数）      // 合并正面提示词和负面提示词（视频模型通常不支持独立的负面提示词参数）
+      // 合并正面提示词和负面提示词（视频模型通常不支持独立的负面提示词参数）
       console.log(`[AutoPipeline] video shot=${shot.shot_number} 提示词生成完成`);
+
+      // ═══════════════════════════════════════════════════════════════
+      // P0-1: 项目级长期记忆注入（角色圣经/世界观/剧情摘要）
+      // 在视频生成前注入，确保视频画面符合全项目角色设定和世界观
+      // ═══════════════════════════════════════════════════════════════
+      const memoryInjection = projectMemoryService.buildMemoryInjection(db, task.projectId);
+      if (memoryInjection.characterBible) {
+        videoMotionPrompt = videoMotionPrompt + '\n\n【角色视觉一致性·强制锚点】\n' + memoryInjection.characterBible;
+      }
+      if (memoryInjection.worldSetting) {
+        videoMotionPrompt = videoMotionPrompt + '\n\n【世界观一致性·强制参考】\n' + memoryInjection.worldSetting;
+      }
+      // P0-2: 视觉记忆上下文（历史帧参考说明）
+      if (visualMemoryContext) {
+        videoMotionPrompt = videoMotionPrompt + '\n\n【视觉记忆·历史帧参考】\n' + visualMemoryContext;
+      }
 
       // ═══════════════════════════════════════════════════════════
       // 视频生成自动重试机制：最多重试2次（总共3次尝试），指数退避
@@ -305,7 +367,7 @@ export async function stageVideo(db: Database, task: AutoPipelineTask): Promise<
             provider: model.provider, modelName: model.modelName,
             firstFrameImageUrl: firstFrameImageForApi,
             lastFrameImageUrl: lastFrameImageForApi,
-            referenceImages: shotReferenceImages.length > 0 ? shotReferenceImages : undefined,
+            referenceImages: allReferenceImages.length > 0 ? allReferenceImages : undefined,
             motion: videoMotionPrompt,
             duration: shot.duration_seconds || 5,
             ratio: '16:9',
@@ -460,6 +522,27 @@ export async function stageVideo(db: Database, task: AutoPipelineTask): Promise<
     throw new Error('视频生成全部失败');
   }
   task.stageProgress['video'] = `生成 ${generated} 个，跳过 ${skipped} 个，失败 ${failed} 个`;
+
+  // ═══════════════════════════════════════════════════════════════
+  // P0-1: 视频阶段完成后自动更新项目记忆
+  // 更新剧情摘要、识别新伏笔、刷新角色圣经
+  // ═══════════════════════════════════════════════════════════════
+  try {
+    console.log('[AutoPipeline] 视频阶段完成，开始更新项目记忆...');
+    // 1. 为角色生成标准化视觉锚点
+    await projectMemoryService.generateCharacterAnchors(db, task.userId, task.projectId, first.id);
+    // 2. 更新剧情摘要
+    await projectMemoryService.updateStorySummary(db, task.userId, task.projectId, first.id);
+    // 3. 识别新伏笔
+    const newForeshadows = await projectMemoryService.detectForeshadows(db, task.userId, task.projectId, first.id);
+    // 4. 刷新角色圣经（跨剧集汇总）
+    await projectMemoryService.generateCharacterBible(db, task.userId, task.projectId);
+    // 5. 刷新世界观
+    await projectMemoryService.generateWorldSetting(db, task.userId, task.projectId);
+    console.log(`[AutoPipeline] 项目记忆更新完成：新伏笔 ${newForeshadows.length} 个`);
+  } catch (memErr) {
+    console.warn('[AutoPipeline] 项目记忆更新失败（不影响主流程）:', (memErr as Error).message);
+  }
 
   // 字幕生成：从分镜 dialogue 提取字幕，计算时间轴，生成 SRT
   try {

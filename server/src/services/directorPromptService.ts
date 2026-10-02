@@ -32,6 +32,13 @@ export interface DirectorShotContext {
   previousShotCharacters?: string[];
   // 角色详细信息
   characterDetails?: Record<string, CharacterDetail>;
+  // P0-3: 一致性锁定段（AI优化器不能修改这些段）
+  /** 角色视觉一致性锚点（每个角色的标准化视觉描述，100字内） */
+  characterAnchors?: Record<string, string>;
+  /** 场景一致性锚点（场景的标准化视觉描述） */
+  sceneAnchor?: string;
+  /** 风格一致性锚点（全片统一画风/色调/镜头语言） */
+  styleAnchor?: string;
 }
 
 export interface CharacterDetail {
@@ -428,6 +435,35 @@ export const directorPromptService = {
     // 组装完整提示词
     // ═══════════════════════════════════════════════════════════
     const promptParts: string[] = [];
+
+    // ═══════════════════════════════════════════════════════════════
+    // P0-3: 一致性锁定段（①②③）
+    // 这些段是"锁定"的，AI优化器不能修改，必须逐字保留
+    // ═══════════════════════════════════════════════════════════════
+    if (shotContext.characterAnchors && Object.keys(shotContext.characterAnchors).length > 0) {
+      promptParts.push('【①角色视觉一致性锚点·锁定段·禁止修改】');
+      for (const [name, anchor] of Object.entries(shotContext.characterAnchors)) {
+        if (anchor && anchor.trim()) {
+          promptParts.push(`- ${name}：${anchor}`);
+        }
+      }
+      promptParts.push('⚠️ 以上角色视觉特征必须严格保持一致，禁止任何修改、遗漏或替换');
+      promptParts.push('');
+    }
+
+    if (shotContext.sceneAnchor) {
+      promptParts.push('【②场景一致性锚点·锁定段·禁止修改】');
+      promptParts.push(shotContext.sceneAnchor);
+      promptParts.push('⚠️ 以上场景视觉特征必须严格保持一致，禁止任何修改');
+      promptParts.push('');
+    }
+
+    if (shotContext.styleAnchor) {
+      promptParts.push('【③风格一致性锚点·锁定段·禁止修改】');
+      promptParts.push(shotContext.styleAnchor);
+      promptParts.push('⚠️ 以上全片风格必须严格保持一致，禁止任何修改');
+      promptParts.push('');
+    }
 
     // 镜头基本信息
     promptParts.push(`【镜头信息】第${shotContext.shotNumber}/${shotContext.totalShots}镜，时长${duration}秒，${this.translateShotSize(shotContext.shotSize)}，${this.translateCameraMovement(shotContext.cameraMovement)}`);

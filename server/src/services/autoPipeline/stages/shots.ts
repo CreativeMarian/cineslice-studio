@@ -1,19 +1,38 @@
 // 阶段6：分镜生成
 // v2.0 - 场景关联（scene_id 落库）+ 角色资产上下文注入 + 修复 shot_type 列不存在 bug + 道具落库
 import type { Database } from '../../../types';
-import { NovelEpisodeDAO, ShotDAO, ScriptCharacterDAO } from '../../../models';
+import { NovelEpisodeDAO, ShotDAO, ScriptCharacterDAO, ProjectDAO } from '../../../models';
 import { aiProxy } from '../../aiProxy';
 import { shotGenerationPrompt } from '../../prompts/shotGeneration';
 import { promptOptimizationService } from '../../promptOptimizationService';
 import { parseShotListArray } from '../../../utils/aiJsonParser';
 import { buildShotSceneMap } from '../../shotConsistencyService';
 import type { AutoPipelineTask } from '../types';
-import { getFirstModel, getOrCreateScriptAnalysis } from '../helpers';
+import { getFirstModel, getOrCreateScriptAnalysis, withRetry } from '../helpers';
 import { saveTask } from '../taskStore';
 import { getPromptSkillForVideoModel, applySkillRules } from '../../promptSkills';
 import { applyStageRules } from '../../stageSkills';
 import { UserPreferenceDAO } from '../../../models';
 import { runStageGates } from '../../stageSkills';
+import { runNativeGates } from '../../stageSkills/nativeGates';
+import { episodeEnrichService } from '../../episodeEnrichService';
+import { projectMemoryService } from '../../projectMemoryService';
+
+/** 从段级 h3Prompt 中按 [镜头N] 切出单镜提示词段落（加料重构分镜专用） */
+function splitSegmentPromptByShot(h3Prompt: string, shotIndex: number, shotCount: number): string {
+  if (!h3Prompt) return '';
+  const re = /\[(?:镜头|Shot)\s*(\d+)\]/g;
+  const matches: Array<{ num: number; start: number }> = [];
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(h3Prompt))) {
+    matches.push({ num: parseInt(m[1], 10), start: m.index });
+  }
+  if (matches.length === 0) return h3Prompt;
+  const target = matches.find(mm => mm.num === shotIndex);
+  if (!target) return h3Prompt;
+  const next = matches.find(mm => mm.num === shotIndex + 1);
+  return next ? h3Prompt.slice(target.start, next.start).trim() : h3Prompt.slice(target.start).trim();
+}
 
 export async function stageShots(db: Database, task: AutoPipelineTask): Promise<void> {
   const episodes = NovelEpisodeDAO.listByProject(db, task.projectId);
@@ -26,8 +45,63 @@ export async function stageShots(db: Database, task: AutoPipelineTask): Promise<
     return;
   }
 
+  // ── 加料重构优先：该集已通过加料 → 直接用加料结果落库为分镜（不做二次翻译）──
+  const storedEnrich = episodeEnrichService.parseStored(first);
+  if (first.enrich_status === 'approved' && storedEnrich?.storyboard?.shots?.length) {
+    console.log(`[AutoPipeline] 分镜阶段使用加料重构结果：${storedEnrich.meta.skillName}，${storedEnrich.storyboard.shots.length}镜`);
+    const en = storedEnrich.storyboard;
+    const PHASE_NAMES = ['开场引入', '矛盾升级', '高潮爆发', '收束悬念'];
+    const total = en.shots.length;
+    const created = db.transaction(() => {
+      const old = ShotDAO.listByEpisode(db, first.id);
+      for (const s of old) ShotDAO.delete(db, s.id);
+      const seen = new Set<number>();
+      let nextNum = 1;
+      const rows = en.shots.map((sh) => {
+        let num = sh.shot || 0;
+        while (seen.has(num)) num = 10000 + nextNum++;
+        seen.add(num);
+        const phaseNum = Math.min(4, Math.max(1, Math.floor(((num - 1) / Math.max(1, total)) * 4) + 1));
+        let dialogue = '';
+        if (sh.line) {
+          const m = sh.line.match(/^([\u4e00-\u9fa5A-Za-z0-9·]{2,10})[：:]\s*(.+)$/);
+          dialogue = m ? m[2] : sh.line;
+        }
+        const shotRow = ShotDAO.create(db, {
+          user_id: task.userId,
+          episode_id: first.id,
+          shot_number: num,
+          shot_size: sh.size || 'medium',
+          action_description: sh.action || sh.frame || '',
+          dialogue,
+          camera_movement: sh.camera || 'static',
+          grid_position: '5',
+          duration_seconds: sh.seconds || 5,
+          notes: `加料重构分镜（${storedEnrich.meta.skillName}）`,
+          phase: phaseNum,
+          phase_name: PHASE_NAMES[phaseNum - 1],
+          first_frame_description: sh.frame || null,
+        });
+        ShotDAO.update(db, shotRow.id, {
+          video_prompt: splitSegmentPromptByShot(en.h3Prompt, sh.shot || num, total),
+          video_skill: storedEnrich.meta.skillId,
+        } as any);
+        return shotRow;
+      });
+      return rows;
+    })();
+    task.stageProgress['shots'] = `使用加料重构分镜：${created.length} 镜`;
+    return;
+  }
+
   const model = getFirstModel(db, task.userId, 'text');
   if (!model) throw new Error('请先配置文本模型');
+
+  // 读取项目配置的单镜时长（用户前端设置，5-60秒，默认5秒）
+  const project = ProjectDAO.getById(db, task.projectId);
+  const shotDuration = project?.default_shot_duration || 5;
+  const maxDialogueChars = Math.floor(shotDuration * 4.5); // 4.5字/秒
+  console.log(`[AutoPipeline] 分镜阶段使用单镜时长: ${shotDuration}秒, 台词上限: ${maxDialogueChars}字`);
 
   // 剧本分析（在分镜生成之前分析剧情、场景、角色、情绪、节奏）
   const scriptAnalysis = await getOrCreateScriptAnalysis(db, task.projectId, task.userId, first.id);
@@ -52,8 +126,19 @@ export async function stageShots(db: Database, task: AutoPipelineTask): Promise<
   }
   const finalSystemPrompt = applyStageRules(applySkillRules(systemPrompt, promptSkill, 'shotRule'), 'shots')
 
-  // ── 台词容量硬规则（novel-script 4.5字/秒 × 固定5秒镜头）──
-    + `\n\n【台词容量硬规则（必须遵守）】\n- 每个镜头固定 5 秒（durationSeconds=5），中文台词按 4.5 字/秒折算，5 秒镜头最多装约 20 字台词（留 0.5 秒缓冲）。\n- 若某个镜头台词超过 20 字，必须自动拆分为多个连续镜头：前一镜说完前半句（<=20字），下一镜接后半句，保持动作连贯，景别/机位要有变化（如中景→特写）。\n- 严禁单个镜头台词超过 20 字；长对白必须拆镜，宁多勿塞。`;
+  // ── 台词容量规则（按用户设置的单镜时长动态计算，阶段性语义拆分，非硬切字数）──
+    + `\n\n【台词容量规则（必须严格遵守）】\n- 每个镜头固定 ${shotDuration} 秒（durationSeconds=${shotDuration}），中文台词按 4.5 字/秒折算，${shotDuration} 秒镜头最多装约 ${maxDialogueChars} 字台词（留 0.5 秒缓冲）。\n- 若某段对白超过 ${maxDialogueChars} 字，必须在生成分镜时就自动拆分为多个连续镜头。\n- 【拆分原则：阶段性语义截断，严禁硬切字数】\n  ① 按完整语义单元拆分：一句话说完一个完整意思后再切，不能把一个完整的句子/意思从中间硬切断。\n  ② 在自然停顿处拆分：优先在句号、感叹号、问号处切；其次在逗号、分号处切；绝不能在词语中间切断。\n  ③ 按剧情节奏拆分：一个动作完成后、情绪转折时、场景切换时是最佳切分点。\n  ④ 拆分后每镜台词必须是完整通顺的一句话或完整的语义片段，不能出现"说了一半"的残句。\n  ⑤ 若一句话本身就超过 ${maxDialogueChars} 字，才在句内逗号处拆分，但必须保证每半句语义相对完整。\n- 拆分后保持动作连贯，景别/机位要有变化（如中景→特写、推镜→固定、正面→侧面），说话人不变，前后镜头接续同一段对白。\n- 严禁单个镜头台词超过 ${maxDialogueChars} 字；长对白必须在分镜阶段就按语义阶段拆好，宁多勿塞。\n- 所有镜头的 durationSeconds 字段必须统一为 ${shotDuration}。`;
+
+  // ═══════════════════════════════════════════════════════════════
+  // P0-1: 项目级长期记忆注入（角色圣经/世界观/剧情摘要/伏笔）
+  // 在分镜生成前注入，确保AI了解全项目上下文，跨剧集一致
+  // ═══════════════════════════════════════════════════════════════
+  const memoryInjection = projectMemoryService.buildMemoryInjection(db, task.projectId);
+  let memoryEnhancedSystemPrompt = finalSystemPrompt;
+  if (memoryInjection.fullInjection) {
+    memoryEnhancedSystemPrompt = finalSystemPrompt + '\n\n' + memoryInjection.fullInjection;
+    console.log(`[AutoPipeline] 分镜阶段注入项目记忆：角色圣经${memoryInjection.characterBible ? '✓' : '✗'} 世界观${memoryInjection.worldSetting ? '✓' : '✗'} 剧情摘要${memoryInjection.storySummary ? '✓' : '✗'} 伏笔${memoryInjection.openForeshadows ? '✓' : '✗'}`);
+  }
 
   // 提示词优化（基于剧本分析结果细化分镜提示词）
   let finalPrompt = prompt;
@@ -65,10 +150,13 @@ export async function stageShots(db: Database, task: AutoPipelineTask): Promise<
     saveTask(db, task);
   }
 
-  const result = await aiProxy.generateText({
-    db, userId: task.userId, provider: model.provider, modelName: model.modelName,
-    prompt: finalPrompt, systemPrompt: finalSystemPrompt, responseFormat: 'json', maxTokens: 32000,
-  });
+  const result = await withRetry(
+    () => aiProxy.generateText({
+      db, userId: task.userId, provider: model.provider, modelName: model.modelName,
+      prompt: finalPrompt, systemPrompt: memoryEnhancedSystemPrompt, responseFormat: 'json', maxTokens: 32000,
+    }),
+    { maxAttempts: 3, label: '分镜生成AI调用' }
+  );
 
   const shots = parseShotListArray<any[]>(result.content).map((sh: any) => normalizeShotValueSafe(sh));
   const list = Array.isArray(shots) ? shots : [shots];
@@ -111,7 +199,7 @@ export async function stageShots(db: Database, task: AutoPipelineTask): Promise<
       camera_movement: s.cameraMovement || s.camera_movement || 'static',
       action_description: s.actionDescription || s.action_description || '',
       dialogue: s.dialogue || '',
-      duration_seconds: s.durationSeconds || s.duration_seconds || 5,
+      duration_seconds: s.durationSeconds || s.duration_seconds || shotDuration,
       characters_in_shot: s.charactersInShot ? JSON.stringify(s.charactersInShot) : null,
       props_in_shot: s.propsInShot ? JSON.stringify(s.propsInShot) : null,
       scene_id: s.sceneName ? sceneMap.get(String(s.sceneName).trim()) : undefined,
@@ -134,15 +222,16 @@ export async function stageShots(db: Database, task: AutoPipelineTask): Promise<
     console.log(`[AutoPipeline][质量门] ${gate.summary}`);
     let errs = gate.issues.filter((i: any) => i.severity === 'error');
 
-    // 台词装不下镜头（4.5字/秒折算）→ 自动拆镜，最多两轮，防止死循环烧额度
+    // 台词装不下镜头（4.5字/秒折算）→ 自动拆镜（兜底），最多两轮，防止死循环烧额度
+    // 主要拆分已在提示词阶段要求AI完成，这里只处理AI未按要求拆分的漏网之鱼
     if (errs.some((e: any) => e.rule.includes('台词'))) {
-      console.warn(`[AutoPipeline] 检测到台词超时镜头，自动拆镜（最多两轮）...`);
-      const r1 = await fixLongDialogueShots(db, task, first.id);
-      task.stageProgress['shots'] += `｜自动拆镜:${r1.fixed}成功/${r1.failed}失败`;
+      console.warn(`[AutoPipeline] 检测到台词超时镜头（兜底拆镜），最多两轮...`);
+      const r1 = await fixLongDialogueShots(db, task, first.id, shotDuration);
+      task.stageProgress['shots'] += `｜兜底拆镜:${r1.fixed}成功/${r1.failed}失败`;
       gate = runStageGates(db, 'shots', first.id);
       errs = gate.issues.filter((i: any) => i.severity === 'error');
       if (errs.some((e: any) => e.rule.includes('台词'))) {
-        const r2 = await fixLongDialogueShots(db, task, first.id);
+        const r2 = await fixLongDialogueShots(db, task, first.id, shotDuration);
         task.stageProgress['shots'] += `｜再拆:${r2.fixed}成功/${r2.failed}失败`;
         gate = runStageGates(db, 'shots', first.id);
         errs = gate.issues.filter((i: any) => i.severity === 'error');
@@ -158,6 +247,26 @@ export async function stageShots(db: Database, task: AutoPipelineTask): Promise<
     }
   } catch (gateErr: any) {
     console.warn('[AutoPipeline] shots 质量门执行失败:', gateErr.message);
+  }
+
+  // ── shuohao 原生 JSON 校验：分镜 → storyboard.json + script.json → 真实运行 novel-storyboard validate ──
+  // 放在拆镜修复之后，保证校验的是最终镜头数据
+  try {
+    const native = await runNativeGates(db, 'shots', { episodeId: first.id, projectId: task.projectId });
+    if (native.executed && native.result) {
+      console.log(`[AutoPipeline][原生校验] ${native.result.summary}`);
+      if (native.result.passed) {
+        task.stageProgress['shots'] += `｜原生校验:通过`;
+      } else {
+        native.result.issues.slice(0, 5).forEach((e: any) => console.warn(`[AutoPipeline][原生校验]   - ${e.message}`));
+        task.stageProgress['shots'] += `｜原生校验:${native.result.issues.length}条`;
+      }
+    } else {
+      console.warn('[AutoPipeline][原生校验] 脚本未执行（node/环境问题，跳过）');
+      task.stageProgress['shots'] += `｜原生校验:未执行`;
+    }
+  } catch (nativeErr: any) {
+    console.warn('[AutoPipeline] shots 原生校验异常（忽略）:', nativeErr.message);
   }
 }
 
@@ -192,8 +301,23 @@ function normalizeShotValueSafe(shot: any): any {
   return out;
 }
 
-// ── 台词超时自动拆镜：把台词折算超时的镜头拆成多个连续短镜头（每镜5秒、台词≤20字）──
-const SPLIT_SYSTEM = `你是一个短剧分镜拆分助手。将台词超长的单个分镜拆成 2-3 个连续的短镜头。硬性要求：每个镜头固定 5 秒（durationSeconds=5），中文台词不超过 20 字（约4.5字/秒×5秒，留缓冲）；拆分后剧情连贯、动作连续；相邻镜头景别/机位要有变化（如中景→特写、推镜→固定）；说话人不变，前后镜头接续同一句话。输出 JSON 数组，每项字段：shotNumber(从1开始)、shotSize、cameraMovement、actionDescription、dialogue、durationSeconds、charactersInShot、propsInShot、subject、lighting、mood。`;
+// ── 台词超时自动拆镜（兜底）：按语义阶段拆分，非硬切字数 ──
+function buildSplitSystem(shotDuration: number): string {
+  const maxChars = Math.floor(shotDuration * 4.5);
+  return `你是一个短剧分镜拆分助手。将台词超长的单个分镜拆成 2-3 个连续的短镜头。
+
+【硬性要求】
+- 每个镜头固定 ${shotDuration} 秒（durationSeconds=${shotDuration}），中文台词不超过 ${maxChars} 字（约4.5字/秒×${shotDuration}秒，留缓冲）。
+- 【拆分原则：阶段性语义截断，严禁硬切字数】
+  ① 按完整语义单元拆分：一句话说完一个完整意思后再切，不能把一个完整的句子/意思从中间硬切断。
+  ② 在自然停顿处拆分：优先在句号、感叹号、问号处切；其次在逗号、分号处切；绝不能在词语中间切断。
+  ③ 按剧情节奏拆分：一个动作完成后、情绪转折时、场景切换时是最佳切分点。
+  ④ 拆分后每镜台词必须是完整通顺的一句话或完整的语义片段，不能出现"说了一半"的残句。
+  ⑤ 若一句话本身就超过 ${maxChars} 字，才在句内逗号处拆分，但必须保证每半句语义相对完整。
+- 拆分后剧情连贯、动作连续；相邻镜头景别/机位要有变化（如中景→特写、推镜→固定、正面→侧面）；说话人不变，前后镜头接续同一句话。
+
+输出 JSON 数组，每项字段：shotNumber(从1开始)、shotSize、cameraMovement、actionDescription、dialogue、durationSeconds、charactersInShot、propsInShot、subject、lighting、mood。`;
+}
 
 const cjkLenOf = (t: string) => (t.match(/[\u4e00-\u9fa5]/g) || []).length;
 const dialogueNeedSeconds = (d: string) => cjkLenOf(d || '') / 4.5;
@@ -202,14 +326,14 @@ function buildSplitPrompt(shot: any, prev: any, next: any): string {
   return `以下分镜台词超过镜头容量，请拆分。\n\n前一镜：${prev ? `镜头${prev.shot_number}「${prev.action_description || ''}」台词「${prev.dialogue || ''}」` : '无'}\n本镜（需拆分）：镜头${shot.shot_number}「${shot.action_description || ''}」台词「${shot.dialogue || ''}」同框角色：${shot.characters_in_shot || '无'}\n后一镜：${next ? `镜头${next.shot_number}「${next.action_description || ''}」台词「${next.dialogue || ''}」` : '无'}\n\n请输出拆分后的镜头 JSON 数组（只输出数组，不要其他文字）。`;
 }
 
-async function fixLongDialogueShots(db: Database, task: AutoPipelineTask, episodeId: string): Promise<{ fixed: number; failed: number }> {
+async function fixLongDialogueShots(db: Database, task: AutoPipelineTask, episodeId: string, shotDuration: number): Promise<{ fixed: number; failed: number }> {
   const model = getFirstModel(db, task.userId, 'text');
   if (!model) return { fixed: 0, failed: 0 };
   const shots = ShotDAO.listByEpisode(db, episodeId);
   const over = shots.filter((s) => {
     const d = s.dialogue || '';
     if (!d.trim()) return false;
-    return dialogueNeedSeconds(d) > (s.duration_seconds || 5) + 0.5;
+    return dialogueNeedSeconds(d) > (s.duration_seconds || shotDuration) + 0.5;
   });
   if (over.length === 0) return { fixed: 0, failed: 0 };
 
@@ -221,14 +345,14 @@ async function fixLongDialogueShots(db: Database, task: AutoPipelineTask, episod
       const next = idx < shots.length - 1 ? shots[idx + 1] : null;
       const result = await aiProxy.generateText({
         db, userId: task.userId, provider: model.provider, modelName: model.modelName,
-        prompt: buildSplitPrompt(shot, prev, next), systemPrompt: SPLIT_SYSTEM,
+        prompt: buildSplitPrompt(shot, prev, next), systemPrompt: buildSplitSystem(shotDuration),
         responseFormat: 'json', maxTokens: 8000,
       });
       const raw = parseShotListArray<any[]>(result.content);
       const newShots = raw.map((s: any) => normalizeShotValueSafe(s)).filter((s: any) => s && s.dialogue);
       if (newShots.length < 2) { failed++; console.warn(`[AutoPipeline] 拆镜结果不足2镜，跳过镜头${shot.shot_number}`); continue; }
 
-      const usable = newShots.slice(0, 3).map((s: any) => ({ ...s, durationSeconds: 5 }));
+      const usable = newShots.slice(0, 3).map((s: any) => ({ ...s, durationSeconds: shotDuration }));
       const insertCount = usable.length;
       db.transaction(() => {
         ShotDAO.delete(db, shot.id);
@@ -247,7 +371,7 @@ async function fixLongDialogueShots(db: Database, task: AutoPipelineTask, episod
             camera_movement: s.cameraMovement || s.camera_movement || shot.camera_movement || 'static',
             action_description: s.actionDescription || s.action_description || shot.action_description || '',
             dialogue: s.dialogue || '',
-            duration_seconds: 5,
+            duration_seconds: shotDuration,
             characters_in_shot: s.charactersInShot ? JSON.stringify(s.charactersInShot) : (shot.characters_in_shot ? JSON.stringify(shot.characters_in_shot) : undefined),
             props_in_shot: s.propsInShot ? JSON.stringify(s.propsInShot) : (shot.props_in_shot ? JSON.stringify(shot.props_in_shot) : undefined),
             subject: s.subject || shot.subject || undefined,

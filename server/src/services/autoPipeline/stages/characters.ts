@@ -5,11 +5,12 @@ import { aiProxy } from '../../aiProxy';
 import { characterExtractPrompt } from '../../prompts/characterExtract';
 import { parseAiJsonOrThrow } from '../../../utils/aiJsonParser';
 import type { AutoPipelineTask } from '../types';
-import { getFirstModel, getOrCreateScriptAnalysis, getProjectStylePreset } from '../helpers';
+import { getFirstModel, getOrCreateScriptAnalysis, getProjectStylePreset, withRetry } from '../helpers';
 import { UserPreferenceDAO } from '../../../models';
 import { getPromptSkillForVideoModel, applySkillRules } from '../../promptSkills';
 import { runStageGates } from '../../stageSkills';
 import { applyStageRules } from '../../stageSkills';
+import { runNativeGates } from '../../stageSkills/nativeGates';
 
 export async function stageCharacters(db: Database, task: AutoPipelineTask): Promise<void> {
   const episodes = NovelEpisodeDAO.listByProject(db, task.projectId);
@@ -31,10 +32,13 @@ export async function stageCharacters(db: Database, task: AutoPipelineTask): Pro
   const promptSkill = getPromptSkillForVideoModel(UserPreferenceDAO.getByUser(db, task.userId)?.default_video_model);
   if (promptSkill) console.log(`[AutoPipeline] 角色提取加载官方提示词 skill: ${promptSkill.displayName}`);
   const finalSystem = applyStageRules(applySkillRules(systemPrompt, promptSkill, 'assetRule'), 'characters');
-  const result = await aiProxy.generateText({
-    db, userId: task.userId, provider: model.provider, modelName: model.modelName,
-    prompt, systemPrompt: finalSystem, responseFormat: 'json', maxTokens: 4096,
-  });
+  const result = await withRetry(
+    () => aiProxy.generateText({
+      db, userId: task.userId, provider: model.provider, modelName: model.modelName,
+      prompt, systemPrompt: finalSystem, responseFormat: 'json', maxTokens: 4096,
+    }),
+    { maxAttempts: 3, label: '角色提取AI调用' }
+  );
 
   const characters = parseAiJsonOrThrow<any[]>(result.content);
   const list = Array.isArray(characters) ? characters : [characters];
@@ -132,11 +136,14 @@ export async function stageCharacters(db: Database, task: AutoPipelineTask): Pro
 只输出 JSON 数组，格式：[{"name":"日常装","description":"白色衬衫，黑色西裤，皮鞋"},{"name":"睡衣","description":"浅蓝色棉质睡衣套装"}]
 最多5套，最少1套。`;
 
-        const outfitResult = await aiProxy.generateText({
-          db, userId: task.userId, provider: model.provider, modelName: model.modelName,
-          prompt: outfitPrompt, systemPrompt: '你是影视服装设计师，根据剧情场景判断角色需要的服装造型。只输出JSON，不要解释。',
-          responseFormat: 'json', maxTokens: 2048,
-        });
+        const outfitResult = await withRetry(
+          () => aiProxy.generateText({
+            db, userId: task.userId, provider: model.provider, modelName: model.modelName,
+            prompt: outfitPrompt, systemPrompt: '你是影视服装设计师，根据剧情场景判断角色需要的服装造型。只输出JSON，不要解释。',
+            responseFormat: 'json', maxTokens: 2048,
+          }),
+          { maxAttempts: 2, label: `造型分析-${character.name}` }
+        );
 
         let outfits: any[] = [];
         try {
@@ -200,5 +207,24 @@ export async function stageCharacters(db: Database, task: AutoPipelineTask): Pro
     }
   } catch (gateErr: any) {
     console.warn('[AutoPipeline] characters 质量门执行失败:', gateErr.message);
+  }
+
+  // ── shuohao 原生 JSON 校验：MOO 数据 → skill 原生 schema → 真实运行 vendor 脚本 ──
+  try {
+    const native = await runNativeGates(db, 'characters', { episodeId: first.id, projectId: task.projectId });
+    if (native.executed && native.result) {
+      console.log(`[AutoPipeline][原生校验] ${native.result.summary}`);
+      if (native.result.passed) {
+        task.stageProgress['characters'] += `｜原生校验:通过`;
+      } else {
+        native.result.issues.slice(0, 5).forEach((e: any) => console.warn(`[AutoPipeline][原生校验]   - ${e.message}`));
+        task.stageProgress['characters'] += `｜原生校验:${native.result.issues.length}条`;
+      }
+    } else {
+      console.warn('[AutoPipeline][原生校验] 脚本未执行（node/环境问题，跳过）');
+      task.stageProgress['characters'] += `｜原生校验:未执行`;
+    }
+  } catch (nativeErr: any) {
+    console.warn('[AutoPipeline] characters 原生校验异常（忽略）:', nativeErr.message);
   }
 }

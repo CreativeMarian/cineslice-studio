@@ -24,6 +24,7 @@ import {
 import { projectStorage } from './projectStorage';
 import { keyframePrompt } from './prompts/keyframePrompt';
 import { aiProxy } from './aiProxy';
+import { characterExpressionService, type ExpressionKey } from './characterExpressionService';
 
 /** 解析镜头角色 ID 列表（兼容 JSON 与逗号分隔） */
 export function parseShotCharacterIds(shot: Shot): string[] {
@@ -331,14 +332,83 @@ export function resolvePreviousShotTailFrame(db: Database, shot: Shot): string |
   }
 }
 
+/**
+ * P1-6: 收集镜头的角色表情图参考（自动注入视频生成，确保表情一致性）
+ * 逻辑：分析镜头情绪 → 匹配表情类型 → 从角色 expression_images 取对应表情图
+ */
+export function collectExpressionReferenceImages(db: Database, shot: Shot): string[] {
+  const refs: string[] = [];
+
+  // 1. 获取镜头中的角色（与 collectShotReferenceImages 相同的解析逻辑）
+  const charIds = parseShotCharacterIds(shot);
+  let chars = charIds.length > 0
+    ? ScriptCharacterDAO.getByIds(db, charIds).filter(Boolean)
+    : [];
+  if (chars.length === 0) {
+    const episodeChars = ScriptCharacterDAO.listByEpisode(db, shot.episode_id);
+    const text = `${shot.action_description || ''} ${shot.dialogue || ''}`;
+    for (const c of episodeChars) {
+      if (c.name && text.includes(c.name)) {
+        chars.push(c);
+        if (chars.length >= 2) break;
+      }
+    }
+  }
+
+  if (chars.length === 0) return refs;
+
+  // 2. 分析镜头情绪（优先 emotion 字段，否则从动作描述/台词推断）
+  const moodText = [
+    (shot as any).emotion,
+    (shot as any).mood,
+    shot.action_description,
+    shot.dialogue,
+  ].filter(Boolean).join(' ');
+
+  const expressionKey = characterExpressionService.matchExpressionByMood(moodText);
+  if (!expressionKey) return refs; // 无法匹配情绪时不注入表情图
+
+  // 3. 从各角色的 expression_images 字段取对应表情图
+  for (const char of chars) {
+    if (!char || !(char as any).expression_images) continue;
+    try {
+      const expressions: Record<string, string> = typeof (char as any).expression_images === 'string'
+        ? JSON.parse((char as any).expression_images)
+        : (char as any).expression_images;
+      const exprImg = expressions[expressionKey];
+      if (exprImg && !refs.includes(exprImg)) {
+        refs.push(exprImg);
+      }
+    } catch {
+      // expression_images 解析失败时跳过
+    }
+  }
+
+  if (refs.length > 0) {
+    console.log(`[Consistency] shot=${shot.shot_number} 情绪匹配表情=${expressionKey}，注入 ${refs.length} 张角色表情图`);
+  }
+  return refs;
+}
+
 export function resolveLastFrameForShot(
   db: Database,
   shot: Shot,
   shots: Shot[]
 ): ResolvedLastFrame | null {
-  // v2.0 - 同场景连戏优先：本镜尾帧 = 下一镜首帧（尾帧硬锁定下一镜画面 → 镜头间无缝衔接，人物/场景不跳变）；
-  //        换场景（scene_id 不同）或无下一镜时回退本镜显式尾帧（动作弧完整定格，作为镜头收尾）。
-  //        修复“镜头间跳变/人物变脸”：旧逻辑 explicit_end 恒优先，每镜独立首尾帧，镜头之间没有任何连戏锚点。
+  // v2.1 - 优先级：本镜显式尾帧优先（'end' 手动生成 / 'last' 批量关键帧镜头结尾画面），
+  //         保证每镜动作弧完整定格（首帧→尾帧插值忠实表达本镜剧情，过场/空镜不被下一镜污染）；
+  //         仅当本镜无显式尾帧时，才回退"同场景连戏"：本镜尾帧 = 下一镜首帧（镜头间无缝衔接，人物/场景不跳变）。
+  //         修复 v2.0 的过场镜头缺陷：无人物/纯环境的镜头若尾帧硬锁下一镜人物首帧，
+  //         会在 5 秒插值里把空镜 morph 出人物，摧毁过场意图（《逆道善念》镜头1 实测暴露）。
+  // 本镜显式尾帧
+  const keyframes = ShotKeyframeDAO.listByShot(db, shot.id);
+  const endFrame = keyframes.find(k => k.frame_type === 'end' && k.image_url)
+    || keyframes.find(k => k.frame_type === 'last' && k.image_url);
+  if (endFrame?.image_url) {
+    return { keyframeId: endFrame.id, imageUrl: endFrame.image_url, source: 'explicit_end' };
+  }
+
+  // 回退：同场景连戏（下一镜首帧），仅限同场景且本镜未禁用连戏
   const nextShots = shots
     .filter(s => s.shot_number > shot.shot_number)
     .sort((a, b) => a.shot_number - b.shot_number);
@@ -353,14 +423,6 @@ export function resolveLastFrameForShot(
         return { keyframeId: nextFirst.id, imageUrl: nextFirst.image_url, source: 'next_shot_first' };
       }
     }
-  }
-
-  // 回退：本镜显式尾帧（'end' 手动生成；'last' 为批量关键帧生成的镜头结尾画面，二者都作为首尾帧插值的尾端）
-  const keyframes = ShotKeyframeDAO.listByShot(db, shot.id);
-  const endFrame = keyframes.find(k => k.frame_type === 'end' && k.image_url)
-    || keyframes.find(k => k.frame_type === 'last' && k.image_url);
-  if (endFrame?.image_url) {
-    return { keyframeId: endFrame.id, imageUrl: endFrame.image_url, source: 'explicit_end' };
   }
 
   return null;
@@ -519,4 +581,119 @@ export async function generateEndFrameForShot(
     image_url: imgResult.images[0]?.url,
     image_model_used: opts.modelName,
   });
+}
+
+// ═══════════════════════════════════════════════════════════════
+// P1-2: 镜头就绪状态计算
+// ═══════════════════════════════════════════════════════════════
+
+export type ShotReadinessStatus = 'ready' | 'missing_ref' | 'need_previous' | 'stale' | 'no_keyframe';
+
+export interface ShotReadiness {
+  shotId: string;
+  shotNumber: number;
+  status: ShotReadinessStatus;
+  issues: string[];
+  hasFirstFrame: boolean;
+  hasLastFrame: boolean;
+  hasCharacterRefs: boolean;
+  hasSceneRef: boolean;
+  hasVideo: boolean;
+  previousShotHasVideo: boolean;
+}
+
+/**
+ * 计算单个镜头的就绪状态
+ * - ready: 所有参考齐全，可以生成
+ * - missing_ref: 缺少角色/场景参考图
+ * - need_previous: 前一镜没有视频，需要按顺序生成
+ * - stale: 参考图已更新，需要重新生成
+ * - no_keyframe: 没有首帧关键帧
+ */
+export function calculateShotReadiness(
+  db: Database,
+  shot: Shot,
+  allShots: Shot[]
+): ShotReadiness {
+  const issues: string[] = [];
+
+  // 1. 检查首帧
+  const keyframes = ShotKeyframeDAO.listByShot(db, shot.id);
+  const hasFirstFrame = keyframes.some(k => k.frame_type === 'first' && k.image_url);
+  const hasLastFrame = keyframes.some(k => (k.frame_type === 'last' || k.frame_type === 'end') && k.image_url);
+  if (!hasFirstFrame) {
+    issues.push('缺少首帧关键帧');
+  }
+
+  // 2. 检查角色参考图
+  const charIds = parseShotCharacterIds(shot);
+  let hasCharacterRefs = charIds.length === 0; // 没有角色的镜头默认通过
+  if (charIds.length > 0) {
+    const allChars = ScriptCharacterDAO.listByEpisode(db, shot.episode_id);
+    const charsInShot = allChars.filter(c => charIds.includes(c.id) || charIds.includes(c.name));
+    hasCharacterRefs = charsInShot.every(c => c.concept_images || c.reference_image_url || c.four_view_images);
+    if (!hasCharacterRefs) {
+      issues.push(`缺少角色参考图（${charsInShot.filter(c => !c.concept_images && !c.reference_image_url).map(c => c.name).join('、')}）`);
+    }
+  }
+
+  // 3. 检查场景参考图
+  let hasSceneRef = true;
+  if (shot.scene_id) {
+    const scene = ScriptSceneDAO.getById(db, shot.scene_id);
+    hasSceneRef = !!(scene && (scene as any).concept_image_url);
+    if (!hasSceneRef) {
+      issues.push(`缺少场景参考图（${scene?.name || '未知场景'}）`);
+    }
+  }
+
+  // 4. 检查前一镜是否有视频
+  const shotIndex = allShots.findIndex(s => s.id === shot.id);
+  let previousShotHasVideo = true;
+  if (shotIndex > 0) {
+    const prevShot = allShots[shotIndex - 1];
+    const prevIntervals = ShotVideoIntervalDAO.listByShot(db, prevShot.id);
+    previousShotHasVideo = prevIntervals.some(v => v.status === 'completed' && v.video_url);
+    if (!previousShotHasVideo) {
+      issues.push('前一镜尚未生成视频（建议按顺序生成）');
+    }
+  }
+
+  // 5. 检查是否已有视频
+  const intervals = ShotVideoIntervalDAO.listByShot(db, shot.id);
+  const hasVideo = intervals.some(v => v.status === 'completed' && v.video_url);
+
+  // 综合判断状态
+  let status: ShotReadinessStatus = 'ready';
+  if (!hasFirstFrame) {
+    status = 'no_keyframe';
+  } else if (!hasCharacterRefs || !hasSceneRef) {
+    status = 'missing_ref';
+  } else if (!previousShotHasVideo) {
+    status = 'need_previous';
+  }
+
+  return {
+    shotId: shot.id,
+    shotNumber: shot.shot_number,
+    status,
+    issues,
+    hasFirstFrame,
+    hasLastFrame,
+    hasCharacterRefs,
+    hasSceneRef,
+    hasVideo,
+    previousShotHasVideo,
+  };
+}
+
+/**
+ * 批量计算所有镜头的就绪状态
+ */
+export function calculateAllShotsReadiness(
+  db: Database,
+  episodeId: string
+): ShotReadiness[] {
+  const shots = ShotDAO.listByEpisode(db, episodeId);
+  return shots.map(shot => calculateShotReadiness(db, shot, shots));
 }

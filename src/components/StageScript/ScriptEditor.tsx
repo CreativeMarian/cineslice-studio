@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Edit3, Eye, Save, RefreshCw, FileText, Clock, Check, Wand2, Volume2 } from 'lucide-react';
+import { Edit3, Eye, Save, RefreshCw, FileText, Clock, Check, Wand2, Volume2, Sparkles } from 'lucide-react';
 import { Button, Card, EmptyState, Badge } from '../ui';
 import { ConfigPanel } from './ConfigPanel';
+import { EnrichPanel } from './EnrichPanel';
 import { useProjectStore } from '../../stores/useProjectStore';
 import { useUIStore } from '../../stores/useUIStore';
 import { projectService } from '../../services/projectService';
@@ -27,6 +28,7 @@ export function ScriptEditor() {
   const [ttsModelKey, setTtsModelKey] = useState(() => {
     try { return localStorage.getItem('moo:last_tts_model') || ''; } catch { return ''; }
   });
+  const [enrichOpen, setEnrichOpen] = useState(false);
 
   // 切换 TTS 模型时自动切换到对应提供商的默认音色
   const handleTtsModelChange = (modelKey: string) => {
@@ -295,6 +297,14 @@ export function ScriptEditor() {
           </Button>
           <Button
             size="sm"
+            leftIcon={<Sparkles className="w-4 h-4" />}
+            onClick={() => setEnrichOpen(!enrichOpen)}
+            className={enrichOpen ? '' : ''}
+          >
+            加料重构
+          </Button>
+          <Button
+            size="sm"
             variant="outline"
             leftIcon={<RefreshCw className="w-4 h-4" />}
             onClick={() => setRegenerateOpen(true)}
@@ -330,6 +340,15 @@ export function ScriptEditor() {
           </div>
         )}
       </Card>
+
+      {/* 加料重构（按集触发：规范前置 + 只加血肉不动骨架 + 五层护栏） */}
+      {enrichOpen && (
+        <EnrichPanel
+          episodeId={currentEpisode.id}
+          status={currentEpisode.enrich_status || 'none'}
+          onStatusChange={(s) => updateEpisode(currentEpisode.id, { enrich_status: s })}
+        />
+      )}
 
       {/* 音频播放器 */}
       {audioUrl && (

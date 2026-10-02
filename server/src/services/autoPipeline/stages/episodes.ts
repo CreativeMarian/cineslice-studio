@@ -5,7 +5,7 @@ import { aiProxy } from '../../aiProxy';
 import { novelToScriptPrompt } from '../../prompts/novelToScript';
 import { parseAiJsonOrThrow, parseAiJson } from '../../../utils/aiJsonParser';
 import type { AutoPipelineTask } from '../types';
-import { getFirstModel } from '../helpers';
+import { getFirstModel, withRetry } from '../helpers';
 import { applyStageRules } from '../../stageSkills';
 
 export async function stageEpisodes(db: Database, task: AutoPipelineTask): Promise<void> {
@@ -27,10 +27,13 @@ export async function stageEpisodes(db: Database, task: AutoPipelineTask): Promi
   });
   const systemPrompt = applyStageRules(baseSystemPrompt, 'episodes');
 
-  const result = await aiProxy.generateText({
-    db, userId: task.userId, provider: model.provider, modelName: model.modelName,
-    prompt, systemPrompt, responseFormat: 'json', maxTokens: 16000,
-  });
+  const result = await withRetry(
+    () => aiProxy.generateText({
+      db, userId: task.userId, provider: model.provider, modelName: model.modelName,
+      prompt, systemPrompt, responseFormat: 'json', maxTokens: 16000,
+    }),
+    { maxAttempts: 3, label: '剧集拆分AI调用' }
+  );
 
   let data: any;
   try {

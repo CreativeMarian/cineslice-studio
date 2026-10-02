@@ -1,5 +1,5 @@
 import apiClient from './apiClient';
-import type { Project, Episode, NovelChapter, ApiResponse } from '../types';
+import type { Project, Episode, NovelChapter, ApiResponse, EnrichResult } from '../types';
 
 // ---------- 项目 CRUD ----------
 
@@ -13,7 +13,7 @@ export const projectService = {
   get: (id: string) =>
     apiClient.get<unknown, ApiResponse<Project>>(`/projects/${id}`),
 
-  update: (id: string, data: Partial<Pick<Project, 'title' | 'description' | 'stage' | 'visual_style_id' | 'genre' | 'target_duration' | 'language' | 'pipeline_step'>>) =>
+  update: (id: string, data: Partial<Pick<Project, 'title' | 'description' | 'stage' | 'visual_style_id' | 'genre' | 'target_duration' | 'default_shot_duration' | 'language' | 'pipeline_step'>>) =>
     apiClient.put<unknown, ApiResponse<Project>>(`/projects/${id}`, data),
 
   delete: (id: string) =>
@@ -154,4 +154,24 @@ export const projectService = {
       `/projects/${projectId}/episodes/batch-delete`,
       { episode_ids: episodeIds }
     ),
+
+  // ═══ 加料重构（按集触发：规范前置 + 只加血肉不动骨架 + 五层护栏） ═══
+
+  // 生成加料重构结果（预览态）
+  enrichEpisode: (episodeId: string, data?: { provider?: string; modelName?: string; forceRefresh?: boolean }) =>
+    apiClient.post<unknown, ApiResponse<EnrichResult>>(`/episodes/${episodeId}/enrich`, data || {}),
+
+  // 获取已落库的加料重构结果
+  getEnrichment: (episodeId: string) =>
+    apiClient.get<unknown, ApiResponse<{ result: EnrichResult | null; status: string; skill: string | null; model: string | null; at: string | null }>>(
+      `/episodes/${episodeId}/enrich`
+    ),
+
+  // 通过加料结果
+  approveEnrichment: (episodeId: string) =>
+    apiClient.post<unknown, ApiResponse<{ message: string }>>(`/episodes/${episodeId}/enrich/approve`),
+
+  // 打回重改
+  rejectEnrichment: (episodeId: string) =>
+    apiClient.post<unknown, ApiResponse<{ message: string }>>(`/episodes/${episodeId}/enrich/reject`),
 };

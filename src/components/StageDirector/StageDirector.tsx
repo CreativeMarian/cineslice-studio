@@ -9,6 +9,20 @@ import { sceneService } from '../../services/assetService';
 import { AudioPanel } from './AudioPanel';
 import { BatchToolbar } from './BatchToolbar';
 import { ShotCard } from './ShotCard';
+import apiClient from '../../services/apiClient';
+
+interface ShotReadiness {
+  shotId: string;
+  shotNumber: number;
+  status: 'ready' | 'missing_ref' | 'need_previous' | 'stale' | 'no_keyframe';
+  issues: string[];
+  hasFirstFrame: boolean;
+  hasLastFrame: boolean;
+  hasCharacterRefs: boolean;
+  hasSceneRef: boolean;
+  hasVideo: boolean;
+  previousShotHasVideo: boolean;
+}
 
 export function StageDirector() {
   const { shots, currentEpisodeId, episodes, setCurrentEpisode, loadShots } = useProjectStore();
@@ -16,6 +30,21 @@ export function StageDirector() {
   const [expandedShot, setExpandedShot] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'video' | 'audio'>('video');
   const [sceneMap, setSceneMap] = useState<Record<string, string>>({}); // scene_id → scene_name
+  const [readinessMap, setReadinessMap] = useState<Record<string, ShotReadiness>>({}); // P1-2: 镜头就绪状态
+
+  // 加载镜头就绪状态
+  useEffect(() => {
+    if (!currentEpisodeId || shots.length === 0) return;
+    apiClient.get<unknown, { success?: boolean; data?: ShotReadiness[] }>(`/episodes/${currentEpisodeId}/shots/readiness`)
+      .then((res) => {
+        if (res.success && res.data) {
+          const map: Record<string, ShotReadiness> = {};
+          for (const r of res.data) map[r.shotId] = r;
+          setReadinessMap(map);
+        }
+      })
+      .catch(() => { /* 就绪状态加载失败时静默 */ });
+  }, [currentEpisodeId, shots.length]);
 
   useEffect(() => {
     if (episodes.length > 0 && !currentEpisodeId) {
@@ -116,6 +145,7 @@ export function StageDirector() {
                 isExpanded={expandedShot === shot.id}
                 onToggle={() => setExpandedShot(expandedShot === shot.id ? null : shot.id)}
                 showToast={showToast}
+                readiness={readinessMap[shot.id]}
               />
             ))}
           </div>

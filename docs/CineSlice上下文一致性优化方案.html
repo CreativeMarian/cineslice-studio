@@ -1,0 +1,460 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CineSlice Studio 上下文一致性优化方案</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+    background: #0f0f1a;
+    color: #e0e0e0;
+    line-height: 1.7;
+    padding: 40px 20px;
+  }
+  .container { max-width: 1100px; margin: 0 auto; }
+  h1 {
+    font-size: 1.9em;
+    background: linear-gradient(135deg, #f59e0b, #fbbf24, #fde68a);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    margin-bottom: 10px;
+    text-align: center;
+  }
+  .subtitle { text-align: center; color: #888; margin-bottom: 40px; font-size: 0.95em; }
+  h2 {
+    font-size: 1.4em;
+    color: #fbbf24;
+    margin: 35px 0 18px;
+    padding-bottom: 10px;
+    border-bottom: 2px solid #f59e0b33;
+  }
+  h3 { font-size: 1.15em; color: #fde68a; margin: 20px 0 12px; }
+  h4 { font-size: 1.05em; color: #fcd34d; margin: 15px 0 8px; }
+  .card {
+    background: #1a1a2e;
+    border: 1px solid #2a2a4a;
+    border-radius: 12px;
+    padding: 24px;
+    margin-bottom: 20px;
+  }
+  .arch-diagram {
+    background: #0f0f1a;
+    border: 1px solid #3a3a5a;
+    border-radius: 10px;
+    padding: 20px;
+    margin: 15px 0;
+    font-family: 'Consolas', 'Monaco', monospace;
+    font-size: 0.85em;
+    line-height: 1.8;
+    overflow-x: auto;
+  }
+  .badge {
+    display: inline-block;
+    padding: 2px 10px;
+    border-radius: 12px;
+    font-size: 0.78em;
+    font-weight: bold;
+    margin-right: 6px;
+  }
+  .badge-p0 { background: #dc2626; color: white; }
+  .badge-p1 { background: #d97706; color: white; }
+  .badge-p2 { background: #2563eb; color: white; }
+  .badge-new { background: #16a34a; color: white; }
+  .badge-existing { background: #6b7280; color: white; }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 15px 0;
+  }
+  th, td {
+    padding: 10px 12px;
+    text-align: left;
+    border-bottom: 1px solid #2a2a4a;
+  }
+  th { background: #252545; color: #fbbf24; font-weight: 600; }
+  tr:hover { background: #1e1e38; }
+  code {
+    background: #2a2a4a;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-family: 'Consolas', 'Monaco', monospace;
+    font-size: 0.9em;
+    color: #fde68a;
+  }
+  .checklist { list-style: none; padding: 0; }
+  .checklist li {
+    padding: 5px 0;
+    padding-left: 25px;
+    position: relative;
+  }
+  .checklist li::before {
+    content: '✓';
+    position: absolute;
+    left: 0;
+    color: #f59e0b;
+    font-weight: bold;
+  }
+  .highlight {
+    background: linear-gradient(135deg, #f59e0b22, #fbbf2422);
+    border: 1px solid #f59e0b44;
+    border-radius: 8px;
+    padding: 15px;
+    margin: 12px 0;
+  }
+  .phase-card {
+    background: linear-gradient(135deg, #1a1a2e, #252545);
+    border: 1px solid #3a3a5a;
+    border-left: 4px solid #f59e0b;
+    border-radius: 10px;
+    padding: 20px;
+    margin-bottom: 16px;
+  }
+  .phase-title { font-size: 1.2em; font-weight: bold; color: #fbbf24; margin-bottom: 8px; }
+  .phase-meta { color: #888; font-size: 0.85em; margin-bottom: 12px; }
+  .flow-arrow {
+    text-align: center;
+    color: #f59e0b;
+    font-size: 1.5em;
+    margin: 8px 0;
+  }
+</style>
+</head>
+<body>
+<div class="container">
+
+<h1>CineSlice Studio 上下文一致性优化方案</h1>
+<p class="subtitle">基于 ArcReel / ManjuForge / StoryMem 等项目思路 | 针对现有架构定制 | 2026-10-02</p>
+
+<!-- ========== 1. 现状诊断 ========== -->
+<h2>1. 现状诊断</h2>
+
+<div class="card">
+  <h3 style="margin-top:0">已有基础（70% 已具备）</h3>
+  <table>
+    <tr><th>能力</th><th>现状</th><th>文件</th></tr>
+    <tr><td>9阶段流水线</td><td><span class="badge badge-existing">已有</span> 完整</td><td>autoPipelineService</td></tr>
+    <tr><td>角色资产库</td><td><span class="badge badge-existing">已有</span> 概念图+四视图</td><td>scriptCharacter.ts</td></tr>
+    <tr><td>场景资产库</td><td><span class="badge badge-existing">已有</span></td><td>scriptScene.ts</td></tr>
+    <tr><td>首尾帧机制</td><td><span class="badge badge-existing">已有</span></td><td>shotKeyframe.ts</td></tr>
+    <tr><td>导演级提示词 v2.0</td><td><span class="badge badge-existing">已有</span> 7层优化+动作库+表情库</td><td>directorPromptService.ts</td></tr>
+    <tr><td>AI提示词优化器</td><td><span class="badge badge-existing">已有</span></td><td>aiPromptOptimizerService.ts</td></tr>
+    <tr><td>镜头上下文</td><td><span class="badge badge-existing">已有</span> 前后镜+角色详情</td><td>DirectorShotContext</td></tr>
+  </table>
+</div>
+
+<div class="card">
+  <h3 style="margin-top:0">核心缺口（30% 待补）</h3>
+  <table>
+    <tr><th>缺口</th><th>影响</th><th>来源项目</th></tr>
+    <tr><td><strong>项目级长期记忆</strong></td><td>跨剧集角色/世界观/剧情不一致</td><td>ManjuForge</td></tr>
+    <tr><td><strong>视觉记忆库</strong></td><td>每镜独立生成，不参考历史关键帧</td><td>StoryMem</td></tr>
+    <tr><td><strong>角色参考图强制注入</strong></td><td>视频生成只用文字描述，不带角色图</td><td>ArcReel</td></tr>
+    <tr><td><strong>角色锚点标准化</strong></td><td>visual_description 不统一，AI理解漂移</td><td>行业通用</td></tr>
+    <tr><td><strong>一致性自检</strong></td><td>生成后不检查，崩脸直接交付</td><td>行业通用</td></tr>
+    <tr><td><strong>伏笔追踪</strong></td><td>前文伏笔后文遗忘</td><td>ManjuForge</td></tr>
+    <tr><td><strong>镜头就绪状态</strong></td><td>用户不知道哪些镜缺参考、有一致性风险</td><td>instant-drama</td></tr>
+  </table>
+</div>
+
+<!-- ========== 2. 目标架构 ========== -->
+<h2>2. 目标架构</h2>
+
+<div class="card">
+  <h3 style="margin-top:0">三层一致性引擎</h3>
+  <div class="arch-diagram">
+┌─────────────────────────────────────────────────────────────────┐
+│                    第一层：项目记忆层 (Project Memory)            │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────────────┐  │
+│  │ 角色圣经      │  │ 世界观设定    │  │ 剧情摘要+伏笔追踪     │  │
+│  │ character_bible│ │ world_setting │  │ story_summary        │  │
+│  │ (跨剧集持久)  │  │ (跨剧集持久)  │  │ (每集自动更新)       │  │
+│  └──────┬───────┘  └──────┬───────┘  └──────────┬───────────┘  │
+└─────────┼──────────────────┼─────────────────────┼──────────────┘
+          │                  │                     │
+          ▼                  ▼                     ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                  第二层：视觉记忆层 (Visual Memory)               │
+│  ┌──────────────────────────────────────────────────────────┐   │
+│  │  视觉记忆库 visual_memory                                 │   │
+│  │  - 所有已生成的关键帧自动入库                               │   │
+│  │  - 按角色/场景/道具索引                                    │   │
+│  │  - 生成新镜时自动检索相关历史帧作为参考                      │   │
+│  │  - 相似度匹配，选最相关的3-5张参考图                        │   │
+│  └──────────────────────────────────────────────────────────┘   │
+└─────────────────────────────┬───────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                 第三层：提示词构建层 (Prompt Builder)             │
+│  ┌──────────────────────────────────────────────────────────┐   │
+│  │  标准化提示词结构（6段式）                                 │   │
+│  │  ① 角色视觉一致性锚点（逐字复用，100字内标准化）            │   │
+│  │  ② 场景一致性锚点                                         │   │
+│  │  ③ 风格一致性锚点                                         │   │
+│  │  ④ 本镜动作+情绪+时序分解                                  │   │
+│  │  ⑤ 首尾帧动作弧（前镜尾帧=本镜首帧）                       │   │
+│  │  ⑥ 负面提示词（一致性专项+画质专项）                       │   │
+│  └──────────────────────────────────────────────────────────┘   │
+│  + 参考图注入：角色资产图 + 视觉记忆库检索图 → 多参考图输入       │
+│  + 一致性自检：生成后用VLM检查，不合格自动重生成                  │
+└─────────────────────────────────────────────────────────────────┘
+  </div>
+</div>
+
+<!-- ========== 3. P0 核心实现 ========== -->
+<h2>3. P0 核心实现（3-5天）</h2>
+
+<div class="phase-card">
+  <div class="phase-title">P0-1：项目记忆系统 <span class="badge badge-p0">P0</span></div>
+  <div class="phase-meta">借鉴 ManjuForge 三文件思路 | 新增3张表 + 1个服务 | 预计1.5天</div>
+  
+  <h4>数据模型（新增3张表）</h4>
+  <table>
+    <tr><th>表名</th><th>字段</th><th>说明</th></tr>
+    <tr>
+      <td><code>project_bible</code></td>
+      <td>id, project_id, type(character/world/story), content, version, updated_at</td>
+      <td>项目级记忆，type区分三类</td>
+    </tr>
+    <tr>
+      <td><code>story_foreshadow</code></td>
+      <td>id, project_id, description, introduced_episode, status(open/resolved), resolved_episode</td>
+      <td>伏笔追踪表</td>
+    </tr>
+    <tr>
+      <td><code>character_relationship</code></td>
+      <td>id, project_id, char_a, char_b, relation_type, intensity, description, updated_episode</td>
+      <td>角色关系图谱</td>
+    </tr>
+  </table>
+
+  <h4>核心服务：ProjectMemoryService</h4>
+  <ul class="checklist">
+    <li><strong>生成前注入：</strong>每次生成分镜/视频前，自动读取项目圣经，拼接到系统提示词中</li>
+    <li><strong>生成后更新：</strong>每集完成后，用AI自动更新剧情摘要，识别新伏笔，更新角色关系</li>
+    <li><strong>角色圣经生成：</strong>剧本解析完成后，自动为每个角色生成标准化视觉锚点（100字内）</li>
+    <li><strong>伏笔自动识别：</strong>AI扫描剧本，识别伏笔并入库，后续剧集自动提醒回收</li>
+  </ul>
+</div>
+
+<div class="phase-card">
+  <div class="phase-title">P0-2：视觉记忆库 <span class="badge badge-p0">P0</span></div>
+  <div class="phase-meta">借鉴 StoryMem | 新增1张表 + 检索服务 | 预计1.5天</div>
+  
+  <h4>数据模型（新增1张表）</h4>
+  <table>
+    <tr><th>表名</th><th>字段</th><th>说明</th></tr>
+    <tr>
+      <td><code>visual_memory</code></td>
+      <td>id, project_id, episode_id, shot_id, image_path, memory_type(character/scene/prop), related_entity, embedding, created_at</td>
+      <td>视觉记忆库，所有关键帧自动入库</td>
+    </tr>
+  </table>
+
+  <h4>核心服务：VisualMemoryService</h4>
+  <ul class="checklist">
+    <li><strong>自动入库：</strong>每个关键帧生成成功后，自动提取特征并存入视觉记忆库</li>
+    <li><strong>智能检索：</strong>生成新镜时，按角色名/场景名检索相关历史帧，选最相关的3-5张</li>
+    <li><strong>相似度匹配：</strong>用 CLIP 或简单的文本标签匹配，优先选同角色/同场景的近期帧</li>
+    <li><strong>参考图注入：</strong>检索到的历史帧 + 角色资产图，一起作为多参考图输入视频模型</li>
+  </ul>
+
+  <div class="highlight">
+    <strong>关键改进：</strong>现在视频生成只用文字描述角色，改成"文字描述 + 角色资产图 + 历史关键帧"三重参考，一致性直接翻倍。
+  </div>
+</div>
+
+<div class="phase-card">
+  <div class="phase-title">P0-3：角色锚点标准化 + 提示词6段式重构 <span class="badge badge-p0">P0</span></div>
+  <div class="phase-meta">借鉴行业通用 + ArcReel | 重构 directorPromptService | 预计1天</div>
+  
+  <h4>角色视觉锚点格式（100字内，逐字复用）</h4>
+  <div class="arch-diagram">
+【角色视觉锚点·强制锁定】
+角色名：{name}
+性别年龄：{gender}，{age}
+面部特征：{face_shape}，{eye_color}，{distinctive_marks}
+发型发色：{hairstyle}，{hair_color}
+服装：{outfit_top}，{outfit_bottom}，{shoes}
+配饰：{accessories}
+体型：{body_type}，{height}
+  </div>
+
+  <h4>6段式提示词结构</h4>
+  <div class="arch-diagram">
+①【角色视觉一致性】← 从角色圣经读取，逐字复用，禁止AI修改
+②【场景一致性】← 从场景资产读取，含空间布局+光线+氛围
+③【风格一致性】← 从项目风格预设读取，含画风+色调+画幅
+④【本镜内容】← 动作+情绪+对白+时序分解（导演级v2.0保留）
+⑤【首尾帧动作弧】← 前镜尾帧状态→本镜首帧状态→本镜尾帧状态
+⑥【负面提示词】← 一致性专项（变脸/换装/穿模）+ 画质专项
+  </div>
+
+  <h4>关键改动</h4>
+  <ul class="checklist">
+    <li>①②③段为<strong>锁定段</strong>，AI优化器不能修改，只能追加④⑤段</li>
+    <li>角色锚点从 <code>visual_description</code> 升级为结构化字段，生成时自动格式化</li>
+    <li>每个提示词生成都必须包含①②③段，缺失则警告并自动补全</li>
+  </ul>
+</div>
+
+<!-- ========== 4. P1 增强实现 ========== -->
+<h2>4. P1 增强实现（3-5天）</h2>
+
+<div class="phase-card">
+  <div class="phase-title">P1-1：一致性自检引擎 <span class="badge badge-p1">P1</span></div>
+  <div class="phase-meta">借鉴行业通用 | 新增服务 | 预计1.5天</div>
+  <ul class="checklist">
+    <li><strong>生成后检查：</strong>每张关键帧/每段视频生成后，用VLM（如Qwen-VL）检查角色一致性</li>
+    <li><strong>检查维度：</strong>面部特征匹配度、服装一致性、场景元素一致性</li>
+    <li><strong>自动重生成：</strong>匹配度低于阈值（如70%），自动调整提示词并重生成（最多3次）</li>
+    <li><strong>质量报告：</strong>每集生成后输出一致性评分报告，标记低质量镜头</li>
+  </ul>
+</div>
+
+<div class="phase-card">
+  <div class="phase-title">P1-2：镜头就绪状态系统 <span class="badge badge-p1">P1</span></div>
+  <div class="phase-meta">借鉴 instant-drama-magician | 前端+后端 | 预计1天</div>
+  <table>
+    <tr><th>状态</th><th>含义</th><th>用户操作</th></tr>
+    <tr><td><span class="badge badge-p0">missing_ref</span></td><td>缺少角色参考图</td><td>先生成角色资产</td></tr>
+    <tr><td><span class="badge badge-p1">need_previous</span></td><td>前镜未生成，无法保证衔接</td><td>按顺序生成</td></tr>
+    <tr><td><span class="badge badge-p2">stale</span></td><td>参考图已更新，需重新生成</td><td>一键刷新</td></tr>
+    <tr><td><span class="badge badge-new">ready</span></td><td>所有参考就绪，可以生成</td><td>开始生成</td></tr>
+  </table>
+</div>
+
+<div class="phase-card">
+  <div class="phase-title">P1-3：首尾帧衔接强化 <span class="badge badge-p1">P1</span></div>
+  <div class="phase-meta">借鉴 BigBanana + instant-drama | 修改生成逻辑 | 预计1天</div>
+  <ul class="checklist">
+    <li><strong>尾帧自动复用：</strong>前一镜的尾帧自动作为后一镜的首帧参考图</li>
+    <li><strong>动作弧描述：</strong>提示词中明确"首帧状态→尾帧状态"的动作变化弧</li>
+    <li><strong>批量生成顺序：</strong>强制按镜头顺序生成，不允许跳序（保证首尾帧衔接）</li>
+    <li><strong>缺失补全：</strong>如果前镜缺失，自动先生成前镜再生成当前镜</li>
+  </ul>
+</div>
+
+<div class="phase-card">
+  <div class="phase-title">P1-4：九宫格表情图资产 <span class="badge badge-p1">P1</span></div>
+  <div class="phase-meta">借鉴漫剧通用 | 角色资产扩展 | 预计1天</div>
+  <ul class="checklist">
+    <li>角色资产增加"九宫格表情图"：喜/怒/哀/惊/恐/思/平静/冷笑/哭泣</li>
+    <li>特写镜头自动选用对应表情图作为参考</li>
+    <li>情绪变化镜头用起始表情+结束表情双参考</li>
+  </ul>
+</div>
+
+<!-- ========== 5. P2 长期规划 ========== -->
+<h2>5. P2 长期规划（5-7天）</h2>
+
+<div class="phase-card">
+  <div class="phase-title">P2-1：多智能体编排 <span class="badge badge-p2">P2</span></div>
+  <div class="phase-meta">借鉴 ArcReel Subagent 架构 | 架构级改造 | 预计3天</div>
+  <p>主 Agent 只做决策和调度，大段上下文（小说原文、剧本）交给专门的 Subagent 处理后回传精炼摘要。避免单次调用上下文爆炸，支持更长的小说。</p>
+</div>
+
+<div class="phase-card">
+  <div class="phase-title">P2-2：角色关系图谱可视化 <span class="badge badge-p2">P2</span></div>
+  <div class="phase-meta">借鉴 ManjuForge | 前端可视化 | 预计1天</div>
+  <p>用 ECharts 或 D3.js 展示角色关系网络，随剧情演进自动更新关系状态（亲密度/敌对/陌生），用户可手动调整。</p>
+</div>
+
+<div class="phase-card">
+  <div class="phase-title">P2-3：AI导演审核 <span class="badge badge-p2">P2</span></div>
+  <div class="phase-meta">借鉴 ArcReel 导演Agent | 新增服务 | 预计2天</div>
+  <p>生成后用AI模拟导演视角审核：轴线规则、180度规则、动作衔接、情绪连贯，不合格自动退回修改。</p>
+</div>
+
+<!-- ========== 6. 实施路线图 ========== -->
+<h2>6. 实施路线图</h2>
+
+<div class="card">
+  <table>
+    <tr><th>阶段</th><th>内容</th><th>工作量</th><th>预期效果</th></tr>
+    <tr>
+      <td><span class="badge badge-p0">第一阶段</span></td>
+      <td>P0-1 项目记忆 + P0-2 视觉记忆库 + P0-3 锚点标准化</td>
+      <td>3-5天</td>
+      <td>角色一致性提升60%，跨剧集不再崩人设</td>
+    </tr>
+    <tr>
+      <td><span class="badge badge-p1">第二阶段</span></td>
+      <td>P1-1 自检 + P1-2 就绪状态 + P1-3 首尾帧 + P1-4 九宫格</td>
+      <td>3-5天</td>
+      <td>镜头间衔接流畅，崩脸自动修复，用户可感知质量</td>
+    </tr>
+    <tr>
+      <td><span class="badge badge-p2">第三阶段</span></td>
+      <td>P2-1 多智能体 + P2-2 关系图谱 + P2-3 AI导演</td>
+      <td>5-7天</td>
+      <td>达到 ArcReel 同级的专业级一致性</td>
+    </tr>
+  </table>
+</div>
+
+<!-- ========== 7. 与现有代码的集成点 ========== -->
+<h2>7. 与现有代码的集成点</h2>
+
+<div class="card">
+  <table>
+    <tr><th>现有模块</th><th>改动方式</th><th>改动量</th></tr>
+    <tr><td><code>directorPromptService.ts</code></td><td>重构为6段式，①②③段锁定</td><td>中</td></tr>
+    <tr><td><code>episodes.ts</code>（视频生成）</td><td>生成前调用 VisualMemoryService 检索参考图</td><td>小</td></tr>
+    <tr><td><code>scriptCharacter.ts</code></td><td>visual_description 升级为结构化锚点字段</td><td>小</td></tr>
+    <tr><td><code>autoPipelineService.ts</code></td><td>各阶段插入记忆注入/更新钩子</td><td>中</td></tr>
+    <tr><td><code>StageDirector.tsx</code></td><td>增加镜头就绪状态徽章</td><td>小</td></tr>
+    <tr><td>新增 <code>projectMemoryService.ts</code></td><td>项目记忆读写+AI更新</td><td>新文件</td></tr>
+    <tr><td>新增 <code>visualMemoryService.ts</code></td><td>视觉记忆入库+检索</td><td>新文件</td></tr>
+    <tr><td>新增 <code>consistencyCheckService.ts</code></td><td>生成后一致性自检</td><td>新文件</td></tr>
+    <tr><td>数据库迁移</td><td>新增4张表，不改现有表</td><td>小</td></tr>
+  </table>
+  <div class="highlight" style="margin-top:15px">
+    <strong>零冲突保证：</strong>所有改动都是<strong>新增表 + 新增服务 + 在现有服务中插入钩子</strong>，不修改现有表结构，不破坏现有功能。可以灰度上线，先开记忆注入，观察效果后再开自检。
+  </div>
+</div>
+
+<!-- ========== 8. 预期效果 ========== -->
+<h2>8. 预期效果</h2>
+
+<div class="card">
+  <div class="stats-grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:16px">
+    <div style="background:#252545;padding:20px;border-radius:10px;text-align:center">
+      <div style="font-size:2em;color:#fbbf24;font-weight:bold">+60%</div>
+      <div style="color:#aaa;font-size:0.9em">角色面部一致性</div>
+    </div>
+    <div style="background:#252545;padding:20px;border-radius:10px;text-align:center">
+      <div style="font-size:2em;color:#fbbf24;font-weight:bold">+80%</div>
+      <div style="color:#aaa;font-size:0.9em">服装/道具一致性</div>
+    </div>
+    <div style="background:#252545;padding:20px;border-radius:10px;text-align:center">
+      <div style="font-size:2em;color:#fbbf24;font-weight:bold">+50%</div>
+      <div style="color:#aaa;font-size:0.9em">镜头间动作衔接</div>
+    </div>
+    <div style="background:#252545;padding:20px;border-radius:10px;text-align:center">
+      <div style="font-size:2em;color:#fbbf24;font-weight:bold">100%</div>
+      <div style="color:#aaa;font-size:0.9em">跨剧集人设保持</div>
+    </div>
+  </div>
+</div>
+
+<div class="card" style="background:linear-gradient(135deg,#1a1a2e,#252545);border-color:#f59e0b">
+  <h3 style="margin-top:0;color:#fde68a">总结</h3>
+  <p>这套方案的核心是<strong>不集成任何外部项目代码</strong>，而是把 ArcReel、ManjuForge、StoryMem 等项目的<strong>核心思路拆解成独立模块</strong>，用 CineSlice 现有的技术栈自己实现。</p>
+  <p style="margin-top:10px">优势：</p>
+  <ul style="margin-left:20px;margin-top:5px">
+    <li>零协议风险（不用 AGPL 代码）</li>
+    <li>零技术栈冲突（纯 React + TypeScript + Express + SQLite）</li>
+    <li>零功能冲突（新增表+新增服务，不改现有逻辑）</li>
+    <li>可灰度上线（P0→P1→P2 逐步开启）</li>
+    <li>完全可控（代码都是自己的，出问题好排查）</li>
+  </ul>
+  <p style="margin-top:15px"><strong>建议从 P0 三项开始：</strong>项目记忆系统 + 视觉记忆库 + 角色锚点标准化。这三项做完，用户最痛的"人物不一样"问题就能解决大半。</p>
+</div>
+
+</div>
+</body>
+</html>

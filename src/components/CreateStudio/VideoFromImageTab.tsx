@@ -194,7 +194,7 @@ export function VideoFromImageTab({ onVideoGenerated, gallery }: VideoFromImageT
             <p className="text-sm font-semibold text-[var(--ink-1)]">图生视频（首尾帧插值）</p>
             <ul className="text-xs text-[var(--ink-2)] space-y-2 leading-relaxed">
               <li>· <b>只有首帧</b>：画面从这个固定形象开始运动</li>
-              <li>· <b>首帧 + 尾帧</b>：生成两个画面间的完整运动过渡——这是短剧"少抽卡"的核心手段，人物从 A 状态自然走到 B 状态</li>
+              <li>· <b>首帧 + 尾帧</b>：生成两个画面间的完整运动过渡——这是短剧&quot;少抽卡&quot;的核心手段，人物从 A 状态自然走到 B 状态</li>
               <li>· 首帧建议用已生成的关键帧 / 角色定妆照，保证人物一致</li>
               <li>· 参考图用于补充约束服装、场景风格</li>
             </ul>

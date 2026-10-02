@@ -77,6 +77,7 @@ export interface Project {
   metadata: string | null;
   genre: string | null;
   target_duration: string | null;
+  default_shot_duration: number | null;
   language: string | null;
   pipeline_step: string | null;
   mode: PipelineMode;
@@ -137,6 +138,11 @@ export interface NovelEpisode {
   status: EpisodeStatus;
   text_model_used: string | null;
   word_count: number;
+  enriched_script: string | null;
+  enriched_skill: string | null;
+  enriched_model: string | null;
+  enriched_at: string | null;
+  enrich_status: 'none' | 'pending' | 'approved' | 'rejected' | 'manual';
   created_at: string;
   updated_at: string;
 }
@@ -169,6 +175,88 @@ export interface ScriptCharacter {
   appearance?: string;
   personality?: string;
   voice_profile?: string; // 音色档案 JSON：{ voice, speed }，跨镜头/跨集声音一致
+  // P0-3: 结构化视觉锚点（100字内标准化，逐字复用到每个提示词）
+  anchor_face_shape?: string;      // 脸型
+  anchor_eye_color?: string;       // 瞳色
+  anchor_hairstyle?: string;       // 发型
+  anchor_hair_color?: string;      // 发色
+  anchor_outfit?: string;          // 服装（标准化描述）
+  anchor_accessories?: string;     // 配饰
+  anchor_body_type?: string;       // 体型
+  anchor_distinctive?: string;     // 标志性特征（痣/疤/纹身）
+  anchor_standardized?: string;    // 标准化锚点（100字内，自动生成）
+  expression_images?: string;      // P1-4: 九宫格表情图 JSON
+  expression_status?: string;      // P1-4: 表情图生成状态
+  created_at: string;
+  updated_at: string;
+}
+
+// ============ P0-1: 项目级长期记忆系统 ============
+
+export type BibleType = 'character' | 'world' | 'story';
+
+export interface ProjectBible {
+  id: string;
+  project_id: string;
+  bible_type: BibleType;
+  content: string;           // Markdown格式内容
+  version: number;
+  generated_by: string;      // system | ai | manual
+  created_at: string;
+  updated_at: string;
+}
+
+export type ForeshadowStatus = 'open' | 'resolved' | 'abandoned';
+
+export interface StoryForeshadow {
+  id: string;
+  project_id: string;
+  description: string;
+  introduced_episode_id: string | null;
+  introduced_shot_id: string | null;
+  status: ForeshadowStatus;
+  resolved_episode_id: string | null;
+  resolution_note: string;
+  importance: number;        // 1-5
+  created_at: string;
+  updated_at: string;
+}
+
+export type RelationType = 'family' | 'friend' | 'enemy' | 'lover' | 'colleague' | 'stranger' | 'other';
+
+export interface CharacterRelationship {
+  id: string;
+  project_id: string;
+  char_a_id: string;
+  char_b_id: string;
+  relation_type: RelationType;
+  intensity: number;         // -100~100（负=敌对，正=亲密）
+  description: string;
+  last_updated_episode_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+// ============ P0-2: 视觉记忆库 ============
+
+export type VisualMemoryType = 'character' | 'scene' | 'prop' | 'keyframe' | 'general';
+
+export interface VisualMemory {
+  id: string;
+  project_id: string;
+  episode_id: string;
+  shot_id: string | null;
+  keyframe_id: string | null;
+  image_url: string;
+  memory_type: VisualMemoryType;
+  entity_name: string;
+  entity_id: string | null;
+  shot_number: number;
+  frame_type: string;
+  embedding: string;
+  metadata: string;
+  quality_score: number;
+  is_reference: number;
   created_at: string;
   updated_at: string;
 }

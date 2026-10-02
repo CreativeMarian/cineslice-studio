@@ -4,6 +4,7 @@ import type { Database } from '../../types';
 import { AutoPipelineTaskDAO } from '../../models';
 import type { AutoPipelineTask } from './types';
 import { tasks } from './state';
+import { calculatePipelineProgress } from './helpers';
 
 /** 持久化任务到数据库 */
 export function saveTask(db: Database, task: AutoPipelineTask): void {
@@ -44,6 +45,8 @@ export function getTask(db: Database, taskId: string): AutoPipelineTask | undefi
     startedAt: row.started_at,
     completedAt: row.completed_at || undefined,
   };
+  // 从持久化的 stageProgress 反推进度百分比
+  restored.progressPercent = calculatePipelineProgress(restored);
   // 服务器重启后恢复的 running 任务标记为 interrupted（可恢复）
   if (restored.status === 'running') {
     restored.status = 'interrupted';
@@ -75,6 +78,7 @@ export function getCurrentRunningTask(db: Database, projectId: string): AutoPipe
     startedAt: row.started_at,
     completedAt: row.completed_at || undefined,
   };
+  restored.progressPercent = calculatePipelineProgress(restored);
   if (row.status === 'running') {
     AutoPipelineTaskDAO.updateStatus(db, row.task_id, 'interrupted', '服务器重启，任务中断，可点击恢复继续');
   }

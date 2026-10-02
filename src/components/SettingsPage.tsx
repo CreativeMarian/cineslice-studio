@@ -1,10 +1,12 @@
 import { useState, useEffect } from 'react';
-import { Settings as SettingsIcon, ArrowLeft, Palette, Bell, Database, Info, Save, Sun, Moon, Monitor, FileText, Image, Video, Mic } from 'lucide-react';
+import { Settings as SettingsIcon, ArrowLeft, Palette, Bell, Database, Info, Save, Sun, Moon, Monitor, FileText, Image, Video, Mic, Brain, Sparkles, BookOpen, Globe, ListTree, Users } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { Card, Tabs, Badge, Button } from './ui';
 import { ModelSelector } from './ModelConfig/ModelSelector';
 import { preferenceService, type UserPreferences } from '../services/preferenceService';
 import { useUIStore } from '../stores/useUIStore';
+import { useProjectStore } from '../stores/useProjectStore';
+import apiClient from '../services/apiClient';
 
 const STORAGE_KEY = 'moo-default-models';
 
@@ -36,6 +38,108 @@ export function SettingsPage() {
   const [models, setModels] = useState<DefaultModels>(loadFromStorage());
   const [isSaving, setIsSaving] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+
+  // P0-1: 项目记忆
+  const { currentProject } = useProjectStore();
+  const [memoryData, setMemoryData] = useState<{ bibles: any[]; foreshadows: any[]; relationships: any[] } | null>(null);
+  const [isGeneratingMemory, setIsGeneratingMemory] = useState(false);
+  const [activeMemoryTab, setActiveMemoryTab] = useState<'character' | 'world' | 'story' | 'foreshadows'>('character');
+
+  const loadMemory = async () => {
+    if (!currentProject?.id) return;
+    try {
+      const res = await apiClient.get<unknown, { success?: boolean; data?: any }>(`/projects/${currentProject.id}/memory`);
+      if (res.success && res.data) {
+        setMemoryData(res.data);
+      }
+    } catch {
+      setMemoryData(null);
+    }
+  };
+
+  const handleGenerateMemory = async () => {
+    if (!currentProject?.id) {
+      showToast('请先选择一个项目', 'error');
+      return;
+    }
+    setIsGeneratingMemory(true);
+    try {
+      const res = await apiClient.post<unknown, { success?: boolean; data?: any }>(`/projects/${currentProject.id}/memory/generate`);
+      if (res.success) {
+        showToast('项目记忆生成成功，角色圣经/世界观/剧情摘要已更新', 'success');
+        await loadMemory();
+      } else {
+        showToast('项目记忆生成失败', 'error');
+      }
+    } catch (err: any) {
+      showToast(err?.response?.data?.error?.message || '项目记忆生成失败', 'error');
+    } finally {
+      setIsGeneratingMemory(false);
+    }
+  };
+
+  // P0-2: 视觉记忆库
+  const [visualMemory, setVisualMemory] = useState<any[]>([]);
+  const [visualStats, setVisualStats] = useState<{ total: number; characters: number; scenes: number; keyframes: number; references: number } | null>(null);
+  const [visualFilter, setVisualFilter] = useState<'all' | 'character' | 'scene' | 'keyframe'>('all');
+  const [isIndexingVisual, setIsIndexingVisual] = useState(false);
+
+  const loadVisualMemory = async () => {
+    if (!currentProject?.id) return;
+    try {
+      const [listRes, statsRes] = await Promise.all([
+        apiClient.get<unknown, { success?: boolean; data?: any[] }>(`/projects/${currentProject.id}/visual-memory`),
+        apiClient.get<unknown, { success?: boolean; data?: any }>(`/projects/${currentProject.id}/visual-memory/stats`),
+      ]);
+      if (listRes.success && listRes.data) setVisualMemory(listRes.data);
+      if (statsRes.success && statsRes.data) setVisualStats(statsRes.data);
+    } catch {
+      setVisualMemory([]);
+    }
+  };
+
+  const handleIndexVisualMemory = async () => {
+    if (!currentProject?.id) return;
+    setIsIndexingVisual(true);
+    try {
+      const res = await apiClient.post<unknown, { success?: boolean; data?: any }>(`/projects/${currentProject.id}/visual-memory/index`, {});
+      if (res.success) {
+        showToast(`视觉记忆索引完成：${res.data?.indexed || 0} 张`, 'success');
+        await loadVisualMemory();
+      }
+    } catch {
+      showToast('视觉记忆索引失败', 'error');
+    } finally {
+      setIsIndexingVisual(false);
+    }
+  };
+
+  const handleToggleReference = async (id: string, isReference: boolean) => {
+    try {
+      await apiClient.put(`/visual-memory/${id}/reference`, { is_reference: !isReference });
+      await loadVisualMemory();
+    } catch {
+      showToast('操作失败', 'error');
+    }
+  };
+
+  const handleDeleteVisual = async (id: string) => {
+    try {
+      await apiClient.delete(`/visual-memory/${id}`);
+      showToast('已删除', 'success');
+      await loadVisualMemory();
+    } catch {
+      showToast('删除失败', 'error');
+    }
+  };
+
+  useEffect(() => {
+    if (currentProject?.id) {
+      loadMemory();
+      loadVisualMemory();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentProject?.id]);
 
   useEffect(() => {
     setIsLoading(true);
@@ -127,6 +231,12 @@ export function SettingsPage() {
             </Tabs.Trigger>
             <Tabs.Trigger value="data">
               <Database className="w-4 h-4 mr-2" /> 数据
+            </Tabs.Trigger>
+            <Tabs.Trigger value="memory">
+              <Brain className="w-4 h-4 mr-2" /> 项目记忆
+            </Tabs.Trigger>
+            <Tabs.Trigger value="visual-memory">
+              <Image className="w-4 h-4 mr-2" /> 视觉记忆
             </Tabs.Trigger>
             <Tabs.Trigger value="about">
               <Info className="w-4 h-4 mr-2" /> 关于
@@ -247,6 +357,268 @@ export function SettingsPage() {
                   <Badge variant="default">本地模式</Badge>
                 </div>
               </div>
+            </Card>
+          </Tabs.Content>
+
+          <Tabs.Content value="memory">
+            <Card className="p-6">
+              <div className="flex items-center justify-between mb-5">
+                <div>
+                  <h3 className="font-medium text-[var(--ink-1)] flex items-center gap-2">
+                    <Brain className="w-5 h-5 text-[var(--accent)]" /> 项目长期记忆
+                  </h3>
+                  <p className="text-xs text-[var(--ink-3)] mt-1">角色圣经 / 世界观 / 剧情摘要 / 伏笔追踪，生成时自动注入保证跨剧集一致性</p>
+                </div>
+                <Button
+                  variant="primary"
+                  size="sm"
+                  leftIcon={<Sparkles className="w-4 h-4" />}
+                  onClick={handleGenerateMemory}
+                  isLoading={isGeneratingMemory}
+                >
+                  {memoryData && memoryData.bibles.length > 0 ? '重新生成' : '生成项目记忆'}
+                </Button>
+              </div>
+
+              {!currentProject ? (
+                <div className="text-center py-12 text-[var(--ink-3)]">
+                  <Brain className="w-12 h-12 mx-auto mb-3 opacity-30" />
+                  <p className="text-sm">请先在项目中打开设置页</p>
+                </div>
+              ) : (
+                <>
+                  {/* 记忆子标签 */}
+                  <div className="flex gap-2 mb-4 border-b border-[var(--border)] pb-3">
+                    {[
+                      { key: 'character', label: '角色圣经', icon: Users },
+                      { key: 'world', label: '世界观', icon: Globe },
+                      { key: 'story', label: '剧情摘要', icon: BookOpen },
+                      { key: 'foreshadows', label: '伏笔追踪', icon: ListTree },
+                    ].map(tab => (
+                      <button
+                        key={tab.key}
+                        onClick={() => setActiveMemoryTab(tab.key as any)}
+                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
+                          activeMemoryTab === tab.key
+                            ? 'bg-[var(--accent-soft)] text-[var(--accent)]'
+                            : 'text-[var(--ink-3)] hover:bg-[var(--panel-2)]'
+                        }`}
+                      >
+                        <tab.icon className="w-3.5 h-3.5" />
+                        {tab.label}
+                        {tab.key === 'foreshadows' && (memoryData?.foreshadows?.length ?? 0) > 0 && (
+                          <Badge variant="accent" className="ml-1">{memoryData?.foreshadows?.filter((f: any) => f.status === 'open').length}</Badge>
+                        )}
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* 记忆内容展示 */}
+                  <div className="max-h-96 overflow-y-auto rounded-lg bg-[var(--panel-2)] p-4">
+                    {activeMemoryTab === 'character' && (
+                      memoryData?.bibles?.find((b: any) => b.bible_type === 'character')?.content ? (
+                        <pre className="text-xs text-[var(--ink-1)] whitespace-pre-wrap font-sans leading-relaxed">
+                          {memoryData.bibles.find((b: any) => b.bible_type === 'character').content}
+                        </pre>
+                      ) : (
+                        <p className="text-xs text-[var(--ink-3)] text-center py-8">暂无角色圣经，点击「生成项目记忆」创建</p>
+                      )
+                    )}
+                    {activeMemoryTab === 'world' && (
+                      memoryData?.bibles?.find((b: any) => b.bible_type === 'world')?.content ? (
+                        <pre className="text-xs text-[var(--ink-1)] whitespace-pre-wrap font-sans leading-relaxed">
+                          {memoryData.bibles.find((b: any) => b.bible_type === 'world').content}
+                        </pre>
+                      ) : (
+                        <p className="text-xs text-[var(--ink-3)] text-center py-8">暂无世界观设定</p>
+                      )
+                    )}
+                    {activeMemoryTab === 'story' && (
+                      memoryData?.bibles?.find((b: any) => b.bible_type === 'story')?.content ? (
+                        <pre className="text-xs text-[var(--ink-1)] whitespace-pre-wrap font-sans leading-relaxed">
+                          {memoryData.bibles.find((b: any) => b.bible_type === 'story').content}
+                        </pre>
+                      ) : (
+                        <p className="text-xs text-[var(--ink-3)] text-center py-8">暂无剧情摘要</p>
+                      )
+                    )}
+                    {activeMemoryTab === 'foreshadows' && (
+                      (memoryData?.foreshadows?.length ?? 0) > 0 ? (
+                        <div className="space-y-2">
+                          {memoryData?.foreshadows?.map((f: any, i: number) => (
+                            <div key={f.id || i} className="flex items-start gap-3 p-3 rounded-lg bg-[var(--panel)] border border-[var(--border)]">
+                              <Badge variant={f.status === 'open' ? 'warning' : 'success'} className="flex-shrink-0 mt-0.5">
+                                {f.status === 'open' ? '待回收' : '已回收'}
+                              </Badge>
+                              <div className="flex-1 min-w-0">
+                                <p className="text-xs text-[var(--ink-1)]">{f.description}</p>
+                                <p className="text-xs text-[var(--ink-3)] mt-1">重要性: {'⭐'.repeat(f.importance || 1)}</p>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="text-xs text-[var(--ink-3)] text-center py-8">暂无识别到的伏笔</p>
+                      )
+                    )}
+                  </div>
+
+                  {/* 记忆统计 */}
+                  {memoryData && (
+                    <div className="grid grid-cols-4 gap-3 mt-4">
+                      <div className="text-center p-3 rounded-lg bg-[var(--panel-2)]">
+                        <p className="text-lg font-bold text-[var(--accent)]">{memoryData.bibles?.length || 0}</p>
+                        <p className="text-xs text-[var(--ink-3)]">记忆文档</p>
+                      </div>
+                      <div className="text-center p-3 rounded-lg bg-[var(--panel-2)]">
+                        <p className="text-lg font-bold text-[var(--accent)]">{memoryData.foreshadows?.filter((f: any) => f.status === 'open').length || 0}</p>
+                        <p className="text-xs text-[var(--ink-3)]">待回收伏笔</p>
+                      </div>
+                      <div className="text-center p-3 rounded-lg bg-[var(--panel-2)]">
+                        <p className="text-lg font-bold text-[var(--accent)]">{memoryData.relationships?.length || 0}</p>
+                        <p className="text-xs text-[var(--ink-3)]">角色关系</p>
+                      </div>
+                      <div className="text-center p-3 rounded-lg bg-[var(--panel-2)]">
+                        <p className="text-lg font-bold text-green-500">✓</p>
+                        <p className="text-xs text-[var(--ink-3)]">自动注入</p>
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
+            </Card>
+          </Tabs.Content>
+
+          <Tabs.Content value="visual-memory">
+            <Card className="p-6">
+              <div className="flex items-center justify-between mb-5">
+                <div>
+                  <h3 className="font-medium text-[var(--ink-1)] flex items-center gap-2">
+                    <Image className="w-5 h-5 text-[var(--accent)]" /> 视觉记忆库
+                  </h3>
+                  <p className="text-xs text-[var(--ink-3)] mt-1">自动收录历史关键帧，按角色/场景分组，视频生成时自动检索作为参考</p>
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  leftIcon={<Sparkles className="w-4 h-4" />}
+                  onClick={handleIndexVisualMemory}
+                  isLoading={isIndexingVisual}
+                >
+                  重新索引
+                </Button>
+              </div>
+
+              {!currentProject ? (
+                <div className="text-center py-12 text-[var(--ink-3)]">
+                  <Image className="w-12 h-12 mx-auto mb-3 opacity-30" />
+                  <p className="text-sm">请先在项目中打开设置页</p>
+                </div>
+              ) : (
+                <>
+                  {/* 统计卡片 */}
+                  {visualStats && (
+                    <div className="grid grid-cols-5 gap-3 mb-4">
+                      <div className="text-center p-3 rounded-lg bg-[var(--panel-2)]">
+                        <p className="text-lg font-bold text-[var(--accent)]">{visualStats.total}</p>
+                        <p className="text-xs text-[var(--ink-3)]">总帧数</p>
+                      </div>
+                      <div className="text-center p-3 rounded-lg bg-[var(--panel-2)]">
+                        <p className="text-lg font-bold text-blue-500">{visualStats.characters}</p>
+                        <p className="text-xs text-[var(--ink-3)]">角色帧</p>
+                      </div>
+                      <div className="text-center p-3 rounded-lg bg-[var(--panel-2)]">
+                        <p className="text-lg font-bold text-green-500">{visualStats.scenes}</p>
+                        <p className="text-xs text-[var(--ink-3)]">场景帧</p>
+                      </div>
+                      <div className="text-center p-3 rounded-lg bg-[var(--panel-2)]">
+                        <p className="text-lg font-bold text-purple-500">{visualStats.keyframes}</p>
+                        <p className="text-xs text-[var(--ink-3)]">关键帧</p>
+                      </div>
+                      <div className="text-center p-3 rounded-lg bg-[var(--panel-2)]">
+                        <p className="text-lg font-bold text-yellow-500">{visualStats.references}</p>
+                        <p className="text-xs text-[var(--ink-3)]">参考帧</p>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* 筛选按钮 */}
+                  <div className="flex gap-2 mb-4">
+                    {[
+                      { key: 'all', label: '全部' },
+                      { key: 'character', label: '角色' },
+                      { key: 'scene', label: '场景' },
+                      { key: 'keyframe', label: '关键帧' },
+                    ].map(f => (
+                      <button
+                        key={f.key}
+                        onClick={() => setVisualFilter(f.key as any)}
+                        className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
+                          visualFilter === f.key
+                            ? 'bg-[var(--accent-soft)] text-[var(--accent)]'
+                            : 'text-[var(--ink-3)] hover:bg-[var(--panel-2)]'
+                        }`}
+                      >
+                        {f.label}
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* 图片网格 */}
+                  {visualMemory.filter((m: any) => visualFilter === 'all' || m.memory_type === visualFilter).length === 0 ? (
+                    <div className="text-center py-12 text-[var(--ink-3)]">
+                      <Image className="w-12 h-12 mx-auto mb-3 opacity-30" />
+                      <p className="text-sm">暂无视觉记忆，生成关键帧后自动收录</p>
+                      <p className="text-xs mt-1">或点击「重新索引」从现有帧构建</p>
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 max-h-96 overflow-y-auto">
+                      {visualMemory
+                        .filter((m: any) => visualFilter === 'all' || m.memory_type === visualFilter)
+                        .map((m: any) => (
+                          <div key={m.id} className="group relative aspect-video rounded-lg overflow-hidden border border-[var(--border)] bg-[var(--panel-2)]">
+                            {m.image_url ? (
+                              <img src={m.image_url} alt={m.entity_name || 'frame'} className="w-full h-full object-cover" />
+                            ) : (
+                              <div className="w-full h-full flex items-center justify-center text-[var(--ink-3)]">
+                                <Image className="w-8 h-8 opacity-50" />
+                              </div>
+                            )}
+                            {/* 悬浮操作层 */}
+                            <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col justify-between p-2">
+                              <div className="flex items-start justify-between">
+                                <Badge variant={m.memory_type === 'character' ? 'info' : m.memory_type === 'scene' ? 'success' : 'accent'}>
+                                  {m.memory_type === 'character' ? '👤' : m.memory_type === 'scene' ? '🏞' : '🎬'} {m.entity_name || `#${m.shot_number}`}
+                                </Badge>
+                                {m.is_reference ? (
+                                  <Badge variant="warning" className="flex-shrink-0">⭐ 参考</Badge>
+                                ) : null}
+                              </div>
+                              <div className="flex items-center gap-1">
+                                <button
+                                  onClick={() => handleToggleReference(m.id, !!m.is_reference)}
+                                  className={`flex-1 px-2 py-1 rounded text-xs font-medium transition-colors ${m.is_reference ? 'bg-yellow-500/80 text-white' : 'bg-white/20 text-white hover:bg-white/30'}`}
+                                >
+                                  {m.is_reference ? '取消参考' : '设为参考'}
+                                </button>
+                                <button
+                                  onClick={() => handleDeleteVisual(m.id)}
+                                  className="px-2 py-1 rounded text-xs bg-red-500/80 text-white hover:bg-red-500 transition-colors"
+                                >
+                                  删除
+                                </button>
+                              </div>
+                            </div>
+                            {/* 底部信息条 */}
+                            <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/70 to-transparent px-2 py-1">
+                              <p className="text-xs text-white truncate">镜{m.shot_number} · {m.frame_type || 'keyframe'}</p>
+                            </div>
+                          </div>
+                        ))}
+                    </div>
+                  )}
+                </>
+              )}
             </Card>
           </Tabs.Content>
 

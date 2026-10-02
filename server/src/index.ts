@@ -40,6 +40,8 @@ import createRoutes from './routes/create';
 import projectPatchRoutes from './routes/projectPatch';
 import videoComposeRoutes from './routes/videoCompose';
 import audioRoutes from './routes/audio';
+import { createProjectMemoryRouter } from './routes/projectMemory';
+import { createVisualMemoryRouter } from './routes/visualMemory';
 import { getAvailablePort, getLocalIP } from './utils/portManager';
 
 async function main() {
@@ -158,6 +160,8 @@ async function main() {
   app.use('/api/project-patch', projectPatchRoutes);
   app.use('/api', videoComposeRoutes); // /api/episodes/:id/compose, /api/compose/:taskId, /api/ffmpeg/status
   app.use('/api', audioRoutes); // /api/episodes/:id/tts, /api/episodes/:id/audio-compose, etc.
+  app.use('/api/projects', createProjectMemoryRouter(db)); // /api/projects/:id/memory
+  app.use('/api/projects', createVisualMemoryRouter(db)); // /api/projects/:id/visual-memory
 
   // 8.1 未知 API 路径返回 JSON 404（避免落入 SPA 兜底返回 HTML）
   app.use('/api', (req, res) => {

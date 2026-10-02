@@ -5,11 +5,12 @@ import { aiProxy } from '../../aiProxy';
 import { sceneExtractPrompt } from '../../prompts/sceneExtract';
 import { parseAiJsonOrThrow } from '../../../utils/aiJsonParser';
 import type { AutoPipelineTask } from '../types';
-import { getFirstModel, getOrCreateScriptAnalysis, getProjectStylePreset } from '../helpers';
+import { getFirstModel, getOrCreateScriptAnalysis, getProjectStylePreset, withRetry } from '../helpers';
 import { UserPreferenceDAO } from '../../../models';
 import { getPromptSkillForVideoModel, applySkillRules } from '../../promptSkills';
 import { runStageGates } from '../../stageSkills';
 import { applyStageRules } from '../../stageSkills';
+import { runNativeGates } from '../../stageSkills/nativeGates';
 
 export async function stageScenes(db: Database, task: AutoPipelineTask): Promise<void> {
   const episodes = NovelEpisodeDAO.listByProject(db, task.projectId);
@@ -31,10 +32,13 @@ export async function stageScenes(db: Database, task: AutoPipelineTask): Promise
   const promptSkill = getPromptSkillForVideoModel(UserPreferenceDAO.getByUser(db, task.userId)?.default_video_model);
   if (promptSkill) console.log(`[AutoPipeline] 场景提取加载官方提示词 skill: ${promptSkill.displayName}`);
   const finalSystem = applyStageRules(applySkillRules(systemPrompt, promptSkill, 'assetRule'), 'scenes');
-  const result = await aiProxy.generateText({
-    db, userId: task.userId, provider: model.provider, modelName: model.modelName,
-    prompt, systemPrompt: finalSystem, responseFormat: 'json', maxTokens: 4096,
-  });
+  const result = await withRetry(
+    () => aiProxy.generateText({
+      db, userId: task.userId, provider: model.provider, modelName: model.modelName,
+      prompt, systemPrompt: finalSystem, responseFormat: 'json', maxTokens: 4096,
+    }),
+    { maxAttempts: 3, label: '场景提取AI调用' }
+  );
 
   const scenes = parseAiJsonOrThrow<any[]>(result.content);
   const list = Array.isArray(scenes) ? scenes : [scenes];
@@ -207,5 +211,24 @@ export async function stageScenes(db: Database, task: AutoPipelineTask): Promise
     }
   } catch (gateErr: any) {
     console.warn('[AutoPipeline] scenes 质量门执行失败:', gateErr.message);
+  }
+
+  // ── shuohao 原生 JSON 校验：MOO 场景/道具 → art.json → 真实运行 novel-art validate ──
+  try {
+    const native = await runNativeGates(db, 'scenes', { episodeId: first.id, projectId: task.projectId });
+    if (native.executed && native.result) {
+      console.log(`[AutoPipeline][原生校验] ${native.result.summary}`);
+      if (native.result.passed) {
+        task.stageProgress['scenes'] += `｜原生校验:通过`;
+      } else {
+        native.result.issues.slice(0, 5).forEach((e: any) => console.warn(`[AutoPipeline][原生校验]   - ${e.message}`));
+        task.stageProgress['scenes'] += `｜原生校验:${native.result.issues.length}条`;
+      }
+    } else {
+      console.warn('[AutoPipeline][原生校验] 脚本未执行（node/环境问题，跳过）');
+      task.stageProgress['scenes'] += `｜原生校验:未执行`;
+    }
+  } catch (nativeErr: any) {
+    console.warn('[AutoPipeline] scenes 原生校验异常（忽略）:', nativeErr.message);
   }
 }

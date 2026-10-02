@@ -102,6 +102,7 @@ export interface Project extends BaseEntity {
   metadata?: Record<string, unknown>;
   genre?: string;
   target_duration?: string;
+  default_shot_duration?: number;
   language?: string;
   pipeline_step?: 'novel' | 'episodes' | 'script' | 'shots';
   mode?: PipelineMode;
@@ -136,6 +137,66 @@ export interface Episode extends BaseEntity {
   status: EpisodeStatus;
   text_model_used?: string;
   word_count: number;
+  enriched_script?: string | null;
+  enriched_skill?: string | null;
+  enriched_model?: string | null;
+  enriched_at?: string | null;
+  enrich_status?: 'none' | 'pending' | 'approved' | 'rejected' | 'manual';
+}
+
+// ---------- 加料重构（按集触发：规范前置 + 五层护栏） ----------
+
+export interface EnrichShot {
+  shot: number;
+  seconds: number;
+  size: string;
+  camera: string;
+  frame: string;
+  action: string;
+  line: string | null;
+}
+
+export interface AddedDetail {
+  type: 'action' | 'environment' | 'emotion' | 'prop' | 'rhythm' | 'camera' | 'line_delivery';
+  detail: string;
+  source: 'quoted' | 'inferred';
+  quote?: string;
+}
+
+export interface EnrichTableStatus {
+  status: 'ok' | 'warn';
+  missing: string[];
+  added: string[];
+}
+
+export interface EnrichAlignment {
+  events: EnrichTableStatus;
+  characters: EnrichTableStatus;
+  dialogues: EnrichTableStatus;
+  differences: string[];
+}
+
+export interface EnrichStoryboard {
+  seconds: number;
+  shots: EnrichShot[];
+  h3Prompt: string;
+}
+
+export interface EnrichResult {
+  episodeId: string;
+  episodeTitle: string;
+  enrichedScript: string;
+  storyboard: EnrichStoryboard;
+  addedDetails: AddedDetail[];
+  alignment: EnrichAlignment;
+  meta: {
+    skillId: string;
+    skillName: string;
+    textModel: string;
+    videoModelUsed: string | null;
+    retries: number;
+    createdAt: string;
+  };
 }
 
 // ---------- 角色 ----------
@@ -162,6 +223,8 @@ export interface Character extends BaseEntity {
   four_view_images?: ConceptImage[];
   selected_image_index: number;
   voice_profile?: string;
+  expression_images?: string; // P1-4: 九宫格表情图 JSON
+  expression_status?: string; // P1-4: 表情图生成状态
 }
 
 // ---------- 场景 ----------

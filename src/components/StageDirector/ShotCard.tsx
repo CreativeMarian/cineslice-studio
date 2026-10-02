@@ -1,6 +1,6 @@
 // 单镜头卡片：折叠摘要行 + 展开后的关键帧/视频生成面板（自含数据加载与轮询逻辑）
-import { useState, useEffect, useCallback } from 'react';
-import { Video, Image, RefreshCw, AlertCircle, ChevronDown, ChevronUp } from 'lucide-react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
+import { Video, Image, RefreshCw, AlertCircle, ChevronDown, ChevronUp, ShieldCheck } from 'lucide-react';
 import { Card, Badge } from '../ui';
 import { useModelStore } from '../../stores/useModelStore';
 import { getModelKey } from '../../types/model';
@@ -38,6 +38,19 @@ const cameraLabels: Record<string, string> = {
   zoom: '变焦',
 };
 
+interface ShotReadiness {
+  shotId: string;
+  shotNumber: number;
+  status: 'ready' | 'missing_ref' | 'need_previous' | 'stale' | 'no_keyframe';
+  issues: string[];
+  hasFirstFrame: boolean;
+  hasLastFrame: boolean;
+  hasCharacterRefs: boolean;
+  hasSceneRef: boolean;
+  hasVideo: boolean;
+  previousShotHasVideo: boolean;
+}
+
 interface ShotCardProps {
   shot: Shot;
   index: number;
@@ -45,6 +58,7 @@ interface ShotCardProps {
   onToggle: () => void;
   showToast: (msg: string, type: 'success' | 'error' | 'info') => void;
   sceneName?: string;
+  readiness?: ShotReadiness;
 }
 
 // 解析 characters_in_shot（后端已解析为 JSON 数组）
@@ -53,7 +67,7 @@ function parseShotCharacterNames(shot: Shot): string[] {
   return shot.characters_in_shot.map((s: unknown) => String(s)).filter(Boolean);
 }
 
-export function ShotCard({ shot, index, isExpanded, onToggle, showToast, sceneName }: ShotCardProps) {
+export function ShotCard({ shot, index, isExpanded, onToggle, showToast, sceneName, readiness }: ShotCardProps) {
   const { configs, loadConfigs } = useModelStore();
   const [keyframes, setKeyframes] = useState<ShotKeyframe[]>([]);
   const [videos, setVideos] = useState<ShotVideoInterval[]>([]);
@@ -67,6 +81,8 @@ export function ShotCard({ shot, index, isExpanded, onToggle, showToast, sceneNa
   const [videoDuration, setVideoDuration] = useState(5);
   const [videoSubtitles, setVideoSubtitles] = useState(false);
   const [pollingVideoId, setPollingVideoId] = useState<string | null>(null);
+  // 被轮询视频是否为本地 ComfyUI 渲染（本地单镜 20-40 分钟且按队列渲染，轮询超时需放宽到 24h）
+  const [pollingIsLocalComfy, setPollingIsLocalComfy] = useState(false);
   const [elapsedTime, setElapsedTime] = useState(0);
   const [videoProgress, setVideoProgress] = useState<number | null>(null);
   const [isDeletingVideo, setIsDeletingVideo] = useState(false);
@@ -137,7 +153,9 @@ export function ShotCard({ shot, index, isExpanded, onToggle, showToast, sceneNa
   useEffect(() => {
     if (!pollingVideoId) return;
     const startTime = Date.now();
-    const TIMEOUT_MS = 10 * 60 * 1000; // 10分钟超时
+    // 本地 ComfyUI 渲染（MiniMaxH3 等）单镜 20-40 分钟且按队列顺序渲染，云端 10 分钟超时会误杀健康任务；
+    // 与后端 video.ts 一致：本地任务放宽到 24h 兜底，云端保持 10 分钟
+    const TIMEOUT_MS = pollingIsLocalComfy ? 24 * 60 * 60 * 1000 : 10 * 60 * 1000;
     const poll = async () => {
       // 检查超时
       if (Date.now() - startTime > TIMEOUT_MS) {
@@ -179,7 +197,7 @@ export function ShotCard({ shot, index, isExpanded, onToggle, showToast, sceneNa
     };
     const interval = setInterval(poll, 5000);
     return () => clearInterval(interval);
-  }, [pollingVideoId, showToast]);
+  }, [pollingVideoId, pollingIsLocalComfy, showToast]);
 
   const firstKeyframe = keyframes.find(k => k.frame_type === 'first') || keyframes[0];
   const candidates = keyframes.filter(k => k.frame_type === 'candidate' && k.image_url);
@@ -187,6 +205,18 @@ export function ShotCard({ shot, index, isExpanded, onToggle, showToast, sceneNa
   const completedVideo = videos.find(v => v.status === 'completed');
   const processingVideo = videos.find(v => v.status === 'processing' || v.status === 'pending' || v.status === 'generating');
   const failedVideo = videos.find(v => v.status === 'failed');
+
+  // 半自动→全自动衔接：手动改分镜后，下游关键帧/视频标记过期。
+  // 依据：手动编辑分镜（PUT /shots/:id）会更新 shot.updated_at，而生成关键帧/视频不会 touch shot；
+  // 若 shot.updated_at 晚于任一关键帧/视频的 created_at → 下游产物基于旧分镜，提示重新生成
+  const isDownstreamStale = useMemo(() => {
+    if (!shot.updated_at) return false;
+    const shotUpdatedAt = new Date(shot.updated_at).getTime();
+    if (!Number.isFinite(shotUpdatedAt)) return false;
+    const staleKeyframe = keyframes.some(k => k.created_at && new Date(k.created_at).getTime() < shotUpdatedAt);
+    const staleVideo = videos.some(v => v.created_at && new Date(v.created_at).getTime() < shotUpdatedAt);
+    return staleKeyframe || staleVideo;
+  }, [shot.updated_at, keyframes, videos]);
 
   // 视频生成计时器
   useEffect(() => {
@@ -209,6 +239,7 @@ export function ShotCard({ shot, index, isExpanded, onToggle, showToast, sceneNa
       setVideos(prev => prev.filter(v => v.id !== videoId));
       if (pollingVideoId === videoId) {
         setPollingVideoId(null);
+        setPollingIsLocalComfy(false);
         setVideoProgress(null);
       }
       showToast('视频已删除', 'success');
@@ -267,9 +298,11 @@ export function ShotCard({ shot, index, isExpanded, onToggle, showToast, sceneNa
     }
     setIsGeneratingVideo(true);
     try {
+      const [provider, modelName] = selectedVideoModel.split(':');
+      const isLocalComfy = provider.includes('comfy') || modelName.includes('flf2v');
       const res = await videoService.generate(shot.id, {
-        provider: selectedVideoModel.split(':')[0],
-        modelName: selectedVideoModel.split(':')[1],
+        provider,
+        modelName,
         keyframeId: firstKeyframe.id,
         motionPrompt: motionPrompt || shot.action_description,
         duration: videoDuration,
@@ -280,6 +313,7 @@ export function ShotCard({ shot, index, isExpanded, onToggle, showToast, sceneNa
       if (res.success && res.data) {
         setVideos(prev => [...prev, res.data!]);
         setPollingVideoId(res.data.id);
+        setPollingIsLocalComfy(isLocalComfy);
         showToast('视频生成任务已创建，正在处理中...', 'info');
       }
     } catch {
@@ -471,6 +505,7 @@ export function ShotCard({ shot, index, isExpanded, onToggle, showToast, sceneNa
       if (res.success && res.data) {
         setVideos(prev => [...prev, res.data!]);
         setPollingVideoId(res.data.id);
+        setPollingIsLocalComfy(useFlf2v || vProvider.includes('comfy') || vModel.includes('flf2v'));
         showToast(
           useFlf2v
             ? '首尾帧已锁定，已提交本地 ComfyUI 生成（约 20 分钟，后台自动回写进度）'
@@ -505,11 +540,27 @@ export function ShotCard({ shot, index, isExpanded, onToggle, showToast, sceneNa
             {parseShotCharacterNames(shot).map((name, i) => (
               <Badge key={`${name}-${i}`} variant="info">👤 {name}</Badge>
             ))}
+            {/* P1-2: 就绪状态徽章 */}
+            {!firstKeyframe && (
+              <Badge variant="danger">⚠ 缺首帧</Badge>
+            )}
+            {firstKeyframe && !completedVideo && !processingVideo && !isGeneratingVideo && (
+              <Badge variant="warning">⏳ 待生成</Badge>
+            )}
+            {completedVideo && (
+              <Badge variant="success">✓ 已完成</Badge>
+            )}
+            {processingVideo && (
+              <Badge variant="info">🎬 生成中</Badge>
+            )}
+            {isDownstreamStale && (
+              <Badge variant="warning">⚠ 分镜已修改，建议重新生成</Badge>
+            )}
             <span className="text-xs text-[var(--ink-3)]">{shot.duration_seconds}s</span>
           </div>
           <p className="text-sm text-[var(--ink-1)] line-clamp-1">{shot.action_description}</p>
           {shot.dialogue && (
-            <p className="text-xs text-[var(--ink-3)] line-clamp-1 mt-0.5">"{shot.dialogue}"</p>
+            <p className="text-xs text-[var(--ink-3)] line-clamp-1 mt-0.5">&quot;{shot.dialogue}&quot;</p>
           )}
         </div>
 
@@ -554,6 +605,45 @@ export function ShotCard({ shot, index, isExpanded, onToggle, showToast, sceneNa
           className="border-t border-[var(--border)] p-4 bg-[var(--panel-2)]/20"
           style={{ position: 'relative', zIndex: 10, pointerEvents: 'auto' }}
         >
+          {/* P1-2: 镜头就绪状态详情 */}
+          {readiness && (
+            <div className="mb-4 p-3 rounded-lg bg-[var(--panel)] border border-[var(--border)]">
+              <div className="flex items-center justify-between mb-2">
+                <h4 className="text-sm font-semibold text-[var(--ink-1)] flex items-center gap-1.5">
+                  <ShieldCheck className="w-4 h-4 text-[var(--accent)]" />
+                  镜头就绪检查
+                </h4>
+                <Badge variant={readiness.status === 'ready' ? 'success' : readiness.status === 'no_keyframe' ? 'danger' : 'warning'}>
+                  {readiness.status === 'ready' ? '✓ 就绪' : readiness.status === 'no_keyframe' ? '✗ 缺首帧' : readiness.status === 'missing_ref' ? '⚠ 缺参考' : readiness.status === 'need_previous' ? '⏳ 等前序' : '🔄 需更新'}
+                </Badge>
+              </div>
+              <div className="grid grid-cols-3 gap-2">
+                {[
+                  { label: '首帧', ok: readiness.hasFirstFrame },
+                  { label: '尾帧', ok: readiness.hasLastFrame },
+                  { label: '角色参考', ok: readiness.hasCharacterRefs },
+                  { label: '场景参考', ok: readiness.hasSceneRef },
+                  { label: '前序视频', ok: readiness.previousShotHasVideo },
+                  { label: '本镜视频', ok: readiness.hasVideo },
+                ].map((item) => (
+                  <div key={item.label} className={`flex items-center gap-1.5 px-2 py-1 rounded text-xs ${item.ok ? 'bg-green-50 dark:bg-green-900/20 text-green-600 dark:text-green-400' : 'bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400'}`}>
+                    {item.ok ? '✓' : '✗'} {item.label}
+                  </div>
+                ))}
+              </div>
+              {readiness.issues.length > 0 && (
+                <div className="mt-2 pt-2 border-t border-[var(--border)]">
+                  <p className="text-xs text-[var(--ink-3)] mb-1">待解决：</p>
+                  <ul className="text-xs text-[var(--ink-2)] space-y-0.5">
+                    {readiness.issues.map((issue, i) => (
+                      <li key={i}>• {issue}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+          )}
+
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
             {/* 首帧区域 */}
             <div>
@@ -728,7 +818,7 @@ export function ShotCard({ shot, index, isExpanded, onToggle, showToast, sceneNa
               {shot.dialogue && (
                 <div>
                   <span className="text-[var(--ink-3)] text-xs">台词</span>
-                  <p className="text-[var(--ink-1)] mt-1 italic">"{shot.dialogue}"</p>
+                  <p className="text-[var(--ink-1)] mt-1 italic">&quot;{shot.dialogue}&quot;</p>
                 </div>
               )}
             </div>

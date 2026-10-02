@@ -30,8 +30,11 @@ import {
   selectCandidateAsFirst,
   generateEndFrameForShot,
   collectShotReferenceImages,
+  calculateAllShotsReadiness,
 } from '../services/shotConsistencyService';
 import { dubVideo } from '../services/dubbingService';
+import { episodeEnrichService } from '../services/episodeEnrichService';
+import { consistencyCheckService } from '../services/consistencyCheckService';
 import type { Database } from '../types';
 
 const router = Router();
@@ -52,8 +55,8 @@ const regenerateSchema = z.object({
 });
 
 const generateShotsSchema = z.object({
-  textProvider: z.string(),
-  textModel: z.string(),
+  textProvider: z.string().optional(),
+  textModel: z.string().optional(),
   imageProvider: z.string().optional(),
   imageModel: z.string().optional(),
   shotDensity: z.enum(['sparse', 'normal', 'dense']).optional(),
@@ -133,6 +136,20 @@ router.get('/episodes/:id/shots', asyncHandler(async (req: Request, res: Respons
   const db = getDb(req);
   const shots = ShotDAO.listByEpisode(db, req.params.id);
   res.json({ success: true, data: shots });
+}));
+
+// P1-2: 镜头就绪状态（批量计算每个镜头的参考完整性）
+router.get('/episodes/:id/shots/readiness', asyncHandler(async (req: Request, res: Response) => {
+  const db = getDb(req);
+  const readiness = calculateAllShotsReadiness(db, req.params.id);
+  res.json({ success: true, data: readiness });
+}));
+
+// P1-1: 一致性评分报告
+router.get('/episodes/:id/consistency-report', asyncHandler(async (req: Request, res: Response) => {
+  const db = getDb(req);
+  const report = await consistencyCheckService.generateEpisodeConsistencyReport(db, req.user.id, req.params.id);
+  res.json({ success: true, data: report });
 }));
 
 // 镜头详情
@@ -420,6 +437,48 @@ router.post('/episodes/:id/videos/batch', validateBody(batchVideoSchema), asyncH
   }
   const data = await batchGenerateVideos(db, req.user.id, req.params.id, opts);
   res.json({ success: true, data });
+}));
+
+// ============ 加料重构（按集触发：规范前置 + 只加血肉不动骨架 + 五层护栏） ============
+
+const enrichSchema = z.object({
+  provider: z.string().optional(),
+  modelName: z.string().optional(),
+  forceRefresh: z.boolean().optional(),
+});
+
+// 加料重构：生成（预览态 pending/manual，通过后 approved）
+router.post('/episodes/:id/enrich', validateBody(enrichSchema), asyncHandler(async (req: Request, res: Response) => {
+  const db = getDb(req);
+  const result = await episodeEnrichService.enrichEpisode(db, req.user.id, req.params.id, {
+    provider: req.body.provider,
+    modelName: req.body.modelName,
+    forceRefresh: req.body.forceRefresh,
+  });
+  res.json({ success: true, data: result });
+}));
+
+// 获取已落库的加料重构结果
+router.get('/episodes/:id/enrich', asyncHandler(async (req: Request, res: Response) => {
+  const db = getDb(req);
+  const episode = NovelEpisodeDAO.getByIdAndUser(db, req.params.id, req.user.id);
+  if (!episode) throw createError(404, 'NOT_FOUND', '剧集不存在');
+  const result = episodeEnrichService.parseStored(episode);
+  res.json({ success: true, data: { result, status: episode.enrich_status, skill: episode.enriched_skill, model: episode.enriched_model, at: episode.enriched_at } });
+}));
+
+// 通过加料结果（后续分镜/视频优先使用加料后剧本）
+router.post('/episodes/:id/enrich/approve', asyncHandler(async (req: Request, res: Response) => {
+  const db = getDb(req);
+  episodeEnrichService.approve(db, req.user.id, req.params.id);
+  res.json({ success: true, data: { message: '加料结果已通过，后续分镜将使用加料后剧本' } });
+}));
+
+// 打回重改（前端可重新触发加料）
+router.post('/episodes/:id/enrich/reject', asyncHandler(async (req: Request, res: Response) => {
+  const db = getDb(req);
+  episodeEnrichService.reject(db, req.user.id, req.params.id);
+  res.json({ success: true, data: { message: '已打回，可重新加料' } });
 }));
 
 // ============ 字幕生成（对齐文档第五步：剪辑阶段添加字幕） ============

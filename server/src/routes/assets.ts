@@ -18,6 +18,7 @@ import { aiProxy } from '../services/aiProxy';
 import { characterExtractPrompt } from '../services/prompts/characterExtract';
 import { sceneExtractPrompt } from '../services/prompts/sceneExtract';
 import { characterConceptPrompt, sceneConceptPrompt, characterFourViewPrompt } from '../services/prompts/keyframePrompt';
+import { characterExpressionService } from '../services/characterExpressionService';
 import { parseAiJsonOrThrow } from '../utils/aiJsonParser';
 import type { Database, CharacterOutfit } from '../types';
 
@@ -242,6 +243,23 @@ router.post('/characters/:id/generate-four-view', validateBody(generateImageSche
   const updatedCharacter = ScriptCharacterDAO.update(db, character.id, { four_view_images: JSON.stringify(allImages) });
 
   res.json({ success: true, data: updatedCharacter });
+}));
+
+// P1-4: 生成角色九宫格表情图
+router.post('/characters/:id/generate-expressions', validateBody(generateImageSchema), asyncHandler(async (req: Request, res: Response) => {
+  const db = getDb(req);
+  const character = ScriptCharacterDAO.getByIdAndUser(db, req.params.id, req.user.id);
+  if (!character) throw createError(404, 'NOT_FOUND', '角色不存在');
+
+  const episode = NovelEpisodeDAO.getById(db, character.episode_id);
+  const { provider, modelName } = req.body;
+
+  const results = await characterExpressionService.generateAllExpressions(
+    db, req.user.id, episode!.project_id, character.id, provider, modelName
+  );
+
+  const updatedCharacter = ScriptCharacterDAO.getById(db, character.id);
+  res.json({ success: true, data: { character: updatedCharacter, expressions: results } });
 }));
 
 // 上传角色参考图

@@ -4,6 +4,7 @@ import {
   NovelEpisodeDAO,
   ShotDAO,
   ScriptCharacterDAO,
+  ScriptSceneDAO,
   ShotKeyframeDAO,
 } from '../../../models';
 import { aiProxy } from '../../aiProxy';
@@ -13,8 +14,10 @@ import { collectShotReferenceImages } from '../../shotConsistencyService';
 import { parseCharactersInShot } from '../../../models/shot';
 import type { AutoPipelineTask } from '../types';
 import { getFirstModel, getOrCreateScriptAnalysis, getProjectStylePreset, buildDirectorShotContext } from '../helpers';
+import { saveTask } from '../taskStore';
 import { UserPreferenceDAO } from '../../../models';
 import { getPromptSkillForVideoModel } from '../../promptSkills';
+import { visualMemoryService } from '../../visualMemoryService';
 
 /** 从动作弧三段式 actionDescription 中提取首/尾帧画面描述（无分段标记时返回 null） */
 function extractFrameDesc(actionDesc: string | null | undefined, which: 'first' | 'last'): string | null {
@@ -206,7 +209,7 @@ export async function stageKeyframes(db: Database, task: AutoPipelineTask): Prom
           });
           const url = imgResult.images[0]?.url;
           if (!url) return false;
-          ShotKeyframeDAO.create(db, {
+          const kf = ShotKeyframeDAO.create(db, {
             user_id: task.userId,
             shot_id: shot.id,
             frame_type: frameType,
@@ -215,8 +218,31 @@ export async function stageKeyframes(db: Database, task: AutoPipelineTask): Prom
             image_url: url,
             image_model_used: model.modelName,
           });
+
+          // ═══════════════════════════════════════════════════════════════
+          // P0-2: 关键帧自动入库视觉记忆库
+          // 按角色/场景/通用分别索引，供后续镜头检索参考
+          // ═══════════════════════════════════════════════════════════════
+          try {
+            const charNames = characterIds
+              .map(id => allCharacters.find(c => c.id === id)?.name)
+              .filter((n): n is string => !!n);
+            let sceneName = '';
+            if (shot.scene_id) {
+              const scenes = ScriptSceneDAO.listByEpisode(db, first.id);
+              sceneName = scenes.find(s => s.id === shot.scene_id)?.name || '';
+            }
+            visualMemoryService.indexKeyframe(
+              db, task.projectId, first.id, shot.id, kf.id, url,
+              frameType, charNames, sceneName
+            );
+          } catch (memErr) {
+            console.warn(`[AutoPipeline] keyframe shot=${shot.shot_number} 视觉记忆入库失败:`, (memErr as Error).message);
+          }
+
           generated++;
-          task.stageProgress['keyframes'] = `生成中 ${generated} 帧（${frameType}）`;
+          task.stageProgress['keyframes'] = `生成中 ${generated} 帧（${frameType}），跳过 ${skipped}`;
+          saveTask(db, task);
           return true;
           } catch (err: any) {
             const msg = (err as Error).message || '';

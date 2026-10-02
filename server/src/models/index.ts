@@ -23,6 +23,8 @@ export * from './aiCache';
 export * from './costRecord';
 export * from './subtitle';
 export * from './autoPipelineTask';
+export * from './projectMemory';
+export * from './visualMemory';
 
 // 通用工具
 import crypto from 'crypto';

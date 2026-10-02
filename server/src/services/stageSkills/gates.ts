@@ -1,11 +1,8 @@
 // 阶段质量门检查器
 // 把 shuohao-skills（Apache-2.0）的确定性质量门规则移植为吃 MOO 表数据的 TS 检查。
-// 说明：skill 的 validate 脚本只吃它自己的 JSON schema（outline/cast/art/script/storyboard），
-// 与 MOO 的数据模型（一镜一行/自由文本剧本）不兼容，无法直接转换调用，故移植其规则要点：
-//   novel-script   台词语速 4.5 字/秒、单句台词装得下镜头时长
-//   novel-storyboard 同框 ≤3 人、镜头时长节奏、镜头顺序连续
-//   novel-outline  主场景上限 5–15
-//   novel-characters 视觉描述完整、同批角色区分、概念图提示词禁其他角色名
+// 说明：本文件是"规则移植"层（吃 MOO 表数据）；另有 nativeGates.ts 把 MOO 数据经
+// converters.ts 转成 skill 原生 JSON schema，真实运行 vendor 的 novel-*.mjs validate 脚本，
+// 两层互为补充：TS 门快、原生校验权威。
 // 检查结果只读、不阻断流水线；stageProgress 记录 summary 供前端展示。
 
 import type { Database } from '../../types';

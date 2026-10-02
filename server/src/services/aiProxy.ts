@@ -7,7 +7,7 @@ import path from 'path';
 import type { Database, TextGenerateResult, ImageGenerateResult } from '../types';
 import { ModelRegistryDAO, AiCacheDAO, RenderLogDAO } from '../models';
 import { getTextAdapter, getImageAdapter, getVideoAdapter, getAudioAdapter } from './adapters';
-import { AIError } from './adapters/base';
+import { AIError, httpRequest } from './adapters/base';
 import type { VideoGenerateResult } from './adapters/base';
 import { costTracker } from './costTracker';
 import { resolveModelName } from './modelUtils';
@@ -42,6 +42,40 @@ async function withRetry<T>(
 
 function sha256(data: string): string {
   return crypto.createHash('sha256').update(data).digest('hex');
+}
+
+/**
+ * 根据图像模型提供商选择合适的测试尺寸
+ * 避免使用所有模型都不支持的固定尺寸
+ */
+function getTestImageSize(provider: string): '1024x1024' | '2048x2048' {
+  // 豆包 Seedream 等模型要求至少 1920x1920（3686400 像素）
+  const largeSizeProviders = ['doubao', 'volcengine', 'ark', 'seedream'];
+  if (largeSizeProviders.includes(provider.toLowerCase())) {
+    return '2048x2048';
+  }
+  // 其他模型默认使用 1024x1024（大多数模型都支持）
+  return '1024x1024';
+}
+
+/**
+ * 获取视频模型的默认 API 端点
+ * 用于测试连接时验证端点可达性
+ */
+function getDefaultVideoEndpoint(provider: string): string | null {
+  const endpoints: Record<string, string> = {
+    kling: 'https://api.klingai.com',
+    seedance: 'https://ark.cn-beijing.volces.com',
+    'doubao-video': 'https://ark.cn-beijing.volces.com',
+    minimax: 'https://api.minimax.chat',
+    'minimax-video': 'https://api.minimax.chat',
+    hailuo: 'https://api.minimax.chat',
+    jimeng: 'https://api.minimax.chat',
+    agnes: 'https://apihub.agnes-ai.com',
+    happyhorse: 'https://api.happyhorse.ai',
+    comfyui: 'http://127.0.0.1:8188',
+  };
+  return endpoints[provider.toLowerCase()] || null;
 }
 
 // 下载图片到本地
@@ -94,7 +128,7 @@ export const aiProxy = {
             // 坏缓存（空内容）——删除并继续真实调用
             try { AiCacheDAO.delete(db, cacheKey); } catch { /* ignore */ }
             console.error('[AI Proxy] 文本缓存为空，已清除并重新调用');
-          } else if (params.responseFormat === 'json') {
+          } else {
             // JSON 格式缓存必须可解析，否则视为坏缓存
             try {
               JSON.parse(cachedText);
@@ -104,9 +138,6 @@ export const aiProxy = {
               try { AiCacheDAO.delete(db, cacheKey); } catch { /* ignore */ }
               console.error('[AI Proxy] 文本缓存JSON非法，已清除并重新调用');
             }
-          } else {
-            console.log('[AI Proxy] 文本缓存命中');
-            return JSON.parse(cached) as TextGenerateResult;
           }
         }
       } catch (cacheErr) {
@@ -289,20 +320,41 @@ export const aiProxy = {
       } else if (params.modelType === 'image') {
         const actualModelName = resolveModelName(modelConfig, params.modelName);
         const adapter = getImageAdapter(params.provider, actualModelName, modelConfig.api_key, modelConfig.endpoint_url || undefined);
-        // 使用 2048x2048 测试，豆包 Seedream 等模型要求至少 3686400 像素(1920x1920)
-        await adapter.generate({ prompt: 'test', count: 1, size: '2048x2048' });
+        // 根据模型提供商动态选择测试尺寸，避免使用不支持的尺寸
+        const testSize = getTestImageSize(params.provider);
+        await adapter.generate({ prompt: 'test', count: 1, size: testSize });
       } else if (params.modelType === 'video') {
-        const actualModelName = resolveModelName(modelConfig, params.modelName);
-        const adapter = getVideoAdapter(params.provider, actualModelName, modelConfig.api_key, modelConfig.endpoint_url || undefined);
-        // 视频测试：只创建任务，不等待完成（视频生成耗时很长）
-        const result = await adapter.generate({
-          prompt: 'test',
-          duration: 4,
-          ratio: '16:9',
-          resolution: '720p',
-        });
-        if (!result.taskId) {
-          throw new Error('视频任务创建失败：未返回任务ID');
+        // 视频模型测试：不创建真实任务（避免消耗用户配额）
+        // 只验证 API Key 格式和端点可达性
+        const endpoint = modelConfig.endpoint_url || getDefaultVideoEndpoint(params.provider);
+        if (!endpoint) {
+          throw new Error('未配置端点 URL，无法测试连接');
+        }
+        // 发送轻量级 GET 请求验证端点可达性和 API Key 有效性
+        // 返回 401/403 说明 API Key 无效；返回 404/405 说明端点可达但路径不对，API Key 可能有效
+        try {
+          await httpRequest(`${endpoint.replace(/\/$/, '')}/v1/models`, {
+            method: 'GET',
+            headers: {
+              Authorization: `Bearer ${modelConfig.api_key}`,
+            },
+            timeout: 10000,
+          });
+        } catch (err) {
+          const status = (err as any)?.status || (err as any)?.response?.status;
+          if (status === 401 || status === 403) {
+            throw new Error('API Key 无效或已过期');
+          }
+          if (status === 404 || status === 405) {
+            // 端点可达但路径不对，视为连接成功（API Key 可能有效）
+            console.log(`[AI Proxy] 视频模型测试：端点可达（${status}），视为连接成功`);
+          } else if (status) {
+            // 其他 HTTP 状态码，端点可达，视为连接成功
+            console.log(`[AI Proxy] 视频模型测试：端点响应状态 ${status}，视为连接成功`);
+          } else {
+            // 网络错误（超时、DNS 失败等），视为连接失败
+            throw new Error(`无法连接到端点：${(err as Error).message}`);
+          }
         }
       } else if (params.modelType === 'vision') {
         const actualModelName = resolveModelName(modelConfig, params.modelName);

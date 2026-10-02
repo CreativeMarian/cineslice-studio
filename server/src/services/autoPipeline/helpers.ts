@@ -10,7 +10,7 @@ import {
 } from '../../models';
 import { scriptAnalysisService, type ScriptAnalysisResult } from '../scriptAnalysisService';
 import type { DirectorShotContext, CharacterDetail } from '../directorPromptService';
-import { scriptAnalysisCache , cacheScriptAnalysis } from './state';
+import { scriptAnalysisCache, cacheScriptAnalysis, scriptAnalysisInFlight } from './state';
 
 /**
  * 真实数据完成度检测：该阶段是否已有实际产出（幂等跳过用）
@@ -165,16 +165,33 @@ export async function getOrCreateScriptAnalysis(
     return cached;
   }
 
-  try {
-    console.log('[AutoPipeline] 开始剧本分析...');
-    const analysis = await scriptAnalysisService.analyzeScript(db, episodeId, userId);
-    cacheScriptAnalysis(episodeId, analysis);
-    console.log(`[AutoPipeline] 剧本分析完成: ${scriptAnalysisService.getAnalysisSummary(analysis)}`);
-    return analysis;
-  } catch (err) {
-    console.error('[AutoPipeline] 剧本分析失败（跳过，使用原始提示词）:', (err as Error).message);
-    return null;
+  // v2.0: in-flight 锁 — 并行阶段（characters/scenes）同时调用时，
+  // 只有第一个触发 AI 分析，其余等待同一个 Promise，避免重复烧额度
+  const inFlight = scriptAnalysisInFlight.get(episodeId);
+  if (inFlight) {
+    console.log('[AutoPipeline] 剧本分析进行中，等待共享结果...');
+    return inFlight;
   }
+
+  const analysisPromise = (async () => {
+    try {
+      console.log('[AutoPipeline] 开始剧本分析...');
+      const analysis = await scriptAnalysisService.analyzeScript(db, episodeId, userId);
+      if (analysis) {
+        cacheScriptAnalysis(episodeId, analysis);
+        console.log(`[AutoPipeline] 剧本分析完成: ${scriptAnalysisService.getAnalysisSummary(analysis)}`);
+      }
+      return analysis;
+    } catch (err) {
+      console.error('[AutoPipeline] 剧本分析失败（跳过，使用原始提示词）:', (err as Error).message);
+      return null;
+    } finally {
+      scriptAnalysisInFlight.delete(episodeId);
+    }
+  })();
+
+  scriptAnalysisInFlight.set(episodeId, analysisPromise);
+  return analysisPromise;
 }
 
 /**
@@ -246,6 +263,49 @@ export function buildDirectorShotContext(
   // 推断情绪
   const mood = inferMoodFromShot(shot);
 
+  // ═══════════════════════════════════════════════════════════════
+  // P0-3: 构建一致性锁定段（角色锚点/场景锚点/风格锚点）
+  // ═══════════════════════════════════════════════════════════════
+  const characterAnchors: Record<string, string> = {};
+  if (charactersInShot.length > 0) {
+    const allChars = ScriptCharacterDAO.listByEpisode(db, episodeId);
+    for (const charName of charactersInShot) {
+      const char = allChars.find(c => c.name === charName);
+      if (char) {
+        // 优先使用标准化锚点，否则从 visual_description 生成
+        const anchor = char.anchor_standardized || char.visual_description || char.description || '';
+        if (anchor && anchor.trim()) {
+          characterAnchors[charName] = anchor.length > 100 ? anchor.slice(0, 100) + '...' : anchor;
+        }
+      }
+    }
+  }
+
+  // 场景锚点
+  let sceneAnchor: string | undefined;
+  if (shot.scene_id) {
+    const scene = ScriptSceneDAO.getById(db, shot.scene_id);
+    if (scene) {
+      const parts = [scene.name, scene.description, scene.location, scene.time_of_day, scene.atmosphere]
+        .filter(Boolean) as string[];
+      sceneAnchor = parts.join('，');
+    }
+  }
+
+  // 风格锚点（从项目风格预设获取）
+  let styleAnchor: string | undefined;
+  try {
+    const stylePreset = getProjectStylePreset(db, shot.project_id || '');
+    if (stylePreset && (stylePreset.visualStyle || stylePreset.colorPalette)) {
+      const styleParts = [
+        stylePreset.visualStyle ? `画风：${stylePreset.visualStyle}` : '',
+        stylePreset.colorPalette ? `色调：${stylePreset.colorPalette}` : '',
+        stylePreset.cameraLanguage ? `镜头语言：${stylePreset.cameraLanguage}` : '',
+      ].filter(Boolean);
+      styleAnchor = styleParts.join('；');
+    }
+  } catch { /* 风格预设获取失败忽略 */ }
+
   return {
     shotNumber: shot.shot_number || 0,
     totalShots: totalShots,
@@ -268,6 +328,10 @@ export function buildDirectorShotContext(
           : parseCharactersInShot(previousShot.characters_in_shot))
       : undefined,
     characterDetails: Object.keys(characterDetails).length > 0 ? characterDetails : undefined,
+    // P0-3: 一致性锁定段
+    characterAnchors: Object.keys(characterAnchors).length > 0 ? characterAnchors : undefined,
+    sceneAnchor,
+    styleAnchor,
   };
 }
 
@@ -285,4 +349,77 @@ export function inferMoodFromShot(shot: any): string {
   if (text.includes('思考') || text.includes('想') || text.includes('考虑')) return '思考';
 
   return '平静';
+}
+
+/**
+ * 统一 AI 调用重试包装器（v2.0 全维度优化）
+ * - 指数退避：第2次2s，第3次4s，第4次8s
+ * - 限流(429)自动延长退避
+ * - 可恢复错误重试，不可恢复错误（如400参数错误）立即抛出
+ * - 记录每次重试日志，便于排查
+ */
+export async function withRetry<T>(
+  fn: () => Promise<T>,
+  opts: {
+    maxAttempts?: number;
+    label?: string;
+    onRetry?: (attempt: number, err: Error) => void;
+  } = {}
+): Promise<T> {
+  const maxAttempts = opts.maxAttempts ?? 3;
+  const label = opts.label ?? 'AI调用';
+  let lastError: Error | null = null;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      return await fn();
+    } catch (err: any) {
+      lastError = err instanceof Error ? err : new Error(String(err));
+      const msg = lastError.message || '';
+
+      // 不可恢复错误：立即抛出，不浪费重试额度
+      const isUnrecoverable = /400|bad request|invalid|参数错误|格式错误|解析失败/i.test(msg)
+        && !/timeout|rate|限流|429|5\d\d|network|连接|超时/i.test(msg);
+      if (isUnrecoverable && attempt === 1) {
+        console.warn(`[AutoPipeline][重试] ${label} 不可恢复错误，不重试: ${msg}`);
+        throw lastError;
+      }
+
+      if (attempt >= maxAttempts) {
+        console.error(`[AutoPipeline][重试] ${label} 已达最大重试次数(${maxAttempts})，最终失败: ${msg}`);
+        throw lastError;
+      }
+
+      // 限流退避更长
+      const isRateLimit = /rate[_\- ]?limit|限流|429|Too Many Requests/i.test(msg);
+      const baseDelay = isRateLimit ? 10000 : 2000;
+      const delay = baseDelay * Math.pow(2, attempt - 1); // 2s/4s/8s 或 10s/20s/40s
+
+      console.warn(`[AutoPipeline][重试] ${label} 第${attempt}/${maxAttempts}次失败，${delay}ms后重试: ${msg}`);
+      opts.onRetry?.(attempt, lastError);
+      await new Promise<void>(r => setTimeout(r, delay));
+    }
+  }
+  throw lastError!;
+}
+
+/**
+ * 计算全自动流水线总体进度百分比
+ * 基于已完成阶段数 / 总阶段数，加上当前阶段的子进度
+ */
+export function calculatePipelineProgress(task: { stageProgress: Record<string, string>; currentStage: string }): number {
+  const stageOrder = ['novel', 'episodes', 'script', 'characters', 'scenes', 'shots', 'keyframes', 'video', 'audio', 'export'];
+  let completed = 0;
+  for (const stage of stageOrder) {
+    const p = task.stageProgress[stage];
+    if (p && (p.includes('done') || p.includes('生成') || p.includes('提取') || p.includes('跳过') || p.includes('已存在'))) {
+      completed++;
+    }
+  }
+  // 当前阶段给50%的部分进度（正在运行中）
+  const currentIdx = stageOrder.indexOf(task.currentStage);
+  if (currentIdx >= 0 && !task.stageProgress[task.currentStage]?.includes('done')) {
+    return Math.round((completed + 0.5) / stageOrder.length * 100);
+  }
+  return Math.round(completed / stageOrder.length * 100);
 }

@@ -436,7 +436,7 @@ const phaseGroups = [1, 2, 3, 4].map((p) => ({
                           <MessageSquare className="w-3.5 h-3.5" /> 对话 / 旁白
                         </h4>
                         <p className="text-sm text-[var(--ink-1)] italic leading-relaxed bg-[var(--panel-2)]/50 rounded-lg p-3 border-l-2 border-[var(--accent)]">
-                          "{shot.dialogue}"
+                          &quot;{shot.dialogue}&quot;
                         </p>
                       </div>
                     )}

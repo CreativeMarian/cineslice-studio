@@ -44,8 +44,8 @@ export function StageAssets() {
   // 图片预览弹窗
   const [previewImage, setPreviewImage] = useState<{ url: string; title: string; desc: string } | null>(null);
 
-  // 场景图片生成中
-  const [generatingSceneImages] = useState<Set<string>>(new Set());
+  // 场景图片生成中（scene.id → 是否正在生成，驱动场景卡片上的"生成中"状态）
+  const [generatingSceneImages, setGeneratingSceneImages] = useState<Set<string>>(new Set());
 
   // 场景图片生成配置
   const [sceneImageConfigOpen, setSceneImageConfigOpen] = useState(false);
@@ -178,7 +178,9 @@ export function StageAssets() {
   // 实际生成场景图片
   const handleGenerateSceneImage = async (params: { modelKey: string }) => {
     if (!selectedSceneForImage) return;
+    const sceneId = selectedSceneForImage.id;
     setIsGeneratingSceneImage(true);
+    setGeneratingSceneImages(prev => new Set(prev).add(sceneId));
     try {
       const { provider, modelName } = parseModelKey(params.modelKey);
       const res = await sceneService.generateImage(selectedSceneForImage.id, {
@@ -201,6 +203,11 @@ export function StageAssets() {
       console.error('[SceneImage] 生成失败:', err);
     } finally {
       setIsGeneratingSceneImage(false);
+      setGeneratingSceneImages(prev => {
+        const next = new Set(prev);
+        next.delete(sceneId);
+        return next;
+      });
     }
   };
 
@@ -612,7 +619,7 @@ export function StageAssets() {
               placeholder="编辑场景概念图生成提示词..."
             />
             <p className="text-xs text-[var(--ink-3)] mt-1.5">
-              提示：提示词中已包含"无文字"约束，生成的图片不会出现英文或中文文字
+              提示：提示词中已包含&quot;无文字&quot;约束，生成的图片不会出现英文或中文文字
             </p>
           </div>
         }

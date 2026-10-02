@@ -1,0 +1,469 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>短剧/漫剧提示词优化与上下文一致性 - 开源项目调研报告</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+    background: #0f0f1a;
+    color: #e0e0e0;
+    line-height: 1.7;
+    padding: 40px 20px;
+  }
+  .container { max-width: 1100px; margin: 0 auto; }
+  h1 {
+    font-size: 1.9em;
+    background: linear-gradient(135deg, #a855f7, #c084fc, #e9d5ff);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    margin-bottom: 10px;
+    text-align: center;
+  }
+  .subtitle { text-align: center; color: #888; margin-bottom: 40px; font-size: 0.95em; }
+  h2 {
+    font-size: 1.4em;
+    color: #c084fc;
+    margin: 35px 0 18px;
+    padding-bottom: 10px;
+    border-bottom: 2px solid #a855f733;
+  }
+  h3 { font-size: 1.15em; color: #e9d5ff; margin: 20px 0 12px; }
+  .card {
+    background: #1a1a2e;
+    border: 1px solid #2a2a4a;
+    border-radius: 12px;
+    padding: 24px;
+    margin-bottom: 20px;
+  }
+  .project-card {
+    background: linear-gradient(135deg, #1a1a2e, #252545);
+    border: 1px solid #3a3a5a;
+    border-radius: 12px;
+    padding: 22px;
+    margin-bottom: 18px;
+    border-left: 4px solid #a855f7;
+  }
+  .project-name { font-size: 1.25em; font-weight: bold; color: #e9d5ff; }
+  .project-meta { color: #888; font-size: 0.85em; margin: 5px 0 12px; }
+  .badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 12px;
+    font-size: 0.75em;
+    font-weight: bold;
+    margin-right: 6px;
+  }
+  .badge-star { background: #a855f7; color: white; }
+  .badge-lang { background: #2563eb; color: white; }
+  .badge-feature { background: #16a34a; color: white; }
+  .badge-warn { background: #ca8a04; color: white; }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 15px 0;
+  }
+  th, td {
+    padding: 10px 12px;
+    text-align: left;
+    border-bottom: 1px solid #2a2a4a;
+  }
+  th { background: #252545; color: #c084fc; font-weight: 600; }
+  tr:hover { background: #1e1e38; }
+  code {
+    background: #2a2a4a;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-family: 'Consolas', 'Monaco', monospace;
+    font-size: 0.9em;
+    color: #e9d5ff;
+  }
+  .checklist { list-style: none; padding: 0; }
+  .checklist li {
+    padding: 5px 0;
+    padding-left: 25px;
+    position: relative;
+  }
+  .checklist li::before {
+    content: '✓';
+    position: absolute;
+    left: 0;
+    color: #a855f7;
+    font-weight: bold;
+  }
+  .highlight {
+    background: linear-gradient(135deg, #a855f722, #c084fc22);
+    border: 1px solid #a855f744;
+    border-radius: 8px;
+    padding: 15px;
+    margin: 12px 0;
+  }
+  .technique-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 14px;
+    margin: 15px 0;
+  }
+  .technique-item {
+    background: #1a1a2e;
+    border: 1px solid #2a2a4a;
+    border-radius: 8px;
+    padding: 15px;
+  }
+  .technique-title { color: #c084fc; font-weight: bold; margin-bottom: 6px; }
+  .technique-desc { color: #aaa; font-size: 0.9em; }
+</style>
+</head>
+<body>
+<div class="container">
+
+<h1>短剧/漫剧提示词优化与上下文一致性</h1>
+<p class="subtitle">开源项目调研报告 | 2026-10-02 | 调研范围：GitHub 开源项目 + 学术论文 + AI Skill 市场</p>
+
+<!-- ========== 1. 核心发现 ========== -->
+<h2>1. 核心发现</h2>
+
+<div class="highlight">
+  <p><strong>行业共识：</strong>短剧/漫剧的上下文一致性<strong>不是靠 Prompt 变戏法</strong>，而是靠<strong>流水线设计</strong>。所有优秀项目都遵循同一原则：</p>
+  <p style="margin-top:10px;font-size:1.1em;text-align:center;color:#e9d5ff">
+    <strong>资产先行 → 参考图驱动 → 提示词锁定 → 逐镜迭代</strong>
+  </p>
+</div>
+
+<div class="technique-grid">
+  <div class="technique-item">
+    <div class="technique-title">🎭 角色资产先行</div>
+    <div class="technique-desc">先生成角色设计图/四视图作为基准，之后所有分镜和视频都以它为参考图输入，而非纯文字描述</div>
+  </div>
+  <div class="technique-item">
+    <div class="technique-title">📚 长期记忆系统</div>
+    <div class="technique-desc">用角色档案/世界观/剧情摘要三个文件，每集生成前读取、生成后更新，解决"越更越崩"</div>
+  </div>
+  <div class="technique-item">
+    <div class="technique-title">🔗 首尾帧衔接</div>
+    <div class="technique-desc">前一镜的尾帧作为后一镜的首帧，用图像插值而非纯文生视频，保证镜头间连贯</div>
+  </div>
+  <div class="technique-item">
+    <div class="technique-title">🧩 多智能体编排</div>
+    <div class="technique-desc">主 Agent 只做决策，大段上下文交给 Subagent 处理后回传精炼摘要，避免上下文爆炸</div>
+  </div>
+  <div class="technique-item">
+    <div class="technique-title">🔒 提示词锁定段</div>
+    <div class="technique-desc">每个提示词都包含固定的【角色视觉一致性】【场景一致性】【风格一致性】段落，逐字复用</div>
+  </div>
+  <div class="technique-item">
+    <div class="technique-title">🔄 迭代式生成</div>
+    <div class="technique-desc">不追求端到端一次生成，而是分镜逐镜生成，每镜都基于前镜结果调整，逐步收敛</div>
+  </div>
+</div>
+
+<!-- ========== 2. 重点开源项目 ========== -->
+<h2>2. 重点开源项目详解</h2>
+
+<!-- ArcReel -->
+<div class="project-card">
+  <div class="project-name">ArcReel <span class="badge badge-star">★ 5.3k</span> <span class="badge badge-lang">Python</span></div>
+  <div class="project-meta">GitHub: <code>ArcReel/ArcReel</code> | AGPL-3.0 | 多智能体编排 | 11个供应商 100+模型</div>
+  <p><strong>核心理念：</strong>"一致性是设计出来的，不是 Prompt 变戏法"</p>
+  <h3>一致性技术方案</h3>
+  <ul class="checklist">
+    <li><strong>三类资产库：</strong>角色、场景、道具，Agent 通读全文后建立，全片持续追踪</li>
+    <li><strong>角色 DNA：</strong>先生成角色设计图作为基准，之后每一张图像和每一段视频都按它来生成</li>
+    <li><strong>参考图驱动：</strong>Nano Banana 2 等支持多参考图的模型，每镜都把角色资产图作为参考输入</li>
+    <li><strong>线索清单：</strong>关键道具、场景元素跨分镜同样以参考图驱动，不走样、不跳戏</li>
+    <li><strong>Subagent 架构：</strong>主 Agent 只读项目状态，大段原文交给 Subagent 处理后回传摘要，上下文不爆</li>
+  </ul>
+  <h3>生成流水线（6阶段）</h3>
+  <p>上传小说 → 建立资产库 → 分集规划 → 生成剧本JSON → 角色设计与分镜 → 视频合成</p>
+  <div class="highlight">
+    <p><strong>可借鉴点：</strong>CineSlice 已有资产库和首尾帧，但可以强化"每镜都强制注入角色参考图"的机制，以及"主 Agent + Subagent"的上下文管理模式</p>
+  </div>
+</div>
+
+<!-- ManjuForge -->
+<div class="project-card">
+  <div class="project-name">ManjuForge <span class="badge badge-feature">长期记忆</span> <span class="badge badge-lang">Hermes Skill</span></div>
+  <div class="project-meta">解决"越更越崩"问题 | MIT-0 协议免费商用 | 不依赖特定模型</div>
+  <p><strong>核心创新：</strong>不用 RAG，不用向量数据库，用<strong>三个文件</strong>实现长期记忆</p>
+  <h3>三文件记忆系统</h3>
+  <table>
+    <tr><th>文件</th><th>作用</th><th>更新时机</th></tr>
+    <tr><td><code>角色档案.md</code></td><td>锁定人设、关系、台词风格</td><td>角色登场/变化时更新</td></tr>
+    <tr><td><code>世界观.md</code></td><td>锁定时代、规则、势力</td><td>世界观扩展时更新</td></tr>
+    <tr><td><code>剧情摘要.md</code></td><td>每集自动更新，记录伏笔和时间线</td><td>每集生成后自动更新</td></tr>
+  </table>
+  <h3>实测效果（《代码赘婿》6集测试）</h3>
+  <ul class="checklist">
+    <li>记忆跨集连贯性：6集零崩坏</li>
+    <li>人设一致性：主角始终用数字+逻辑，无能力跳变</li>
+    <li>伏笔回收率：100%（11个伏笔全部回收或推进）</li>
+    <li>关系演进：通过空间距离、道具、行为转变自然推进</li>
+    <li>第三方评估：A+（7项全A以上）</li>
+  </ul>
+  <div class="highlight">
+    <p><strong>可借鉴点：</strong>CineSlice 可以增加"项目记忆系统"，在项目目录下维护 <code>character_bible.md</code>、<code>world_setting.md</code>、<code>story_summary.md</code>，每次生成分镜/视频前注入，生成后自动更新摘要</p>
+  </div>
+</div>
+
+<!-- instant-drama-magician -->
+<div class="project-card">
+  <div class="project-name">instant-drama-magician <span class="badge badge-star">NPM包</span> <span class="badge badge-feature">连续性</span></div>
+  <div class="project-meta">NPM: <code>instant-drama-magician</code> | 即时短剧魔术师</div>
+  <h3>连续性技术方案</h3>
+  <ul class="checklist">
+    <li><strong>角色参考页：</strong>独立的 Characters 页面，缺失角色参考时实时警告</li>
+    <li><strong>尾帧连续性：</strong>前一拍的尾帧作为后一拍的首帧，+ 提示词锁定</li>
+    <li><strong>多参考图润色：</strong>可附加前镜 + 角色 + 素材库静止帧</li>
+    <li><strong>批量补全：</strong>自动填充早期缺失的静止帧，避免纯文本镜头被静默生成</li>
+    <li><strong>状态徽章：</strong>显示 stale / need previous / ready 状态</li>
+    <li><strong>视频队列：</strong>静止帧就绪后才排队生成视频，可跳过</li>
+  </ul>
+  <div class="highlight">
+    <p><strong>可借鉴点：</strong>CineSlice 可以增加"角色参考缺失警告"和"镜头就绪状态"（stale/need previous/ready），让用户直观看到哪些镜头因为缺少前镜参考而无法保证一致性</p>
+  </div>
+</div>
+
+<!-- Mangaforge AI -->
+<div class="project-card">
+  <div class="project-name">Mangaforge AI <span class="badge badge-feature">Character Bible</span></div>
+  <div class="project-meta">Devpost 项目 | 漫剧生成 | 角色一致性系统</div>
+  <h3>Character Bible 系统</h3>
+  <p>持久化的"角色圣经"存储以下信息：</p>
+  <ul class="checklist">
+    <li>面部特征 (facial traits)</li>
+    <li>发型 (hairstyles)</li>
+    <li>服装 (outfits)</li>
+    <li>个性 (personality)</li>
+    <li>表情 (expressions)</li>
+    <li>姿势参考 (pose references)</li>
+  </ul>
+  <h3>注入方式</h3>
+  <p>生成流水线将此记忆注入到每个面板生成步骤：</p>
+  <ul class="checklist">
+    <li>LoRA 适配器</li>
+    <li>参考嵌入 (reference embeddings)</li>
+    <li>IPAdapter 风格图像条件</li>
+    <li>上下文提示词构建 (contextual prompt construction)</li>
+  </ul>
+</div>
+
+<!-- StoryMem -->
+<div class="project-card">
+  <div class="project-name">StoryMem <span class="badge badge-star">字节跳动+NTU</span> <span class="badge badge-lang">学术</span></div>
+  <div class="project-meta">2024年12月发布 | 多镜头视频叙事 | 视觉记忆系统</div>
+  <p><strong>核心洞察：</strong>将多镜头生成重新表述为<strong>迭代过程</strong>，而非尝试端到端合成</p>
+  <h3>Memory to Video 方法</h3>
+  <ul class="checklist">
+    <li>每个镜头生成时都访问"视觉记忆库"</li>
+    <li>记忆库包含之前所有镜头的关键帧和角色外观</li>
+    <li>新镜头生成后，其结果自动加入记忆库</li>
+    <li>支持分钟级连贯叙事视频</li>
+  </ul>
+  <div class="highlight">
+    <p><strong>可借鉴点：</strong>CineSlice 可以实现"视觉记忆库"机制——每个镜头生成的关键帧自动加入项目的视觉记忆，后续镜头生成时自动检索相关角色/场景的历史帧作为参考</p>
+  </div>
+</div>
+
+<!-- Toonflow -->
+<div class="project-card">
+  <div class="project-name">Toonflow <span class="badge badge-feature">骨架绑定</span></div>
+  <div class="project-meta">开源 AI 短剧制作平台 | 8分钟出一集 | 成本10元+</div>
+  <h3>一致性技术</h3>
+  <ul class="checklist">
+    <li><strong>骨架绑定：</strong>防止崩脸，角色一旦确定，多场景保持同一张脸</li>
+    <li><strong>跨场景角色一致性：</strong>全程保持，不靠运气</li>
+    <li><strong>多 Agent 协作：</strong>自动拆解场景、台词、节奏</li>
+    <li><strong>智能分镜：</strong>精准构图描述</li>
+  </ul>
+</div>
+
+<!-- BigBanana AI Director -->
+<div class="project-card">
+  <div class="project-name">BigBanana AI Director <span class="badge badge-lang">React 19</span></div>
+  <div class="project-meta">GitHub: <code>shuyu-labs/BigBanana-AI-Director</code> | 可投入生产</div>
+  <h3>导演工作台</h3>
+  <ul class="checklist">
+    <li><strong>网格化分镜表：</strong>全景式管理所有镜头</li>
+    <li><strong>首尾帧模式：</strong>Start Frame 强一致性 + End Frame 定义结束状态</li>
+    <li><strong>九宫格分镜预览：</strong>一键拆分同一镜头的9个视角，先确认描述再生成</li>
+  </ul>
+</div>
+
+<!-- ========== 3. 提示词优化技术汇总 ========== -->
+<h2>3. 提示词优化技术汇总</h2>
+
+<div class="card">
+  <h3 style="margin-top:0">行业通用的提示词结构</h3>
+  <p>所有优秀项目的视频/图像提示词都遵循类似的分层结构：</p>
+  <div style="background:#0f0f1a;padding:15px;border-radius:8px;margin:12px 0;font-family:monospace;font-size:0.85em;line-height:1.8">
+    <span style="color:#c084fc">【角色视觉一致性·强制锁定】</span><br>
+    &nbsp;&nbsp;角色A：28岁中国男性，清晰下颌线，黑色短发，白色衬衫...<br>
+    &nbsp;&nbsp;角色B：25岁中国女性，长直发，红色连衣裙...<br>
+    <span style="color:#c084fc">【场景一致性】</span><br>
+    &nbsp;&nbsp;现代都市公寓，暖黄色灯光，木质地板...<br>
+    <span style="color:#c084fc">【风格一致性】</span><br>
+    &nbsp;&nbsp;电影级写实，2.35:1宽画幅，浅景深...<br>
+    <span style="color:#c084fc">【本镜动作描述】</span><br>
+    &nbsp;&nbsp;角色A从门口走入，角色B抬头看他...<br>
+    <span style="color:#c084fc">【首尾帧动作弧】</span><br>
+    &nbsp;&nbsp;首帧：角色A站在门口 → 尾帧：角色A走到沙发旁<br>
+    <span style="color:#c084fc">【负面提示词】</span><br>
+    &nbsp;&nbsp;禁止：变脸、换衣服、文字、水印、变形...
+  </div>
+</div>
+
+<div class="card">
+  <h3 style="margin-top:0">角色锚点压缩技术</h3>
+  <p>把最重要的视觉特征压缩成 <strong>100字内</strong>、可全镜头复用的提示词锚点：</p>
+  <div class="highlight">
+    <p><strong>要求：</strong>特征必须具体、客观、可视化，禁止"很帅、很美、气质高级"等模糊描述</p>
+    <p style="margin-top:8px"><strong>示例：</strong>"28岁中国男性，清晰下颌线，窄长脸，黑色短发微卷，左眉有痣，穿深灰色西装，左手戴银色手表"</p>
+  </div>
+</div>
+
+<div class="card">
+  <h3 style="margin-top:0">四视图/九宫格参考图</h3>
+  <ul class="checklist">
+    <li><strong>角色四视图：</strong>正面全身 + 侧面 + 背面 + 超大脸部特写，16:9 比例</li>
+    <li><strong>九宫格表情：</strong>同一角色的9种核心表情，用于特写镜头参考</li>
+    <li><strong>道具拆解图：</strong>中心人物全身立绘 + 周围环绕道具/服装/材质特写</li>
+    <li><strong>场景概念图：</strong>多角度场景设定，保证空间一致性</li>
+  </ul>
+</div>
+
+<!-- ========== 4. 对 CineSlice 的建议 ========== -->
+<h2>4. 对 CineSlice Studio 的优化建议</h2>
+
+<div class="card">
+  <h3 style="margin-top:0">P0 - 立即可以做的增强</h3>
+  <table>
+    <tr><th>优先级</th><th>优化项</th><th>来源项目</th><th>具体做法</th></tr>
+    <tr><td><span class="badge badge-warn">P0</span></td><td>项目记忆系统</td><td>ManjuForge</td><td>在项目目录下维护 character_bible.md / world_setting.md / story_summary.md，生成前注入、生成后更新</td></tr>
+    <tr><td><span class="badge badge-warn">P0</span></td><td>视觉记忆库</td><td>StoryMem</td><td>每个镜头生成的关键帧自动加入项目视觉记忆，后续镜头自动检索相关角色/场景历史帧作为参考</td></tr>
+    <tr><td><span class="badge badge-warn">P0</span></td><td>角色参考强制注入</td><td>ArcReel</td><td>每镜生成都强制把角色资产图作为参考图输入（支持多参考图的模型），不只是文字描述</td></tr>
+  </table>
+</div>
+
+<div class="card">
+  <h3 style="margin-top:0">P1 - 短期优化</h3>
+  <table>
+    <tr><th>优先级</th><th>优化项</th><th>来源项目</th><th>具体做法</th></tr>
+    <tr><td><span class="badge badge-star">P1</span></td><td>镜头就绪状态</td><td>instant-drama-magician</td><td>显示每个镜头的状态：ready / need previous / missing character ref，让用户直观看到一致性风险</td></tr>
+    <tr><td><span class="badge badge-star">P1</span></td><td>角色锚点压缩</td><td>行业通用</td><td>把角色视觉特征压缩成100字内的标准化锚点，逐字复用到每个提示词</td></tr>
+    <tr><td><span class="badge badge-star">P1</span></td><td>九宫格表情图</td><td>漫剧通用</td><td>角色资产增加九宫格表情图生成，特写镜头时自动选用对应表情作为参考</td></tr>
+    <tr><td><span class="badge badge-star">P1</span></td><td>提示词锁定段</td><td>所有项目</td><td>标准化提示词结构：角色一致性→场景一致性→风格→本镜动作→首尾帧弧→负面词</td></tr>
+  </table>
+</div>
+
+<div class="card">
+  <h3 style="margin-top:0">P2 - 长期规划</h3>
+  <table>
+    <tr><th>优先级</th><th>优化项</th><th>来源项目</th><th>具体做法</th></tr>
+    <tr><td><span class="badge badge-feature">P2</span></td><td>多智能体编排</td><td>ArcReel</td><td>主 Agent 只做决策，大段上下文交给 Subagent 处理，避免上下文爆炸</td></tr>
+    <tr><td><span class="badge badge-feature">P2</span></td><td>伏笔追踪系统</td><td>ManjuForge</td><td>自动识别剧本中的伏笔，在剧情摘要中记录，后续剧集自动回收</td></tr>
+    <tr><td><span class="badge badge-feature">P2</span></td><td>角色关系图谱</td><td>ManjuForge</td><td>可视化角色关系网络，随剧情演进自动更新关系状态</td></tr>
+    <tr><td><span class="badge badge-feature">P2</span></td><td>一致性自检</td><td>行业通用</td><td>生成后用 VLM 检查角色/场景一致性，不合格自动重生成</td></tr>
+  </table>
+</div>
+
+<!-- ========== 5. 项目对比表 ========== -->
+<h2>5. 项目横向对比</h2>
+
+<div class="card">
+  <table>
+    <tr>
+      <th>项目</th>
+      <th>Stars</th>
+      <th>语言</th>
+      <th>一致性核心</th>
+      <th>提示词优化</th>
+      <th>可借鉴度</th>
+    </tr>
+    <tr>
+      <td><strong>ArcReel</strong></td>
+      <td>5.3k</td>
+      <td>Python</td>
+      <td>角色DNA+参考图驱动</td>
+      <td>资产先行+多参考图</td>
+      <td><span class="badge badge-star">★★★★★</span></td>
+    </tr>
+    <tr>
+      <td><strong>ManjuForge</strong></td>
+      <td>—</td>
+      <td>Hermes Skill</td>
+      <td>三文件长期记忆</td>
+      <td>记忆注入+伏笔追踪</td>
+      <td><span class="badge badge-star">★★★★★</span></td>
+    </tr>
+    <tr>
+      <td><strong>StoryMem</strong></td>
+      <td>—</td>
+      <td>学术</td>
+      <td>视觉记忆库+迭代生成</td>
+      <td>Memory to Video</td>
+      <td><span class="badge badge-star">★★★★☆</span></td>
+    </tr>
+    <tr>
+      <td><strong>instant-drama-magician</strong></td>
+      <td>NPM</td>
+      <td>JS</td>
+      <td>尾帧衔接+状态徽章</td>
+      <td>提示词锁定+多参考润色</td>
+      <td><span class="badge badge-star">★★★★☆</span></td>
+    </tr>
+    <tr>
+      <td><strong>Mangaforge AI</strong></td>
+      <td>—</td>
+      <td>—</td>
+      <td>Character Bible</td>
+      <td>LoRA+IPAdapter+上下文构建</td>
+      <td><span class="badge badge-star">★★★☆☆</span></td>
+    </tr>
+    <tr>
+      <td><strong>Toonflow</strong></td>
+      <td>—</td>
+      <td>—</td>
+      <td>骨架绑定防崩脸</td>
+      <td>智能分镜+精准构图</td>
+      <td><span class="badge badge-star">★★★☆☆</span></td>
+    </tr>
+    <tr>
+      <td><strong>BigBanana AI Director</strong></td>
+      <td>—</td>
+      <td>React 19</td>
+      <td>首尾帧强一致性</td>
+      <td>九宫格预览+导演工作台</td>
+      <td><span class="badge badge-star">★★★☆☆</span></td>
+    </tr>
+  </table>
+</div>
+
+<!-- ========== 6. 总结 ========== -->
+<h2>6. 总结</h2>
+
+<div class="card" style="background:linear-gradient(135deg, #1a1a2e, #252545);border-color:#a855f7">
+  <h3 style="margin-top:0;color:#e9d5ff">核心结论</h3>
+  <p>短剧/漫剧的上下文一致性，行业已经形成了成熟的方法论：</p>
+  <ol style="margin-left:20px;margin-top:10px;line-height:2">
+    <li><strong>资产先行：</strong>先生成角色/场景/道具资产，再生成分镜和视频</li>
+    <li><strong>参考图驱动：</strong>每镜都把资产图作为参考图输入，而非纯文字描述</li>
+    <li><strong>记忆系统：</strong>用文件或数据库维护角色/世界观/剧情的长期记忆</li>
+    <li><strong>首尾帧衔接：</strong>前镜尾帧=后镜首帧，用图像插值保证连贯</li>
+    <li><strong>提示词锁定：</strong>标准化提示词结构，一致性段落逐字复用</li>
+    <li><strong>迭代生成：</strong>逐镜生成、逐镜调整，而非端到端一次生成</li>
+  </ol>
+  <p style="margin-top:15px"><strong>CineSlice Studio 现状：</strong>已经具备了资产库、首尾帧、导演级提示词等基础能力，建议优先增强：</p>
+  <ul style="margin-left:20px;margin-top:8px">
+    <li>项目记忆系统（角色圣经 + 剧情摘要）</li>
+    <li>视觉记忆库（历史关键帧自动检索复用）</li>
+    <li>角色参考图强制注入（每镜都带角色资产图）</li>
+    <li>镜头就绪状态显示（一致性风险可视化）</li>
+  </ul>
+</div>
+
+</div>
+</body>
+</html>
