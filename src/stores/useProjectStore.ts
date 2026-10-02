@@ -98,12 +98,31 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       if (reqId !== _loadProjectSeq) return;
       const project = projectRes.data || null;
       const chapters = chaptersRes.data || [];
+      const episodes = episodesRes.data || [];
+
+      // 验证 currentEpisodeId 是否属于当前项目，无效则自动选择第一集
+      const state = get();
+      let validEpisodeId = state.currentEpisodeId;
+      if (validEpisodeId && !episodes.some((e: any) => e.id === validEpisodeId)) {
+        // localStorage 中的集数不属于当前项目，清除并选择第一集
+        try { localStorage.removeItem('currentEpisodeId'); } catch { /* ignore */ }
+        validEpisodeId = episodes.length > 0 ? episodes[0].id : null;
+        if (validEpisodeId) {
+          try { localStorage.setItem('currentEpisodeId', validEpisodeId); } catch { /* ignore */ }
+        }
+      } else if (!validEpisodeId && episodes.length > 0) {
+        // 没有选择集数，自动选择第一集
+        validEpisodeId = episodes[0].id;
+        try { localStorage.setItem('currentEpisodeId', validEpisodeId); } catch { /* ignore */ }
+      }
+
       set({
         currentProject: project,
-        episodes: episodesRes.data || [],
+        episodes,
         chapters,
         selectedChapterIds: chapters.map((c) => c.id),
         pipelineStep: (project?.pipeline_step as 'novel' | 'episodes' | 'script' | 'shots') || 'novel',
+        currentEpisodeId: validEpisodeId,
         isLoading: false,
       });
     } catch (err) {

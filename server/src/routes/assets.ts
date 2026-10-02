@@ -82,7 +82,11 @@ router.post('/episodes/:id/characters/extract', validateBody(extractSchema), asy
   if (!episode) throw createError(404, 'NOT_FOUND', '剧集不存在');
 
   const { provider, modelName } = req.body;
-  const { systemPrompt, prompt } = characterExtractPrompt(episode.script_content);
+  // 优先使用加料后的剧本（更详细、角色描述更丰富），没有加料则用原始剧本
+  const scriptForExtract = episode.enriched_script && episode.enriched_script.trim().length > 0
+    ? episode.enriched_script
+    : episode.script_content;
+  const { systemPrompt, prompt } = characterExtractPrompt(scriptForExtract);
 
   const result = await aiProxy.generateText({
     db, userId: req.user.id, provider, modelName,
@@ -446,7 +450,11 @@ router.post('/episodes/:id/scenes/extract', validateBody(extractSchema), asyncHa
   if (!episode) throw createError(404, 'NOT_FOUND', '剧集不存在');
 
   const { provider, modelName } = req.body;
-  const { systemPrompt, prompt } = sceneExtractPrompt(episode.script_content);
+  // 优先使用加料后的剧本
+  const scriptForExtract = episode.enriched_script && episode.enriched_script.trim().length > 0
+    ? episode.enriched_script
+    : episode.script_content;
+  const { systemPrompt, prompt } = sceneExtractPrompt(scriptForExtract);
 
   const result = await aiProxy.generateText({
     db, userId: req.user.id, provider, modelName,
@@ -605,6 +613,10 @@ router.post('/episodes/:id/props/extract', validateBody(extractSchema), asyncHan
   if (!episode) throw createError(404, 'NOT_FOUND', '剧集不存在');
 
   const { provider, modelName } = req.body;
+  // 优先使用加料后的剧本
+  const scriptForExtract = episode.enriched_script && episode.enriched_script.trim().length > 0
+    ? episode.enriched_script
+    : episode.script_content;
 
   const systemPrompt = `你是一位专业的影视道具分析师。请从剧本中提取所有重要道具。
 目标提取数量：3-8个关键道具。
@@ -618,7 +630,7 @@ router.post('/episodes/:id/props/extract', validateBody(extractSchema), asyncHan
 只返回 JSON，不要其他文字。`;
 
   const prompt = `剧本内容：
-${episode.script_content}
+${scriptForExtract}
 
 请提取所有重要道具，要求：
 1. 提取对剧情有推动作用或反复出现的道具，目标3-8个
