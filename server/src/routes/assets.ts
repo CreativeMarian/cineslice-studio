@@ -17,7 +17,7 @@ import { imageUpload } from '../middleware/upload';
 import { aiProxy } from '../services/aiProxy';
 import { characterExtractPrompt } from '../services/prompts/characterExtract';
 import { sceneExtractPrompt } from '../services/prompts/sceneExtract';
-import { characterConceptPrompt, sceneConceptPrompt, characterFourViewPrompt } from '../services/prompts/keyframePrompt';
+import { characterConceptPrompt, sceneConceptPrompt, characterFourViewPrompt, propConceptPrompt } from '../services/prompts/keyframePrompt';
 import { characterExpressionService } from '../services/characterExpressionService';
 import { parseAiJsonOrThrow } from '../utils/aiJsonParser';
 import type { Database, CharacterOutfit } from '../types';
@@ -705,6 +705,83 @@ router.delete('/props/:id', asyncHandler(async (req: Request, res: Response) => 
   requirePropOwnership(db, req, req.params.id);
   ScriptPropDAO.delete(db, req.params.id);
   res.json({ success: true, data: { message: '道具已删除' } });
+}));
+
+// 生成道具概念图
+router.post('/props/:id/generate-image', validateBody(generateImageSchema), asyncHandler(async (req: Request, res: Response) => {
+  const db = getDb(req);
+  const prop = ScriptPropDAO.getById(db, req.params.id);
+  if (!prop || prop.user_id !== req.user.id) throw createError(404, 'NOT_FOUND', '道具不存在');
+
+  const episode = NovelEpisodeDAO.getById(db, prop.episode_id);
+  const { provider, modelName, count, referenceImageUrl, prompt: customPrompt } = req.body;
+
+  // 描述为空时的兜底
+  const desc = prop.description && prop.description.trim()
+    ? prop.description
+    : `${prop.name}，详细的外观、材质、颜色、尺寸描述`;
+
+  // 使用自定义提示词或自动生成提示词
+  let prompt, negativePrompt;
+  if (customPrompt && customPrompt.trim()) {
+    prompt = customPrompt;
+    negativePrompt = undefined;
+  } else {
+    const result = propConceptPrompt(prop.name, desc);
+    prompt = result.prompt;
+    negativePrompt = result.negativePrompt;
+  }
+
+  // 图片生成带重试（最多2次）
+  let result;
+  let lastError: Error | null = null;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      result = await aiProxy.generateImage({
+        db, userId: req.user.id, projectId: episode!.project_id,
+        provider, modelName, prompt, negativePrompt,
+        count: count || 1, size: '2048x2048',
+        referenceImages: referenceImageUrl ? [referenceImageUrl] : undefined,
+        saveSubDir: 'props',
+      });
+      break;
+    } catch (err) {
+      lastError = err as Error;
+      if (attempt === 1) throw err;
+    }
+  }
+  if (!result) throw lastError || createError(500, 'IMAGE_GEN_FAILED', '图片生成失败');
+
+  // 保存到道具
+  const existing = Array.isArray(prop.concept_images) ? prop.concept_images : [];
+  const newImages = result.images.map(img => ({ url: img.url, model: modelName, prompt }));
+  const allImages = [...existing, ...newImages];
+  ScriptPropDAO.update(db, prop.id, { concept_images: JSON.stringify(allImages) });
+
+  res.json({ success: true, data: newImages });
+}));
+
+// 删除道具概念图
+router.delete('/props/:id/images/:index', asyncHandler(async (req: Request, res: Response) => {
+  const db = getDb(req);
+  const prop = ScriptPropDAO.getById(db, req.params.id);
+  if (!prop || prop.user_id !== req.user.id) throw createError(404, 'NOT_FOUND', '道具不存在');
+
+  const index = parseInt(req.params.index, 10);
+  const images = Array.isArray(prop.concept_images) ? prop.concept_images : [];
+  if (index < 0 || index >= images.length) throw createError(400, 'INVALID_INDEX', '图片索引无效');
+
+  const newImages = images.filter((_: any, i: number) => i !== index);
+  const newSelectedIndex = (prop as any).selected_image_index >= newImages.length
+    ? Math.max(0, newImages.length - 1)
+    : (prop as any).selected_image_index;
+
+  ScriptPropDAO.update(db, prop.id, {
+    concept_images: JSON.stringify(newImages),
+    selected_image_index: newSelectedIndex,
+  } as any);
+
+  res.json({ success: true, data: { message: '图片已删除', remaining: newImages.length } });
 }));
 
 export default router;

@@ -1,8 +1,18 @@
 // 道具 DAO（P1）
 // v1.1 - 增加线索标记 is_clue / 关键词 keywords（跨镜头视觉连贯追踪）
+// v1.2 - 添加 concept_images JSON 解析
 
 import type { Database, ScriptProp } from '../types';
 import { generateId, now } from './index';
+
+/** 统一解析 concept_images 字段（字符串 → 数组） */
+function parseConceptImages(result: any): void {
+  if (typeof result.concept_images === 'string') {
+    try { result.concept_images = JSON.parse(result.concept_images); } catch { result.concept_images = []; }
+  }
+  if (!Array.isArray(result.concept_images)) result.concept_images = [];
+  if (result.concept_images === null) result.concept_images = [];
+}
 
 export const ScriptPropDAO = {
   create(db: Database, data: { user_id: string; episode_id: string; name: string; category?: string; description?: string; is_clue?: number; keywords?: string; concept_images?: string }): ScriptProp {
@@ -15,17 +25,24 @@ export const ScriptPropDAO = {
   },
 
   listByEpisode(db: Database, episodeId: string): ScriptProp[] {
-    return db.prepare('SELECT * FROM script_props WHERE episode_id = ? ORDER BY created_at ASC').all(episodeId) as ScriptProp[];
+    const results = db.prepare('SELECT * FROM script_props WHERE episode_id = ? ORDER BY created_at ASC').all(episodeId) as any[];
+    results.forEach(parseConceptImages);
+    return results as ScriptProp[];
   },
 
   getById(db: Database, id: string): ScriptProp | null {
-    return (db.prepare('SELECT * FROM script_props WHERE id = ?').get(id) as ScriptProp) || null;
+    const result = db.prepare('SELECT * FROM script_props WHERE id = ?').get(id) as any;
+    if (!result) return null;
+    parseConceptImages(result);
+    return result as ScriptProp;
   },
 
   getByIds(db: Database, ids: string[]): ScriptProp[] {
     if (ids.length === 0) return [];
     const placeholders = ids.map(() => '?').join(',');
-    return db.prepare(`SELECT * FROM script_props WHERE id IN (${placeholders})`).all(...ids) as ScriptProp[];
+    const results = db.prepare(`SELECT * FROM script_props WHERE id IN (${placeholders})`).all(...ids) as any[];
+    results.forEach(parseConceptImages);
+    return results as ScriptProp[];
   },
 
   update(db: Database, id: string, data: Partial<ScriptProp>): ScriptProp | null {

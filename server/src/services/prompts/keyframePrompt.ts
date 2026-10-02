@@ -66,6 +66,7 @@ export function keyframePrompt(params: KeyframePromptParams): { prompt: string; 
 // 角色概念图提示词
 // 对齐《AI短剧制作全流程手册》：全身正面白底、双手自然下垂、鞋子踩地、手里不拿东西、画面只有一个人
 // 优化：增加正位站立约束，确保角色一致性，可用于后续视频生成
+// v2.0：严格纯白背景、无阴影、无地面、无投影、单一人物
 export function characterConceptPrompt(
   characterName: string,
   visualDescription: string,
@@ -75,17 +76,19 @@ export function characterConceptPrompt(
     `角色概念设定图：${characterName}`,
     visualDescription,
     '正面全身站立姿势，从头到脚完整显示，角色居中，正视镜头，中性表情',
-    '双臂自然下垂，双手放松，双脚并拢站立，鞋子完全踩在地面',
-    '纯白色背景，无任何杂物，画面只有一个人，手里不拿任何物品',
+    '双臂自然下垂，双手放松，双脚并拢站立',
+    '⚠️ 严格要求：纯白色无缝背景，绝对不能有任何地面、地板、阴影、投影、环境、场景元素',
+    '画面只有一个人，绝对不能出现第二个人物，手里不拿任何物品',
+    '角色全身完整，从头到脚无裁切，鞋子清晰可见',
     '角色设计稿风格，服装设计细节清晰，面部特征明确',
     '标准角色参考图，用于视频生成时保持角色一致性',
   ];
   if (stylePrompt) parts.push(`风格：${stylePrompt}`);
-  parts.push('高质量，8K分辨率，细节丰富，电影级光影，专业角色设定');
+  parts.push('高质量，8K分辨率，细节丰富，专业角色设定，纯白背景产品图风格');
 
   return {
     prompt: parts.join('。'),
-    negativePrompt: '低质量，模糊，变形，多余手指，丑陋，水印，文字，背景复杂，多人，手持物品，坐姿，跪姿，跳跃，动态姿势，侧面，背面，半身像，特写，裁切，不完整身体',
+    negativePrompt: '低质量，模糊，变形，多余手指，丑陋，水印，文字，背景复杂，多人，手持物品，坐姿，跪姿，跳跃，动态姿势，侧面，背面，半身像，特写，裁切，不完整身体，地面，地板，阴影，投影，环境，场景，室内，室外，墙壁，窗户，家具，道具，物品，其他人物，人群，风景，天空，草地，水泥地，木地板，瓷砖，地毯',
   };
 }
 
@@ -151,7 +154,8 @@ export function characterFourViewPrompt(
   };
 }
 
-// 道具概念图提示词（全景、纯白色背景）
+// 道具概念图提示词（全景、纯白色背景、单一物品、无阴影无地面）
+// v2.0：严格纯白背景、无阴影、无地面、无投影、单一物品
 export function propConceptPrompt(
   propName: string,
   description: string,
@@ -160,14 +164,17 @@ export function propConceptPrompt(
   const parts = [
     `道具设计图：${propName}`,
     description,
-    '全景展示，纯白色背景',
-    '道具设计稿风格，细节清晰，无人物',
+    '全景展示，物品居中，完整显示所有细节',
+    '⚠️ 严格要求：纯白色无缝背景，绝对不能有任何地面、地板、阴影、投影、环境、场景元素',
+    '画面只有这一个物品，绝对不能出现人物、其他物品或背景元素',
+    '道具设计稿风格，材质细节清晰，颜色准确，无人物',
+    '标准道具参考图，用于视频生成时保持道具一致性',
   ];
   if (stylePrompt) parts.push(`风格：${stylePrompt}`);
-  parts.push('高质量，电影级道具设计');
+  parts.push('高质量，8K分辨率，细节丰富，专业道具设计，纯白背景产品图风格');
 
   return {
     prompt: parts.join('。'),
-    negativePrompt: '低质量，模糊，变形，人物，水印，文字，背景复杂，卡通',
+    negativePrompt: '低质量，模糊，变形，人物，手，手指，水印，文字，背景复杂，卡通，地面，地板，阴影，投影，环境，场景，室内，室外，墙壁，窗户，家具，其他物品，多个物品，人群，风景，天空，草地，水泥地，木地板，瓷砖，地毯，桌子，台面',
   };
 }

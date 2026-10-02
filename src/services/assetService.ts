@@ -88,4 +88,12 @@ export const propService = {
 
   delete: (id: string) =>
     apiClient.delete<unknown, ApiResponse<void>>(`/props/${id}`),
+
+  generateImage: (
+    id: string,
+    data: { provider: string; modelName: string; count?: number; referenceImageUrl?: string; prompt?: string }
+  ) => apiClient.post<unknown, ApiResponse<Array<{ url: string; model: string; prompt: string }>>>(`/props/${id}/generate-image`, data),
+
+  deleteImage: (id: string, index: number) =>
+    apiClient.delete<unknown, ApiResponse<{ message: string; remaining: number }>>(`/props/${id}/images/${index}`),
 };
