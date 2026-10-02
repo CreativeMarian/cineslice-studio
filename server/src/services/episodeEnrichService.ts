@@ -278,6 +278,20 @@ export const episodeEnrichService = {
       });
     }
 
+    // ── 打回反馈上下文：用户之前打回时记录的不满意原因，重新加料必须针对性改进 ──
+    const previousFeedback = episode.enrich_feedback;
+    const previousRejectCount = episode.enrich_reject_count || 0;
+    if (previousFeedback?.trim()) {
+      context += `\n\n## ⚠️ 用户打回反馈（第${previousRejectCount}次打回，本次加料必须针对性改进）\n`;
+      context += `用户对上一次加料重构结果不满意，具体原因如下：\n「${previousFeedback.trim()}」\n\n`;
+      context += `【改进要求】\n`;
+      context += `1. 必须针对上述反馈逐条改进，不能重复同样的问题\n`;
+      context += `2. 保留原文全部剧情节点与台词（只加血肉不动骨架的原则不变）\n`;
+      context += `3. 分镜数量、景别、运镜等如无特殊要求保持合理，但画面描述和动作细节必须按反馈调整\n`;
+      context += `4. 如果反馈涉及角色外观/场景/道具一致性，必须严格对齐已提取的角色和场景描述\n`;
+      console.log(`[Enrich] 携带打回反馈（第${previousRejectCount}次）: ${previousFeedback.slice(0, 100)}`);
+    }
+
     // ── 官方规范前置注入（第一层护栏的"规范"部分）+ 质量硬要求 ──
     const systemPrompt = applySkillRules(ENRICH_SYSTEM_BASE, promptSkill, 'videoRule')
       + applySkillRules('', promptSkill, 'shotRule')
@@ -392,11 +406,17 @@ export const episodeEnrichService = {
     NovelEpisodeDAO.update(db, episodeId, { enrich_status: 'approved' });
   },
 
-  /** 打回重改：标记 rejected，前端可重新触发加料 */
-  reject(db: Database, userId: string, episodeId: string): void {
+  /** 打回重改：标记 rejected，记录用户不满意反馈，前端可重新触发加料（重新加料时携带反馈上下文） */
+  reject(db: Database, userId: string, episodeId: string, feedback?: string): void {
     const episode = NovelEpisodeDAO.getByIdAndUser(db, episodeId, userId);
     if (!episode) throw new Error(`剧集不存在: ${episodeId}`);
-    NovelEpisodeDAO.update(db, episodeId, { enrich_status: 'rejected' });
+    const rejectCount = (episode.enrich_reject_count || 0) + 1;
+    NovelEpisodeDAO.update(db, episodeId, {
+      enrich_status: 'rejected',
+      enrich_feedback: feedback?.trim() || null,
+      enrich_reject_count: rejectCount,
+    });
+    console.log(`[Enrich] 打回 episode=${episodeId} 第${rejectCount}次，反馈: ${feedback?.slice(0, 80) || '（无具体反馈）'}`);
   },
 
   /** 解析落库的加料结果 */

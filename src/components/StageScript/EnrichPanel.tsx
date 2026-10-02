@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { Sparkles, CheckCircle2, AlertTriangle, RefreshCw, ThumbsUp, ThumbsDown, Copy, ChevronDown, ChevronUp, Loader2, FileCheck2, ShieldCheck, GitCompareArrows } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Sparkles, CheckCircle2, AlertTriangle, RefreshCw, ThumbsUp, ThumbsDown, Copy, ChevronDown, ChevronUp, Loader2, FileCheck2, ShieldCheck, GitCompareArrows, MessageSquareWarning, X } from 'lucide-react';
 import { Button, Card, Badge } from '../ui';
 import { useUIStore } from '../../stores/useUIStore';
 import { projectService } from '../../services/projectService';
@@ -24,8 +24,26 @@ export function EnrichPanel({ episodeId, status, onStatusChange }: EnrichPanelPr
   const [expandedScript, setExpandedScript] = useState(false);
   const [expandedPrompt, setExpandedPrompt] = useState(true);
   const [copied, setCopied] = useState(false);
+  // 打回反馈相关状态
+  const [showRejectDialog, setShowRejectDialog] = useState(false);
+  const [rejectFeedback, setRejectFeedback] = useState('');
+  const [lastFeedback, setLastFeedback] = useState<string | null>(null);
+  const [rejectCount, setRejectCount] = useState(0);
+  const [isRejecting, setIsRejecting] = useState(false);
 
   const currentStatus = status || 'none';
+
+  // 加载已落库的加料结果时，同时获取打回反馈
+  useEffect(() => {
+    if (episodeId) {
+      projectService.getEnrichment(episodeId).then(res => {
+        if (res.success && res.data) {
+          setLastFeedback(res.data.feedback || null);
+          setRejectCount(res.data.rejectCount || 0);
+        }
+      }).catch(() => {});
+    }
+  }, [episodeId, status]);
 
   const runEnrich = async () => {
     setIsEnriching(true);
@@ -62,13 +80,26 @@ export function EnrichPanel({ episodeId, status, onStatusChange }: EnrichPanelPr
     }
   };
 
-  const handleReject = async () => {
+  const handleReject = () => {
+    // 预填上次的反馈（方便用户修改）
+    setRejectFeedback(lastFeedback || '');
+    setShowRejectDialog(true);
+  };
+
+  const confirmReject = async () => {
+    setIsRejecting(true);
     try {
-      await projectService.rejectEnrichment(episodeId);
+      await projectService.rejectEnrichment(episodeId, rejectFeedback.trim() || undefined);
       onStatusChange('rejected');
-      showToast('已打回：可点击「重新加料」重跑', 'info');
+      setLastFeedback(rejectFeedback.trim() || null);
+      setRejectCount(prev => prev + 1);
+      setShowRejectDialog(false);
+      setRejectFeedback('');
+      showToast('已打回：重新加料时将携带反馈针对性改进', 'info');
     } catch (err: any) {
       showToast(`操作失败: ${err?.response?.data?.message || err?.message || '未知错误'}`, 'error');
+    } finally {
+      setIsRejecting(false);
     }
   };
 
@@ -162,6 +193,21 @@ export function EnrichPanel({ episodeId, status, onStatusChange }: EnrichPanelPr
             {/* 真实进行中状态（无模拟百分比）：流动条 */}
             <div className="w-full h-2 bg-[var(--panel-2)] rounded-full overflow-hidden relative">
               <div className="absolute inset-y-0 w-1/3 bg-[var(--accent)]/70 rounded-full animate-[shimmer_1.2s_ease-in-out_infinite]" />
+            </div>
+          </div>
+        )}
+
+        {/* 上次打回反馈提示（重新加料时 AI 会携带此反馈针对性改进） */}
+        {lastFeedback && currentStatus === 'rejected' && (
+          <div className="mt-4 p-3 rounded-lg bg-[var(--color-warning)]/10 border border-[var(--color-warning)]/30">
+            <div className="flex items-start gap-2">
+              <MessageSquareWarning className="w-4 h-4 text-[var(--color-warning)] mt-0.5 flex-shrink-0" />
+              <div className="min-w-0 flex-1">
+                <p className="text-xs font-medium text-[var(--color-warning)] mb-1">
+                  上次打回反馈（第{rejectCount}次打回）· 点击「重新加料」AI 将针对性改进
+                </p>
+                <p className="text-xs text-[var(--ink-2)] leading-relaxed">{lastFeedback}</p>
+              </div>
             </div>
           </div>
         )}
@@ -301,6 +347,77 @@ export function EnrichPanel({ episodeId, status, onStatusChange }: EnrichPanelPr
             )}
           </Card>
         </>
+      )}
+
+      {/* 打回反馈对话框 */}
+      {showRejectDialog && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => !isRejecting && setShowRejectDialog(false)}>
+          <div
+            className="w-full max-w-lg rounded-2xl bg-[var(--bg)] border border-[var(--border)] shadow-2xl"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between p-5 border-b border-[var(--border)]">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-lg bg-[var(--color-warning)]/15 flex items-center justify-center">
+                  <ThumbsDown className="w-5 h-5 text-[var(--color-warning)]" />
+                </div>
+                <div>
+                  <h3 className="font-semibold text-[var(--ink-1)]">打回加料结果</h3>
+                  <p className="text-xs text-[var(--ink-3)] mt-0.5">描述不满意的原因，重新加料时 AI 将针对性改进</p>
+                </div>
+              </div>
+              <button
+                className="p-1.5 rounded-lg hover:bg-[var(--panel-2)] transition-colors disabled:opacity-50"
+                onClick={() => !isRejecting && setShowRejectDialog(false)}
+                disabled={isRejecting}
+              >
+                <X className="w-4 h-4 text-[var(--ink-3)]" />
+              </button>
+            </div>
+
+            <div className="p-5 space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-[var(--ink-1)] mb-2">
+                  不满意的原因 <span className="text-[var(--ink-3)] font-normal">（可选，但填写后效果更好）</span>
+                </label>
+                <textarea
+                  className="w-full h-32 px-3 py-2 rounded-lg bg-[var(--panel-2)] border border-[var(--border)] text-sm text-[var(--ink-1)] placeholder-[var(--ink-3)] focus:outline-none focus:border-[var(--accent)] resize-none"
+                  placeholder="例如：&#10;1. 第3镜的角色动作描述不够具体，没有体现角色的情绪变化&#10;2. 分镜数量太少，剧情节奏太快&#10;3. 场景描述缺少环境细节，画面感不强&#10;4. 台词分配不合理，有些角色台词太少"
+                  value={rejectFeedback}
+                  onChange={e => setRejectFeedback(e.target.value)}
+                  disabled={isRejecting}
+                />
+              </div>
+              <div className="p-3 rounded-lg bg-[var(--accent-soft)]/50 border border-[var(--accent)]/20">
+                <p className="text-xs text-[var(--ink-2)] leading-relaxed">
+                  <span className="font-medium text-[var(--accent)]">提示：</span>
+                  打回后点击「重新加料」，AI 会携带本次反馈重新生成，针对性解决你指出的问题。
+                  原文剧情骨架不会改变，只调整加料细节和分镜描述。
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 p-5 border-t border-[var(--border)]">
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => !isRejecting && setShowRejectDialog(false)}
+                disabled={isRejecting}
+              >
+                取消
+              </Button>
+              <Button
+                size="sm"
+                variant="primary"
+                leftIcon={isRejecting ? <Loader2 className="w-4 h-4 animate-spin" /> : <ThumbsDown className="w-4 h-4" />}
+                onClick={confirmReject}
+                isLoading={isRejecting}
+              >
+                确认打回
+              </Button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

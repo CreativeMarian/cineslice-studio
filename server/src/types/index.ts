@@ -143,6 +143,8 @@ export interface NovelEpisode {
   enriched_model: string | null;
   enriched_at: string | null;
   enrich_status: 'none' | 'pending' | 'approved' | 'rejected' | 'manual';
+  enrich_feedback: string | null;
+  enrich_reject_count: number;
   created_at: string;
   updated_at: string;
 }

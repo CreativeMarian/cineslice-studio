@@ -464,7 +464,7 @@ router.get('/episodes/:id/enrich', asyncHandler(async (req: Request, res: Respon
   const episode = NovelEpisodeDAO.getByIdAndUser(db, req.params.id, req.user.id);
   if (!episode) throw createError(404, 'NOT_FOUND', '剧集不存在');
   const result = episodeEnrichService.parseStored(episode);
-  res.json({ success: true, data: { result, status: episode.enrich_status, skill: episode.enriched_skill, model: episode.enriched_model, at: episode.enriched_at } });
+  res.json({ success: true, data: { result, status: episode.enrich_status, skill: episode.enriched_skill, model: episode.enriched_model, at: episode.enriched_at, feedback: episode.enrich_feedback, rejectCount: episode.enrich_reject_count } });
 }));
 
 // 通过加料结果（后续分镜/视频优先使用加料后剧本）
@@ -474,11 +474,12 @@ router.post('/episodes/:id/enrich/approve', asyncHandler(async (req: Request, re
   res.json({ success: true, data: { message: '加料结果已通过，后续分镜将使用加料后剧本' } });
 }));
 
-// 打回重改（前端可重新触发加料）
+// 打回重改（携带不满意反馈，重新加料时针对性改进）
 router.post('/episodes/:id/enrich/reject', asyncHandler(async (req: Request, res: Response) => {
   const db = getDb(req);
-  episodeEnrichService.reject(db, req.user.id, req.params.id);
-  res.json({ success: true, data: { message: '已打回，可重新加料' } });
+  const feedback = typeof req.body?.feedback === 'string' ? req.body.feedback : undefined;
+  episodeEnrichService.reject(db, req.user.id, req.params.id, feedback);
+  res.json({ success: true, data: { message: '已打回，重新加料时将携带反馈针对性改进' } });
 }));
 
 // ============ 字幕生成（对齐文档第五步：剪辑阶段添加字幕） ============

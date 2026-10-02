@@ -163,7 +163,7 @@ export const projectService = {
 
   // 获取已落库的加料重构结果
   getEnrichment: (episodeId: string) =>
-    apiClient.get<unknown, ApiResponse<{ result: EnrichResult | null; status: string; skill: string | null; model: string | null; at: string | null }>>(
+    apiClient.get<unknown, ApiResponse<{ result: EnrichResult | null; status: string; skill: string | null; model: string | null; at: string | null; feedback: string | null; rejectCount: number }>>(
       `/episodes/${episodeId}/enrich`
     ),
 
@@ -171,7 +171,7 @@ export const projectService = {
   approveEnrichment: (episodeId: string) =>
     apiClient.post<unknown, ApiResponse<{ message: string }>>(`/episodes/${episodeId}/enrich/approve`),
 
-  // 打回重改
-  rejectEnrichment: (episodeId: string) =>
-    apiClient.post<unknown, ApiResponse<{ message: string }>>(`/episodes/${episodeId}/enrich/reject`),
+  // 打回重改（携带不满意反馈，重新加料时针对性改进）
+  rejectEnrichment: (episodeId: string, feedback?: string) =>
+    apiClient.post<unknown, ApiResponse<{ message: string }>>(`/episodes/${episodeId}/enrich/reject`, feedback ? { feedback } : {}),
 };
