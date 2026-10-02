@@ -65,8 +65,9 @@ function getTestImageSize(provider: string): '1024x1024' | '2048x2048' {
 function getDefaultVideoEndpoint(provider: string): string | null {
   const endpoints: Record<string, string> = {
     kling: 'https://api.klingai.com',
-    seedance: 'https://ark.cn-beijing.volces.com',
-    'doubao-video': 'https://ark.cn-beijing.volces.com',
+    seedance: 'https://ark.cn-beijing.volces.com/api/v3',
+    doubao: 'https://ark.cn-beijing.volces.com/api/v3',
+    'doubao-video': 'https://ark.cn-beijing.volces.com/api/v3',
     minimax: 'https://api.minimax.chat',
     'minimax-video': 'https://api.minimax.chat',
     hailuo: 'https://api.minimax.chat',
@@ -330,10 +331,15 @@ export const aiProxy = {
         if (!endpoint) {
           throw new Error('未配置端点 URL，无法测试连接');
         }
+        // 根据提供商选择正确的模型列表 API 路径
+        // 火山方舟（doubao/seedance）endpoint 已包含 /api/v3，测试路径为 /models
+        // 其他 OpenAI 兼容提供商测试路径为 /v1/models
+        const isVolcEngine = ['doubao', 'seedance', 'doubao-video'].includes(params.provider.toLowerCase());
+        const testPath = isVolcEngine ? '/models' : '/v1/models';
         // 发送轻量级 GET 请求验证端点可达性和 API Key 有效性
         // 返回 401/403 说明 API Key 无效；返回 404/405 说明端点可达但路径不对，API Key 可能有效
         try {
-          await httpRequest(`${endpoint.replace(/\/$/, '')}/v1/models`, {
+          await httpRequest(`${endpoint.replace(/\/$/, '')}${testPath}`, {
             method: 'GET',
             headers: {
               Authorization: `Bearer ${modelConfig.api_key}`,
