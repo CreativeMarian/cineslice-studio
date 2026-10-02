@@ -37,7 +37,7 @@ export interface ModelMeta {
   docsUrl?: string;
 }
 
-// ---------- 文本模型（24个） ----------
+// ---------- 文本模型（27个） ----------
 
 const TEXT_MODELS: ModelMeta[] = [
   // 豆包（火山方舟最新模型）
@@ -75,6 +75,35 @@ const TEXT_MODELS: ModelMeta[] = [
     scenarios: ['角色扮演', '剧本对话', '角色塑造'],
     supports: { jsonOutput: true, customEndpoint: true },
     costEstimate: { per1kTokens: 0.001 },
+    docsUrl: 'https://console.volcengine.com/ark/',
+  },
+  // 豆包 Seed 2.1 Lite 系列
+  {
+    provider: 'doubao', providerName: '字节豆包',
+    modelName: 'doubao-seed-2-1-lite-260915', displayName: '豆包 Seed 2.1 Lite',
+    modelType: 'text', description: '全新三模态理解大模型，1M超长上下文，深度思考+多模态理解+GUI任务处理，高并发高性价比',
+    scenarios: ['高并发场景', '多模态理解', '长文本分析', '批量生成', 'GUI任务'],
+    supports: { jsonOutput: true, customEndpoint: true, referenceImage: true },
+    costEstimate: { per1kTokens: 0.001 },
+    docsUrl: 'https://console.volcengine.com/ark/',
+  },
+  // 豆包 Seed 2.0 Mini 系列
+  {
+    provider: 'doubao', providerName: '字节豆包',
+    modelName: 'doubao-seed-2-0-mini-260428', displayName: '豆包 Seed 2.0 Mini',
+    modelType: 'text', description: '轻量级深度思考模型，256K上下文，多模态理解+GUI任务处理+工具调用，速度快成本低',
+    scenarios: ['日常对话', '批量生成', '工具调用', '高性价比', '多模态理解'],
+    supports: { jsonOutput: true, customEndpoint: true, referenceImage: true },
+    costEstimate: { per1kTokens: 0.0005 },
+    docsUrl: 'https://console.volcengine.com/ark/',
+  },
+  {
+    provider: 'doubao', providerName: '字节豆包',
+    modelName: 'doubao-seed-2-0-mini-260215', displayName: '豆包 Seed 2.0 Mini（旧版）',
+    modelType: 'text', description: '2.0 Mini 旧版，256K上下文，即将下线，建议升级到 260428 版',
+    scenarios: ['日常对话', '批量生成', '高性价比'],
+    supports: { jsonOutput: true, customEndpoint: true },
+    costEstimate: { per1kTokens: 0.0005 },
     docsUrl: 'https://console.volcengine.com/ark/',
   },
   // DeepSeek-V4 系列（火山方舟托管，有试用额度）
