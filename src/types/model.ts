@@ -37,7 +37,7 @@ export interface ModelMeta {
   docsUrl?: string;
 }
 
-// ---------- 文本模型（19个） ----------
+// ---------- 文本模型（24个） ----------
 
 const TEXT_MODELS: ModelMeta[] = [
   // 豆包（火山方舟最新模型）
@@ -75,6 +75,52 @@ const TEXT_MODELS: ModelMeta[] = [
     scenarios: ['角色扮演', '剧本对话', '角色塑造'],
     supports: { jsonOutput: true, customEndpoint: true },
     costEstimate: { per1kTokens: 0.001 },
+    docsUrl: 'https://console.volcengine.com/ark/',
+  },
+  // DeepSeek-V4 系列（火山方舟托管，有试用额度）
+  {
+    provider: 'doubao', providerName: '字节豆包',
+    modelName: 'deepseek-v4-pro-ga-260813', displayName: 'DeepSeek-V4-Pro 正式版',
+    modelType: 'text', description: 'DeepSeek V4 Pro 旗舰 MoE 大模型，百万级超长上下文，推理、代码及复杂 Agent 能力顶尖，适配高强度专业任务',
+    scenarios: ['复杂推理', '剧本结构分析', '代码生成', 'Agent任务', '长文本分析'],
+    supports: { jsonOutput: true, customEndpoint: true, referenceImage: true },
+    costEstimate: { per1kTokens: 0.004 },
+    docsUrl: 'https://console.volcengine.com/ark/',
+  },
+  {
+    provider: 'doubao', providerName: '字节豆包',
+    modelName: 'deepseek-v4-flash-ga-260731', displayName: 'DeepSeek-V4-Flash 正式版',
+    modelType: 'text', description: 'DeepSeek V4 Flash 高效经济版，共享先进架构，速度更快、成本更低，兼顾性能与效率，适合日常问答、轻量 Agent 和高并发场景',
+    scenarios: ['日常对话', '批量生成', '内容润色', '高性价比', '轻量Agent'],
+    supports: { jsonOutput: true, customEndpoint: true, referenceImage: true },
+    costEstimate: { per1kTokens: 0.003 },
+    docsUrl: 'https://console.volcengine.com/ark/',
+  },
+  {
+    provider: 'doubao', providerName: '字节豆包',
+    modelName: 'deepseek-v4-1-flash-260910', displayName: 'DeepSeek-V4.1-Flash',
+    modelType: 'text', description: 'DeepSeek V4.1 Flash 最新版，1M超长上下文，世界知识与长文理解能力领先，适用于高阶科研、复杂办公和深度研究分析',
+    scenarios: ['深度研究', '长文理解', '复杂办公', '高阶推理', '知识密集场景'],
+    supports: { jsonOutput: true, customEndpoint: true, referenceImage: true },
+    costEstimate: { per1kTokens: 0.003 },
+    docsUrl: 'https://console.volcengine.com/ark/',
+  },
+  {
+    provider: 'doubao', providerName: '字节豆包',
+    modelName: 'deepseek-v4-pro-260425', displayName: 'DeepSeek-V4-pro（预览版）',
+    modelType: 'text', description: 'DeepSeek V4 Pro 预览版，深度思考模型，推理能力强',
+    scenarios: ['复杂推理', '剧本创作', '通用对话'],
+    supports: { jsonOutput: true, customEndpoint: true },
+    costEstimate: { per1kTokens: 0.004 },
+    docsUrl: 'https://console.volcengine.com/ark/',
+  },
+  {
+    provider: 'doubao', providerName: '字节豆包',
+    modelName: 'deepseek-v4-flash-260425', displayName: 'DeepSeek-V4-Flash（预览版）',
+    modelType: 'text', description: 'DeepSeek V4 Flash 预览版，高效经济，速度快成本低',
+    scenarios: ['批量生成', '日常对话', '高性价比'],
+    supports: { jsonOutput: true, customEndpoint: true },
+    costEstimate: { per1kTokens: 0.003 },
     docsUrl: 'https://console.volcengine.com/ark/',
   },
   // 豆包（往期模型，即将下线）
