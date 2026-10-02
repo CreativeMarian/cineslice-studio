@@ -24,6 +24,8 @@ export function EnrichPanel({ episodeId, status, onStatusChange }: EnrichPanelPr
   const [expandedScript, setExpandedScript] = useState(false);
   const [expandedPrompt, setExpandedPrompt] = useState(true);
   const [copied, setCopied] = useState(false);
+  // 本地状态跟踪（确保重新加料后 UI 立即响应，不依赖父组件异步更新）
+  const [localStatus, setLocalStatus] = useState<string | null>(null);
   // 打回反馈相关状态
   const [showRejectDialog, setShowRejectDialog] = useState(false);
   const [rejectFeedback, setRejectFeedback] = useState('');
@@ -31,7 +33,8 @@ export function EnrichPanel({ episodeId, status, onStatusChange }: EnrichPanelPr
   const [rejectCount, setRejectCount] = useState(0);
   const [isRejecting, setIsRejecting] = useState(false);
 
-  const currentStatus = status || 'none';
+  // 优先使用本地状态（重新加料/打回/通过后立即更新），否则使用父组件传入的 status
+  const currentStatus = localStatus || status || 'none';
 
   // 加载已落库的加料结果时，同时获取打回反馈
   useEffect(() => {
@@ -53,13 +56,17 @@ export function EnrichPanel({ episodeId, status, onStatusChange }: EnrichPanelPr
       const res = await projectService.enrichEpisode(episodeId);
       if (res.success && res.data) {
         setResult(res.data);
-        onStatusChange(res.data.alignment.differences.length === 0 ? 'pending' : 'manual');
+        const newStatus = res.data.alignment.differences.length === 0 ? 'pending' : 'manual';
+        setLocalStatus(newStatus);
+        onStatusChange(newStatus as any);
         setEnrichStage('');
         if (res.data.alignment.differences.length > 0) {
           showToast('加料完成，但三表对账有差异，请人工检查', 'warning');
         } else {
           showToast('加料重构完成，请预览后确认', 'success');
         }
+      } else {
+        showToast('加料重构失败：未返回结果', 'error');
       }
     } catch (err: any) {
       const errorMsg = err?.response?.data?.message || err?.message || '加料重构失败';
@@ -73,6 +80,7 @@ export function EnrichPanel({ episodeId, status, onStatusChange }: EnrichPanelPr
   const handleApprove = async () => {
     try {
       await projectService.approveEnrichment(episodeId);
+      setLocalStatus('approved');
       onStatusChange('approved');
       showToast('已通过：后续分镜/视频将使用加料后剧本', 'success');
     } catch (err: any) {
@@ -90,6 +98,7 @@ export function EnrichPanel({ episodeId, status, onStatusChange }: EnrichPanelPr
     setIsRejecting(true);
     try {
       await projectService.rejectEnrichment(episodeId, rejectFeedback.trim() || undefined);
+      setLocalStatus('rejected');
       onStatusChange('rejected');
       setLastFeedback(rejectFeedback.trim() || null);
       setRejectCount(prev => prev + 1);

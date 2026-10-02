@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Users, MapPin, Package, Sparkles, MapPin as MapPinIcon, Wand2, Image as ImageIcon, RefreshCw, Trash2 } from 'lucide-react';
+import { Users, MapPin, Package, Sparkles, MapPin as MapPinIcon, Wand2, Image as ImageIcon, RefreshCw, Trash2, ChevronDown, Film } from 'lucide-react';
 import { Tabs, Button, Card, EmptyState, Badge, ImageModal, GenerationProgress, Textarea } from '../ui';
 import { CharacterCard } from './CharacterCard';
 import { CharacterDetail } from './CharacterDetail';
@@ -24,7 +24,7 @@ const PROP_CATEGORY_LABELS: Record<string, string> = {
 };
 
 export function StageAssets() {
-  const { characters, scenes, setCharacters, setScenes, currentEpisodeId } = useProjectStore();
+  const { characters, scenes, setCharacters, setScenes, currentEpisodeId, episodes, setCurrentEpisode } = useProjectStore();
   const { showToast } = useUIStore();
   const { getDefaultModel } = useDefaultModels();
   const [selectedCharacter, setSelectedCharacter] = useState<Character | null>(null);
@@ -34,6 +34,7 @@ export function StageAssets() {
   const [isExtractingChars, setIsExtractingChars] = useState(false);
   const [isExtractingScenes, setIsExtractingScenes] = useState(false);
   const [isExtractingProps, setIsExtractingProps] = useState(false);
+  const [episodeSelectOpen, setEpisodeSelectOpen] = useState(false);
   const [lastAssetModel, setLastAssetModel] = useState(() => {
     try { return localStorage.getItem('moo:last_asset_model') || ''; } catch { return ''; }
   });
@@ -240,14 +241,67 @@ export function StageAssets() {
     setSelectedCharacter(updated);
   };
 
+  const currentEpisode = episodes.find(e => e.id === currentEpisodeId);
+
+  // 集数选择器组件
+  const EpisodeSelector = () => (
+    <div className="relative">
+      <button
+        className="flex items-center gap-2 px-3 py-2 rounded-lg bg-[var(--panel-2)] border border-[var(--border)] hover:border-[var(--accent)] transition-colors text-sm"
+        onClick={() => setEpisodeSelectOpen(!episodeSelectOpen)}
+      >
+        <Film className="w-4 h-4 text-[var(--accent)]" />
+        <span className="text-[var(--ink-1)] font-medium">
+          {currentEpisode ? `第${currentEpisode.episode_number}集 · ${currentEpisode.title}` : '选择剧集'}
+        </span>
+        <ChevronDown className={`w-4 h-4 text-[var(--ink-3)] transition-transform ${episodeSelectOpen ? 'rotate-180' : ''}`} />
+      </button>
+      {episodeSelectOpen && (
+        <>
+          <div className="fixed inset-0 z-10" onClick={() => setEpisodeSelectOpen(false)} />
+          <div className="absolute top-full left-0 mt-1 w-72 max-h-80 overflow-y-auto rounded-lg bg-[var(--bg)] border border-[var(--border)] shadow-xl z-20">
+            {episodes.length === 0 ? (
+              <div className="p-4 text-sm text-[var(--ink-3)] text-center">暂无剧集，请先生成剧集</div>
+            ) : (
+              episodes.map(ep => (
+                <button
+                  key={ep.id}
+                  className={`w-full text-left px-3 py-2.5 hover:bg-[var(--panel-2)] transition-colors border-b border-[var(--border)]/50 last:border-0 ${ep.id === currentEpisodeId ? 'bg-[var(--accent-soft)]/50' : ''}`}
+                  onClick={() => {
+                    setCurrentEpisode(ep.id);
+                    setEpisodeSelectOpen(false);
+                    setSelectedCharacter(null);
+                  }}
+                >
+                  <div className="flex items-center gap-2">
+                    <span className={`text-xs font-medium px-1.5 py-0.5 rounded ${ep.id === currentEpisodeId ? 'bg-[var(--accent)] text-white' : 'bg-[var(--panel-2)] text-[var(--ink-2)]'}`}>
+                      第{ep.episode_number}集
+                    </span>
+                    <span className="text-sm text-[var(--ink-1)] truncate flex-1">{ep.title}</span>
+                  </div>
+                  {ep.script_content && (
+                    <p className="text-xs text-[var(--ink-3)] mt-1 truncate">{ep.script_content.slice(0, 50)}...</p>
+                  )}
+                </button>
+              ))
+            )}
+          </div>
+        </>
+      )}
+    </div>
+  );
+
   if (!currentEpisodeId) {
     return (
-      <div className="p-6">
+      <div className="p-6 max-w-[1400px] mx-auto">
+        <div className="flex items-center justify-between mb-4">
+          <EpisodeSelector />
+        </div>
         <Card>
           <EmptyState
             icon={<Users className="w-8 h-8" />}
             title="请先选择一集"
-            description="选择剧集后可提取和管理角色、场景、道具资产"
+            description="点击上方下拉框选择剧集后，可提取和管理角色、场景、道具资产"
           />
         </Card>
       </div>
@@ -256,6 +310,11 @@ export function StageAssets() {
 
   return (
     <div className="p-6 max-w-[1400px] mx-auto">
+      {/* 集数选择器 */}
+      <div className="flex items-center justify-between mb-4">
+        <EpisodeSelector />
+      </div>
+
       <Tabs defaultValue="characters">
         <Tabs.List>
           <Tabs.Trigger value="characters">
