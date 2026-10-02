@@ -213,6 +213,7 @@ export const aiProxy = {
     referenceImages?: string[];
     style?: string;
     saveSubDir?: string;
+    skipCache?: boolean;
   }): Promise<ImageGenerateResult> {
     const { db, userId, projectId } = params;
 
@@ -222,14 +223,16 @@ export const aiProxy = {
       throw createError(400, 'MODEL_NOT_CONFIGURED', `请先配置模型 ${params.provider}/${params.modelName} 的 API Key`);
     }
 
-    // 2. 检查图片缓存
+    // 2. 检查图片缓存（skipCache 时跳过）
     let cached = null;
-    try {
-      const refHash = params.referenceImages ? sha256(params.referenceImages.join(',')) : '';
-      const cacheKey = sha256(`img:${userId}:${projectId}:${params.saveSubDir || ''}:${params.provider}:${params.modelName}:${params.prompt}:${params.negativePrompt || ''}:${params.size || ''}:${refHash}`);
-      cached = AiCacheDAO.get(db, cacheKey);
-    } catch (cacheErr) {
-      console.error('[AI Proxy] 图片缓存读取失败（跳过）:', (cacheErr as Error).message);
+    if (!params.skipCache) {
+      try {
+        const refHash = params.referenceImages ? sha256(params.referenceImages.join(',')) : '';
+        const cacheKey = sha256(`img:${userId}:${projectId}:${params.saveSubDir || ''}:${params.provider}:${params.modelName}:${params.prompt}:${params.negativePrompt || ''}:${params.size || ''}:${refHash}`);
+        cached = AiCacheDAO.get(db, cacheKey);
+      } catch (cacheErr) {
+        console.error('[AI Proxy] 图片缓存读取失败（跳过）:', (cacheErr as Error).message);
+      }
     }
     if (cached) {
       console.log('[AI Proxy] 图片缓存命中');
@@ -282,17 +285,19 @@ export const aiProxy = {
       details: JSON.stringify({ model: params.modelName, count: localImages.length, provider: params.provider, projectId }),
     });
 
-    // 8. 写入缓存
-    try {
-      // 任一图片仍是远程回退 URL（下载失败）时不要缓存——24h 内会复用死链
-      const allLocal = finalResult.images.every((img) => img.url.startsWith('/data/'));
-      if (allLocal) {
-        const refHash2 = params.referenceImages ? sha256(params.referenceImages.join(',')) : '';
-        const cacheKey2 = sha256(`img:${userId}:${projectId}:${params.saveSubDir || ''}:${params.provider}:${params.modelName}:${params.prompt}:${params.negativePrompt || ''}:${params.size || ''}:${refHash2}`);
-        AiCacheDAO.set(db, cacheKey2, JSON.stringify(finalResult), 'image', 86400);
+    // 8. 写入缓存（skipCache 时跳过）
+    if (!params.skipCache) {
+      try {
+        // 任一图片仍是远程回退 URL（下载失败）时不要缓存——24h 内会复用死链
+        const allLocal = finalResult.images.every((img) => img.url.startsWith('/data/'));
+        if (allLocal) {
+          const refHash2 = params.referenceImages ? sha256(params.referenceImages.join(',')) : '';
+          const cacheKey2 = sha256(`img:${userId}:${projectId}:${params.saveSubDir || ''}:${params.provider}:${params.modelName}:${params.prompt}:${params.negativePrompt || ''}:${params.size || ''}:${refHash2}`);
+          AiCacheDAO.set(db, cacheKey2, JSON.stringify(finalResult), 'image', 86400);
+        }
+      } catch (cacheErr) {
+        console.error('[AI Proxy] 缓存写入失败（跳过）:', (cacheErr as Error).message);
       }
-    } catch (cacheErr) {
-      console.error('[AI Proxy] 缓存写入失败（跳过）:', (cacheErr as Error).message);
     }
 
     return finalResult;

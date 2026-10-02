@@ -193,6 +193,7 @@ router.post('/characters/:id/generate-image', validateBody(generateImageSchema),
         count: count || 1, size: '2048x2048',
         referenceImages: referenceImageUrl ? [referenceImageUrl] : undefined,
         saveSubDir: 'characters',
+        skipCache: true,
       });
       break;
     } catch (err) {
@@ -246,6 +247,7 @@ router.post('/characters/:id/generate-four-view', validateBody(generateImageSche
         count: 1, size: '2560x1440',
         referenceImages: referenceImageUrl ? [referenceImageUrl] : undefined,
         saveSubDir: 'characters',
+        skipCache: true,
       });
       break;
     } catch (err) {
@@ -553,6 +555,7 @@ router.post('/scenes/:id/generate-image', validateBody(generateImageSchema), asy
         provider, modelName, prompt, negativePrompt,
         count: count || 1, size: '2560x1440',
         saveSubDir: 'scenes',
+        skipCache: true,
       });
       break;
     } catch (err) {
@@ -743,6 +746,7 @@ router.post('/props/:id/generate-image', validateBody(generateImageSchema), asyn
         count: count || 1, size: '2048x2048',
         referenceImages: referenceImageUrl ? [referenceImageUrl] : undefined,
         saveSubDir: 'props',
+        skipCache: true,
       });
       break;
     } catch (err) {
