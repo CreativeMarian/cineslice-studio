@@ -206,9 +206,9 @@ router.post('/characters/:id/generate-image', validateBody(generateImageSchema),
   const existing = Array.isArray(character.concept_images) ? character.concept_images : [];
   const newImages = result.images.map(img => ({ url: img.url, model: modelName, prompt }));
   const allImages = [...existing, ...newImages];
-  ScriptCharacterDAO.update(db, character.id, { concept_images: JSON.stringify(allImages) });
+  const updatedCharacter = ScriptCharacterDAO.update(db, character.id, { concept_images: JSON.stringify(allImages) });
 
-  res.json({ success: true, data: newImages });
+  res.json({ success: true, data: updatedCharacter });
 }));
 
 // 生成角色四视图（面部特写 + 三视图：正面/侧面/背面）
