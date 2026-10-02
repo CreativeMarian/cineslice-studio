@@ -594,7 +594,7 @@ const TEXT_MODELS: ModelMeta[] = [
   },
 ];
 
-// ---------- 图像模型（12个） ----------
+// ---------- 图像模型（14个） ----------
 
 const IMAGE_MODELS: ModelMeta[] = [
   // 豆包（火山方舟最新图像模型）
@@ -604,6 +604,14 @@ const IMAGE_MODELS: ModelMeta[] = [
     modelType: 'image', description: '最新图像创作模型，精准图像编辑，解锁图层自由，支持文生图/图生图/多参考图',
     supports: { referenceImage: true, customEndpoint: true },
     costEstimate: { perImage: 0.02 },
+    docsUrl: 'https://console.volcengine.com/ark/',
+  },
+  {
+    provider: 'doubao', providerName: '字节豆包图片',
+    modelName: 'doubao-seedream-5-0-flash-260915', displayName: '豆包 Seedream 5.0 Flash',
+    modelType: 'image', description: '高速图像生成模型，能力与5.0 Pro一致，生图速度更快价格更低，支持交互编辑/图层拆分，适合时延和成本敏感场景',
+    supports: { referenceImage: true, customEndpoint: true },
+    costEstimate: { perImage: 0.015 },
     docsUrl: 'https://console.volcengine.com/ark/',
   },
   {
@@ -620,6 +628,14 @@ const IMAGE_MODELS: ModelMeta[] = [
     modelType: 'image', description: '图像生成模型，画质精细风格多样，支持单图生成和组图生成',
     supports: { referenceImage: true, customEndpoint: true },
     costEstimate: { perImage: 0.012 },
+    docsUrl: 'https://console.volcengine.com/ark/',
+  },
+  {
+    provider: 'doubao', providerName: '字节豆包图片',
+    modelName: 'doubao-seedream-4-0-250828', displayName: '豆包 Seedream 4.0',
+    modelType: 'image', description: '经典图像生成模型，稳定可靠，性价比高，支持文生图/图生图',
+    supports: { referenceImage: true, customEndpoint: true },
+    costEstimate: { perImage: 0.01 },
     docsUrl: 'https://console.volcengine.com/ark/',
   },
   // MiniMax 图片模型
