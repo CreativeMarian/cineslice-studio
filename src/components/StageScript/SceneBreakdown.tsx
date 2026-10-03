@@ -2,7 +2,6 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Clapperboard,
   Sparkles,
-  Image as ImageIcon,
   Edit3,
   Trash2,
   Camera,
@@ -11,7 +10,6 @@ import {
   Film,
   ChevronDown,
   ChevronUp,
-  Video,
   User,
   Sun,
   Zap,
@@ -456,27 +454,6 @@ const phaseGroups = [1, 2, 3, 4].map((p) => ({
                         <ParamBadge icon={<ArrowRight className="w-3 h-3" />} label="转场" value={TRANSITION_LABELS[shot.transition || 'cut'] || '硬切'} />
                         <ParamBadge icon={<Zap className="w-3 h-3" />} label="节奏" value={PACE_LABELS[shot.pace || 'normal'] || '中速'} />
                       </div>
-                    </div>
-
-                    {/* 生成按钮区 */}
-                    <div className="flex items-center gap-3 pt-2">
-                      <Button
-                        size="sm"
-                        variant="secondary"
-                        leftIcon={<ImageIcon className="w-4 h-4" />}
-                        onClick={() => showToast('请在导演工作台中生成关键帧', 'info')}
-                      >
-                        🖼️ 生成关键帧
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="secondary"
-                        leftIcon={<Video className="w-4 h-4" />}
-                        onClick={() => showToast('请在导演工作台中生成视频', 'info')}
-                      >
-                        🎬 生成视频
-                      </Button>
-                      <span className="text-xs text-[var(--ink-3)] ml-auto">跳转至导演工作台进行生成</span>
                     </div>
                   </div>
                 )}

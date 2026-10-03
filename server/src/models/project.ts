@@ -14,11 +14,11 @@ export const ProjectDAO = {
     language?: string;
     pipeline_step?: string;
     mode?: 'auto' | 'semi-auto';
-    style_preset_id?: string;
+    style_description?: string;
   }): Project {
     const id = generateId('proj');
     db.prepare(`
-      INSERT INTO projects (id, user_id, title, description, stage, status, genre, target_duration, language, pipeline_step, mode, style_preset_id, created_at, updated_at)
+      INSERT INTO projects (id, user_id, title, description, stage, status, genre, target_duration, language, pipeline_step, mode, style_description, created_at, updated_at)
       VALUES (?, ?, ?, ?, 'script', 'active', ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       id,
@@ -30,7 +30,7 @@ export const ProjectDAO = {
       data.language || 'zh',
       data.pipeline_step || 'novel',
       data.mode || 'semi-auto',
-      data.style_preset_id || null,
+      data.style_description || null,
       now(),
       now()
     );

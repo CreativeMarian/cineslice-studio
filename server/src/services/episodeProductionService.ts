@@ -10,21 +10,16 @@ import {
   ScriptCharacterDAO,
   ScriptSceneDAO,
   ProjectDAO,
-  UserPreferenceDAO,
 } from '../models';
 import { createError } from '../middleware/errorHandler';
 import { aiProxy } from './aiProxy';
-import { novelToScriptPrompt, polishScriptPrompt } from './prompts/novelToScript';
-import { shotGenerationPrompt } from './prompts/shotGeneration';
-import { keyframePrompt } from './prompts/keyframePrompt';
+import { buildNovelToScriptPrompt } from './prompts/novelToScript';
+import { buildShotGenerationPrompt } from './prompts/shotGeneration';
+import { buildKeyframePrompt } from './prompts/keyframe';
+import { buildVideoPrompt, type VideoPromptInput } from './prompts/video';
 import { projectStorage } from './projectStorage';
 import { downloadToFile } from '../utils/download';
 import { parseAiJsonOrThrow, parseAiJson , parseShotListArray } from '../utils/aiJsonParser';
-import { scriptAnalysisService } from './scriptAnalysisService';
-import { promptRefactorService } from './promptRefactorService';
-import { promptOptimizationService } from './promptOptimizationService';
-import { getProjectStylePreset } from './autoPipeline/helpers';
-import { directorPromptService } from './directorPromptService';
 import {
   resolveLastFrameForShot,
   resolvePreviousShotTailFrame,
@@ -37,15 +32,7 @@ import {
 import { parseSpeaker, stripSpeakerPrefix } from './voiceAssignment';
 import type { Database } from '../types';
 import { assessVideoClip } from './videoQualityGate';
-import { getPromptSkillForVideoModel, getPromptSkill } from './promptSkills';
-import type { PromptSkill } from './promptSkills/types';
 import { episodeEnrichService } from './episodeEnrichService';
-
-const DEFAULT_STYLE_OBJ = {
-  visualStyle: '真人短剧，电影级画质，2.35:1宽画幅，统一暖色调，浅景深，cinematic lighting，高细节，8k分辨率，真实人物皮肤质感，自然光影，统一视觉风格',
-  colorPalette: '暖色调，统一色彩风格',
-  cameraLanguage: '电影级镜头语言，稳定运镜',
-};
 
 /**
  * 从段级 h3Prompt 中按 [镜头N]（兼容 [Shot N]）切出单镜提示词段落。
@@ -69,61 +56,19 @@ function splitSegmentPromptByShot(h3Prompt: string, shotIndex: number, shotCount
 
 // ============ 共享工具 ============
 
-/** 解析项目风格预设；无预设或失败时返回默认风格（保持原路由行为） */
-function resolveStylePreset(db: Database, projectId: string | undefined): {
-  stylePresetObj: { visualStyle: string; colorPalette: string; cameraLanguage: string; rhythm?: string; presetName?: string };
-  unifiedStyle: string;
-} {
+/** 解析项目风格描述（极简系统：用户一句话存在 project.style_description，无则返回 null） */
+function resolveStyleDescription(db: Database, projectId: string | undefined): string | null {
   try {
     if (projectId) {
       const project = ProjectDAO.getById(db, projectId);
-      if (project?.style_preset_id) {
-        const preset = getProjectStylePreset(db, projectId);
-        if (preset) {
-          return { stylePresetObj: preset, unifiedStyle: preset.visualStyle };
-        }
+      if (project?.style_description && project.style_description.trim()) {
+        return project.style_description.trim();
       }
     }
   } catch {
-    // 获取风格预设失败，使用默认
+    // 获取风格描述失败，返回 null
   }
-  return { stylePresetObj: { ...DEFAULT_STYLE_OBJ }, unifiedStyle: DEFAULT_STYLE_OBJ.visualStyle };
-}
-
-/**
- * 按用户预选视频模型加载提示词 Skill。
- * 加载时机：剧本解析后、生成分镜和提取资产前（每个视频模型一个官方提示词 skill）。
- * 通过偏好 default_video_model（格式 "provider:modelName"）解析，命中注册表返回对应 skill。
- */
-function resolvePromptSkillForUser(db: Database, userId?: string | null): PromptSkill | undefined {
-  if (!userId) return undefined;
-  try {
-    const pref = UserPreferenceDAO.getByUser(db, userId);
-    return getPromptSkillForVideoModel(pref?.default_video_model || undefined);
-  } catch (err) {
-    console.error('[PromptSkill] 加载提示词 skill 失败:', err);
-    return undefined;
-  }
-}
-
-/**
- * 解析生成环节使用的提示词 Skill（关键帧/概念图/视频共用）：
- * 1. 优先按"本次实际调用的模型"命中专属 Skill（如图片模型未来有专属图片规范）；
- * 2. 未命中专属（getPromptSkill 返回 generic 兜底）时，回退"用户预选视频模型"的 Skill——
- *    因为关键帧/概念图是给视频模型做参考输入/首尾帧的，必须按视频模型官方规范生成；
- * 3. 视频模型也没有时，才用 generic 通用兜底。
- * 语义：提示词规范跟随"产物的最终消费者"（视频模型），而非执行调用的模型。
- */
-function resolveSkillForGeneration(
-  db: Database,
-  provider?: string | null,
-  modelName?: string | null,
-  userId?: string | null
-): PromptSkill {
-  const direct = getPromptSkill(provider, modelName);
-  if (direct && direct.id !== 'generic-video') return direct;
-  const userSkill = resolvePromptSkillForUser(db, userId);
-  return userSkill || direct;
+  return null;
 }
 
 /** 将本地相对路径图片转换为 base64 data URL（视频模型 API 需要可访问的图片） */
@@ -197,14 +142,11 @@ export async function regenerateEpisodeScript(
   const episode = NovelEpisodeDAO.getByIdAndUser(db, episodeId, userId);
   if (!episode) throw createError(404, 'NOT_FOUND', '剧集不存在');
 
-  const { systemPrompt, prompt } = novelToScriptPrompt({
-    novelContent: episode.script_content,
-    episodesCount: 1,
-  });
+  const prompt = buildNovelToScriptPrompt(episode.script_content);
 
   const result = await aiProxy.generateText({
     db, userId, provider, modelName,
-    prompt, systemPrompt, responseFormat: 'json', maxTokens: 32000,
+    prompt, responseFormat: 'json', maxTokens: 32000,
   });
 
   const contentPreview = result.content.length > 2000 ? result.content.slice(0, 2000) + '...[截断]' : result.content;
@@ -235,11 +177,14 @@ export async function polishEpisodeScript(
   const episode = NovelEpisodeDAO.getByIdAndUser(db, episodeId, userId);
   if (!episode) throw createError(404, 'NOT_FOUND', '剧集不存在');
 
-  const { systemPrompt, prompt } = polishScriptPrompt(episode.script_content);
+  // 润色提示词 - 极简版（不改变剧情与人物关系，只优化语言表达）
+  const prompt = `润色以下短剧剧本，保留核心剧情、人物关系和场景结构，只优化语言表达，使对话更精炼有力、更有戏剧冲突。
+
+${episode.script_content}`;
 
   const result = await aiProxy.generateText({
     db, userId, provider, modelName,
-    prompt, systemPrompt, responseFormat: 'json', maxTokens: 32000,
+    prompt, responseFormat: 'json', maxTokens: 32000,
   });
 
   const contentPreview = result.content.length > 2000 ? result.content.slice(0, 2000) + '...[截断]' : result.content;
@@ -330,11 +275,8 @@ export async function generateShotsForEpisode(
   const existingCharacters = ScriptCharacterDAO.listByEpisode(db, episode.id)
     .filter(c => c.name)
     .map(c => ({ name: c.name, appearance: c.visual_description || c.description || c.name }));
-  // 已有场景清单 → 约束镜头 sceneName 归属
-  const existingScenes = ScriptSceneDAO.listByEpisode(db, episode.id);
-  const sceneNames = existingScenes.map(s => s.name).filter(Boolean);
 
-  // 剧集元数据 fallback：如果资产阶段还没提取角色/道具，用剧集生成时输出的清单
+  // 剧集元数据 fallback：如果资产阶段还没提取角色，用剧集生成时输出的清单
   let characters = existingCharacters.length > 0 ? existingCharacters : undefined;
   if (!characters && episode.characters_json) {
     try {
@@ -345,32 +287,19 @@ export async function generateShotsForEpisode(
       }
     } catch { /* 解析失败忽略 */ }
   }
-  let keyItems: Array<{ name: string; description: string }> | undefined;
-  if (episode.key_items_json) {
-    try {
-      const items = JSON.parse(episode.key_items_json);
-      if (Array.isArray(items) && items.length > 0) {
-        keyItems = items.map((i: any) => ({ name: i.name, description: i.description || i.importance || '' }));
-      }
-    } catch { /* 解析失败忽略 */ }
-  }
 
-  const { systemPrompt, prompt } = shotGenerationPrompt({
-    scriptContent: episode.script_content,
-    shotDensity: shotDensity || 'normal',
-    includeDialogue: includeDialogue !== false,
-    characters,
-    sceneNames: sceneNames.length > 0 ? sceneNames : undefined,
-    keyItems,
-    episodeTheme: episode.theme || undefined,
-  });
-
-  // ── 重构式：分镜保持导演视角，官方公式适配统一交给提示词重构层（promptRefactorService）──
-  const finalSystem = systemPrompt;
+  // 极简分镜提示词：场景内容 + 出场角色
+  const charactersStr = characters && characters.length > 0
+    ? characters.map(c => `${c.name}: ${c.appearance}`).join('\n')
+    : '未指定';
+  const prompt = buildShotGenerationPrompt(
+    episode.script_content,
+    charactersStr
+  );
 
   const result = await aiProxy.generateText({
     db, userId, provider: textProvider, modelName: textModel,
-    prompt, systemPrompt: finalSystem, responseFormat: 'json', maxTokens: 32000,
+    prompt, responseFormat: 'json', maxTokens: 32000,
   });
 
   let shots: any[];
@@ -435,22 +364,6 @@ export async function generateShotsForEpisode(
       phase_name: s.phaseName || null,
     })));
   })();
-
-  // ── 提示词重构：分镜落库后按视频模型 Skill 官方公式重构成品提示词 ──
-  // 失败不阻塞主流程（下次视频生成时若缺成品会自动补重构）
-  try {
-    const created = episode ? ShotDAO.listByEpisode(db, episode!.id) : [];
-    const pref = UserPreferenceDAO.getByUser(db, userId);
-    const vp = pref?.default_video_model?.split(':')[0];
-    const vm = pref?.default_video_model?.split(':')[1];
-    console.log(`[GenerateShots] 开始重构 ${created.length} 个镜头的官方提示词成品...`);
-    for (const s of created) {
-      await promptRefactorService.refactorShotVideoPrompt(db, userId, s.id, { videoProvider: vp, videoModelName: vm });
-    }
-    console.log(`[GenerateShots] 分镜提示词重构完成`);
-  } catch (refactorErr) {
-    console.warn('[GenerateShots] 分镜提示词重构失败（不影响分镜主流程）:', (refactorErr as Error).message);
-  }
 }
 
 // ============ 关键帧 ============
@@ -477,19 +390,10 @@ export async function generateKeyframesForShot(
   const { provider, modelName, frameTypes, referenceCharacterIds, referenceSceneId } = opts;
   console.log('[Keyframe] start:', { provider, modelName, frameTypes, shotId: shot.id, projectId: episode.project_id });
 
-  // 获取项目风格预设（保证全片画风一致）
-  const { unifiedStyle, stylePresetObj } = resolveStylePreset(db, episode.project_id);
-
-  // 获取剧本分析结果（用于提示词优化）
-  let scriptAnalysis = null;
-  try {
-    scriptAnalysis = await scriptAnalysisService.analyzeScript(db, shot.episode_id, userId);
-  } catch (err) {
-    console.error('[Keyframe] 剧本分析失败（使用原始提示词）:', (err as Error).message);
-  }
+  // 获取项目风格描述（极简系统：一句话风格，拼在提示词开头）
+  const styleDescription = resolveStyleDescription(db, episode.project_id);
 
   // 获取参考角色（显式传入优先；缺省自动按镜头 characters_in_shot 收集——前端/批量入口无需感知，防旧图缓存与角色漂移）
-  const characters: Array<{ name: string; visualDescription: string }> = [];
   const referenceImages: string[] = [];
   const charRefs: string[] = (referenceCharacterIds && referenceCharacterIds.length > 0)
     ? referenceCharacterIds
@@ -501,10 +405,7 @@ export async function generateKeyframesForShot(
         const epChars = ScriptCharacterDAO.listByEpisode(db, shot.episode_id);
         c = epChars.find((x: any) => x.name === ref) || null;
       }
-      if (c) {
-        if (c.reference_image_url) referenceImages.push(c.reference_image_url);
-        characters.push({ name: c.name, visualDescription: c.visual_description });
-      }
+      if (c && c.reference_image_url) referenceImages.push(c.reference_image_url);
     }
   }
 
@@ -538,49 +439,10 @@ export async function generateKeyframesForShot(
       if (frameType === 'first' && segStart) frameSpecificDescription = segStart[1].trim();
       else if (frameType === 'last' && segEnd) frameSpecificDescription = segEnd[1].trim();
       else if (frameType === 'middle' && segProc) frameSpecificDescription = segProc[1].trim();
-      const { prompt: basePrompt, negativePrompt: baseNegativePrompt } = keyframePrompt({
-        shotDescription: frameSpecificDescription || shot.action_description,
-        characters,
-        scene: scene ? { name: scene.name, description: scene.description, timeOfDay: scene.time_of_day, atmosphere: scene.atmosphere } : undefined,
-        frameType: frameType as 'first' | 'last' | 'middle',
-        frameSpecificDescription,
-        stylePrompt: unifiedStyle,
-      });
-
-      // 提示词优化（基于剧本分析结果）
-      let finalPrompt = basePrompt;
-      let finalNegativePrompt = baseNegativePrompt;
-      if (scriptAnalysis) {
-        const shotContext = {
-          shotNumber: shot.shot_number || 0,
-          actionDescription: shot.action_description || '',
-          dialogue: shot.dialogue || '',
-          shotSize: shot.shot_size || 'medium',
-          cameraMovement: shot.camera_movement || 'static',
-          duration: shot.duration_seconds || 5,
-          charactersInShot: characters.map(c => c.name),
-          sceneName: scene?.name,
-        };
-        const optimized = promptOptimizationService.optimizeKeyframePrompt(
-          basePrompt,
-          shotContext,
-          scriptAnalysis,
-          stylePresetObj
-        );
-        finalPrompt = optimized.prompt;
-        if (optimized.negativePrompt) finalNegativePrompt = optimized.negativePrompt;
-        console.log('[Keyframe] 提示词优化:', promptOptimizationService.getOptimizationSummary(optimized));
-      }
-
-      // ── 提示词 Skill：图片模型命中专属规范则用专属，否则回退用户预选视频模型的官方规范（关键帧是视频模型的首尾帧/参考输入） ──
-      const promptSkill = resolveSkillForGeneration(db, provider, modelName, userId);
-      if (promptSkill) {
-        const anchor = promptSkill.keyframeAnchor?.(frameType as 'first' | 'last' | 'middle');
-        if (anchor) {
-          finalPrompt += '\n' + anchor;
-          console.log(`[PromptSkill] 关键帧(${frameType})加载官方提示词 skill: ${promptSkill.displayName}`);
-        }
-      }
+      // 极简关键帧提示词：风格描述 + 帧画面描述（一致性靠参考图）
+      const subject = frameSpecificDescription || shot.action_description || '';
+      const finalPrompt = buildKeyframePrompt(subject, styleDescription || undefined);
+      const finalNegativePrompt: string | undefined = undefined;
 
       console.log('[Keyframe] prompt generated:', finalPrompt.substring(0, 100));
 
@@ -644,54 +506,11 @@ export async function regenerateKeyframe(
 
   const shot = ShotDAO.getById(db, keyframe.shot_id);
   const episode = NovelEpisodeDAO.getById(db, shot!.episode_id);
-  const { provider, modelName, optimizePrompt } = opts;
+  const { provider, modelName } = opts;
 
-  // 如果用户要求优化提示词，则进行剧本分析和提示词优化
+  // 极简系统：直接用原提示词重生成（一致性靠参考图，不再做优化/包装）
   let finalPrompt = keyframe.prompt;
   let finalNegativePrompt = keyframe.negative_prompt || undefined;
-
-  if (optimizePrompt !== false) {
-    try {
-      // 获取项目风格预设
-      const { stylePresetObj } = resolveStylePreset(db, episode!.project_id);
-
-      // 获取剧本分析结果
-      const scriptAnalysis = await scriptAnalysisService.analyzeScript(db, shot!.episode_id, userId);
-
-      // 提示词优化
-      const shotContext = {
-        shotNumber: shot!.shot_number || 0,
-        actionDescription: shot!.action_description || '',
-        dialogue: shot!.dialogue || '',
-        shotSize: shot!.shot_size || 'medium',
-        cameraMovement: shot!.camera_movement || 'static',
-        duration: shot!.duration_seconds || 5,
-        charactersInShot: [],
-        sceneName: undefined,
-      };
-      const optimized = promptOptimizationService.optimizeKeyframePrompt(
-        keyframe.prompt,
-        shotContext,
-        scriptAnalysis,
-        stylePresetObj
-      );
-      finalPrompt = optimized.prompt;
-      if (optimized.negativePrompt) finalNegativePrompt = optimized.negativePrompt;
-      console.log('[Keyframe Regenerate] 提示词优化:', promptOptimizationService.getOptimizationSummary(optimized));
-    } catch (err) {
-      console.error('[Keyframe Regenerate] 提示词优化失败（使用原始提示词）:', (err as Error).message);
-    }
-  }
-
-  // ── 提示词 Skill：图片模型命中专属规范则用专属，否则回退用户预选视频模型的官方规范 ──
-  const promptSkill = resolveSkillForGeneration(db, provider, modelName, userId);
-  if (promptSkill?.keyframeAnchor) {
-    const anchor = promptSkill.keyframeAnchor((keyframe.frame_type as 'first' | 'last' | 'middle') || 'first');
-    if (anchor && !finalPrompt.includes('锚定')) {
-      finalPrompt += '\n' + anchor;
-      console.log(`[PromptSkill] 关键帧重生成加载官方提示词 skill: ${promptSkill.displayName}`);
-    }
-  }
 
   const result = await aiProxy.generateImage({
     db, userId, projectId: episode!.project_id,
@@ -713,117 +532,49 @@ export async function regenerateKeyframe(
 
 // ============ 视频生成 ============
 
-/** 从剧本分析中提取角色/场景上下文（用于视频提示词的人物一致性） */
-function buildVideoShotContext(db: Database, shot: any, scriptAnalysis: any, totalShots: number, duration: number, sceneWithLighting = true) {
-  // 获取该镜头中的角色信息（P0 一致性：优先按 shots.characters_in_shot 过滤，只注入该镜角色，防止无关角色乱入）
-  let charactersInShot: string[] = [];
-  const characterDetails: Record<string, string> = {};
-  const analysisChars: any[] = (scriptAnalysis && scriptAnalysis.characterAnalysis) || [];
-  const matchName = (shotName: string, charName: string) =>
-    shotName === charName || shotName.includes(charName) || charName.includes(shotName);
+/** 极简视频提示词构建：风格描述 + 动作 + 角色定妆 + 场景（一致性主要靠参考图） */
+function buildMinimalVideoPrompt(db: Database, shot: any, styleDescription: string | null): string {
+  const characters: Array<{ name: string; appearance: string }> = [];
   try {
-    // mapShotRow 已将 characters_in_shot 解析为数组；此处兼容字符串/数组两种形态
-    const rawCis: any = shot.characters_in_shot;
-    if (rawCis) {
-      let parsed: any = rawCis;
-      if (typeof rawCis === 'string') { try { parsed = JSON.parse(rawCis); } catch { parsed = []; } }
-      if (Array.isArray(parsed) && parsed.length > 0) {
-        charactersInShot = parsed.filter((n: any) => typeof n === 'string');
+    const charRefs = parseShotCharacterIds(shot);
+    for (const ref of charRefs) {
+      let c = ScriptCharacterDAO.getById(db, ref);
+      if (!c) {
+        const epChars = ScriptCharacterDAO.listByEpisode(db, shot.episode_id);
+        c = epChars.find((x: any) => x.name === ref) || null;
+      }
+      if (c && (c.visual_description || c.description)) {
+        const appearance = (c.visual_description || c.description || '').slice(0, 120);
+        characters.push({ name: c.name, appearance });
       }
     }
-    // 镜头无角色标记 → 退回全部分析角色
-    if (charactersInShot.length === 0 && analysisChars.length > 0) {
-      charactersInShot = analysisChars.map((c: any) => c.characterName);
-    }
-    // 按镜头角色过滤 characterDetails（用字符包含匹配兼容 桂芬/刘桂芬 等别名）
-    for (const char of analysisChars) {
-      if (char.characterName && char.visualTraits) {
-        const inShot = charactersInShot.some((n: string) => matchName(n, char.characterName));
-        if (inShot) {
-          // 优先使用角色定妆表的 visual_description（含年龄/面容/服装等权威描述），
-          // H3 对文本约束的遵循强于参考图，可显著改善人物年龄/身份漂移
-          const vd = resolveVisualDescription(db, shot.episode_id, char.characterName);
-          characterDetails[char.characterName] = vd || char.visualTraits;
-        }
-      }
-    }
-    // 从动作描述中提取角色名（兜底）
-    if (charactersInShot.length === 0 && shot.action_description) {
-      const nameMatches: string[] | null = shot.action_description.match(/[\u4e00-\u9fa5]{2,4}(?=[，。、\s])/g);
-      if (nameMatches) {
-        charactersInShot = [...new Set(nameMatches)].slice(0, 3);
-      }
-    }
-  } catch {
-    // 获取角色信息失败，使用空数组
+  } catch (err) {
+    console.warn('[Video] 角色信息解析失败:', (err as Error).message);
   }
 
-  // 获取场景信息
-  let sceneName: string | undefined;
-  let sceneDescription: string | undefined;
+  let scene: { name: string; environment: string } | undefined;
   try {
-    if (scriptAnalysis && scriptAnalysis.sceneAnalysis && scriptAnalysis.sceneAnalysis.length > 0) {
-      const scene = scriptAnalysis.sceneAnalysis[0];
-      sceneName = scene.sceneName;
-      sceneDescription = sceneWithLighting
-        ? `${scene.location}, ${scene.timeOfDay}, 氛围: ${scene.atmosphere?.join('/')}, 光线: ${scene.lighting}`
-        : `${scene.location}, ${scene.timeOfDay}, 氛围: ${scene.atmosphere?.join('/')}`;
+    if (shot.scene_id) {
+      const sc = ScriptSceneDAO.getById(db, shot.scene_id);
+      if (sc) {
+        const environment = (sc.description || sc.atmosphere || '').slice(0, 150);
+        scene = { name: sc.name, environment };
+      }
     }
-  } catch {
-    // 获取场景信息失败
+  } catch (err) {
+    console.warn('[Video] 场景信息解析失败:', (err as Error).message);
   }
 
-  return {
-    shotNumber: shot.shot_number || 0,
-    totalShots,
-    actionDescription: shot.action_description || '',
-    dialogue: shot.dialogue || '',
-    shotSize: shot.shot_size || 'medium',
-    cameraMovement: shot.camera_movement || 'static',
-    duration,
-    charactersInShot,
-    sceneName,
-    sceneDescription,
-    characterDetails,
+  const input: VideoPromptInput = {
+    styleDescription: styleDescription || undefined,
+    action: shot.action_description || '',
+    characters: characters.length > 0 ? characters : undefined,
+    scene,
   };
+  return buildVideoPrompt(input);
 }
-
-const SHOT_SIZE_LABELS: Record<string, string> = {
-  extreme_wide: '大远景，展现场景全貌',
-  long: '远景，人物全身与环境',
-  full: '全景，完整动作',
-  medium: '中景，膝盖以上',
-  medium_closeup: '近景，胸部以上',
-  closeup: '特写，肩部以上，情绪聚焦',
-  extreme_closeup: '大特写，细节强调',
-};
-
-const CAMERA_MOVEMENT_LABELS: Record<string, string> = {
-  push_in: '镜头缓慢推近，聚焦主体',
-  pull_out: '镜头缓慢拉远，展现场景',
-  pan: '镜头水平摇移，跟随动作',
-  tilt: '镜头垂直升降',
-  truck: '摄像机平行移动跟随人物',
-  crane: '镜头升降运动，宏大场面',
-  handheld: '手持镜头，轻微晃动，纪实紧张感',
-  steadicam: '稳定器平滑跟随，长镜头',
-  static: '固定镜头，稳定画面',
-};
 
 /** 生成单个镜头的视频（异步任务，返回处理中的记录） */
-/** 从角色定妆表解析 visual_description（episode+名称模糊匹配） */
-function resolveVisualDescription(db: Database, episodeId: string, charName: string): string | null {
-  try {
-    const chars = ScriptCharacterDAO.listByEpisode(db, episodeId) || [];
-    const hit = chars.find((c: any) =>
-      c.visual_description && (c.name === charName || c.name.includes(charName) || charName.includes(c.name))
-    );
-    return hit ? String(hit.visual_description).slice(0, 120) : null;
-  } catch (err) {
-    console.warn('[Video] visual_description 解析失败:', (err as Error).message);
-    return null;
-  }
-}
 
 export async function generateVideoForShot(
   db: Database,
@@ -904,126 +655,16 @@ export async function generateVideoForShot(
     shotReferenceImages = [imageToDataUrl(firstFrameUrl), ...shotReferenceImages];
   }
 
-  // 提示词优化（基于剧本分析结果）
+  // 极简视频提示词：未传入 motionPrompt 时用 buildVideoPrompt 构建（风格+动作+角色+场景）
   let finalMotionPrompt = motionPrompt;
-
-  try {
-    // 获取项目风格预设
-    const { stylePresetObj } = resolveStylePreset(db, episode?.project_id);
-
-    // 获取剧本分析结果
-    const scriptAnalysis = await scriptAnalysisService.analyzeScript(db, shot.episode_id, userId);
-
-    // 如果没有传入 motionPrompt，则自动构建基础提示词
-    let baseMotionPrompt = motionPrompt;
-    if (!baseMotionPrompt) {
-      const shotSizeDesc = SHOT_SIZE_LABELS[shot.shot_size] || '中景';
-      const cameraDesc = CAMERA_MOVEMENT_LABELS[shot.camera_movement] || '固定镜头';
-      baseMotionPrompt = `【景别】${shotSizeDesc}。【镜头运动】${cameraDesc}。【画面内容】${shot.action_description || ''}。【风格】${stylePresetObj.visualStyle}。`;
-    }
-
-    const shotContext = buildVideoShotContext(db, shot, scriptAnalysis, 0, shot.duration_seconds || 5);
-    const { charactersInShot, characterDetails, sceneName } = shotContext;
-
-    // 先使用导演提示词服务生成基础提示词（如果可用）
-    let directorPromptResult: any = null;
+  if (!finalMotionPrompt) {
     try {
-      // characterDetails 实际传的是 visualTraits 字符串表；原实现经动态 require 调用无类型检查，此处保持一致
-      directorPromptResult = directorPromptService.generateVideoPrompt(shotContext as any, scriptAnalysis);
-    } catch {
-      // 导演提示词服务不可用，继续使用优化服务
+      const styleDescription = resolveStyleDescription(db, episode?.project_id);
+      finalMotionPrompt = buildMinimalVideoPrompt(db, shot, styleDescription);
+    } catch (err) {
+      console.error('[Video] 提示词构建失败（使用原始动作描述）:', (err as Error).message);
+      finalMotionPrompt = shot.action_description || '';
     }
-
-    const optimized = promptOptimizationService.optimizeVideoPrompt(
-      directorPromptResult?.prompt || baseMotionPrompt,
-      shotContext,
-      scriptAnalysis,
-      stylePresetObj
-    );
-
-    // 直接按镜头角色从定妆表注入 visual_description（不依赖剧本分析的 visualTraits，保证始终有权威外貌描述）
-    if (charactersInShot.length > 0) {
-      for (const n of charactersInShot) {
-        if (typeof n === 'string' && n.trim()) {
-          const vd = resolveVisualDescription(db, shot.episode_id, n.trim());
-          if (vd && !Object.values(characterDetails).includes(vd)) characterDetails[n.trim()] = vd;
-        }
-      }
-    }
-    // 合并导演提示词和优化提示词，注入角色视觉描述确保人物一致性
-    // 【全局风格锚点】放在最开头，确保所有镜头统一风格
-    let finalPrompt = `【全局风格】${stylePresetObj.visualStyle}。${optimized.prompt}`;
-
-    // 角色视觉一致性：精简描述，只保留关键特征，避免冗余
-    if (Object.keys(characterDetails).length > 0) {
-      const charDescText = Object.entries(characterDetails)
-        .map(([name, desc]) => `${name}: ${String(desc).slice(0, 80)}`)
-        .join('；');
-      finalPrompt += `。【角色】${charDescText}。保持角色外观一致。`;
-    }
-    if (directorPromptResult?.negativePrompt) {
-      finalPrompt += `。【避免】${directorPromptResult.negativePrompt}`;
-    }
-
-    // 场景锚：精简描述，只保留关键环境细节
-    if (shot.scene_id) {
-      try {
-        const sc = ScriptSceneDAO.getById(db, shot.scene_id);
-        if (sc && sc.description) {
-          const sceneText = (sc.name + '。' + sc.description).replace(/\s+/g, ' ').slice(0, 120);
-          if (!finalPrompt.includes('【场景】')) {
-            finalPrompt += `【场景】${sceneText}。保持场景一致。`;
-          }
-        }
-      } catch (err) {
-        console.warn('[Video] 场景描述注入失败:', (err as Error).message);
-      }
-    }
-
-    // ── 提示词 Skill（重构式）：优先消费分镜重构成品（官方公式），缺成品/换模型时自动补重构 ──
-    const promptSkill = resolveSkillForGeneration(db, provider, modelName, userId);
-    let usedRefactored = false;
-    if (shot.video_prompt && shot.video_skill === promptSkill.id) {
-      finalPrompt = shot.video_prompt;
-      usedRefactored = true;
-      console.log(`[PromptSkill] 视频生成使用分镜重构成品提示词（${promptSkill.displayName}，${finalPrompt.length}字符）`);
-    } else {
-      try {
-        const refactored = await promptRefactorService.refactorShotVideoPrompt(db, userId, shot.id, { videoProvider: provider, videoModelName: modelName });
-        if (refactored) {
-          finalPrompt = refactored;
-          usedRefactored = true;
-          console.log(`[PromptSkill] 视频生成前自动补重构完成（${promptSkill.displayName}，${finalPrompt.length}字符）`);
-        }
-      } catch (refErr) {
-        console.warn('[PromptSkill] 分镜成品补重构失败，回退运行期包装:', (refErr as Error).message);
-      }
-    }
-    if (!usedRefactored && promptSkill) {
-      const skPrompt = promptSkill.buildVideoPrompt({
-        actionDescription: finalPrompt,
-        shotSize: shot.shot_size || 'medium',
-        cameraMovement: shot.camera_movement || 'static',
-        duration: duration || 5,
-        ratio: ratio || '16:9',
-        charactersInShot,
-        sceneName: shotContext.sceneName,
-        dialogue: (shot.dialogue || '').trim() || undefined,
-        stylePrompt: stylePresetObj.visualStyle,
-        isImageToVideo: true,
-        isFirstLastFrame: isFlf2vMode || !!lastFrameImageUrl,
-      });
-      if (skPrompt) {
-        finalPrompt = skPrompt;
-        console.log(`[PromptSkill] 视频生成运行期包装官方提示词 skill: ${promptSkill.displayName}（${isFlf2vMode || !!lastFrameImageUrl ? 'FL2VA首尾帧' : 'I2VA首帧'}模式，${(finalPrompt || '').length}字符）`);
-      }
-    }
-
-    finalMotionPrompt = finalPrompt;
-    console.log('[Video] 提示词优化:', promptOptimizationService.getOptimizationSummary(optimized));
-    console.log('[Video] 角色数:', charactersInShot.length, '场景:', sceneName || '未知');
-  } catch (err) {
-    console.error('[Video] 提示词优化失败（使用原始提示词）:', (err as Error).message);
   }
 
   // 创建视频片段记录
@@ -1298,8 +939,6 @@ export async function batchGenerateVideos(
   if (!episode) throw createError(404, 'NOT_FOUND', '剧集不存在');
 
   const { provider, modelName, shotIds, duration, ratio, resolution } = opts;
-  // 项目风格预设：保证批量视频与单镜/关键帧使用同一画风（此前硬编码默认风格导致预设失效）
-  const { stylePresetObj } = resolveStylePreset(db, episode.project_id);
   let shots = ShotDAO.listByEpisode(db, episode.id);
   if (shotIds && shotIds.length > 0) {
     shots = shots.filter(s => shotIds.includes(s.id));
@@ -1363,38 +1002,14 @@ export async function batchGenerateVideos(
       // 转换首帧为 base64
       const firstFrameImageForApi = imageToDataUrl(firstFrame.image_url);
 
-      // 提示词优化（人物一致性 + 导演级提示词）
-      let finalMotionPrompt = shot.action_description || '';
+      // 极简视频提示词：buildVideoPrompt 构建（风格+动作+角色+场景）
+      let finalMotionPrompt = '';
       try {
-        const scriptAnalysis = await scriptAnalysisService.analyzeScript(db, shot.episode_id, userId);
-        const shotContext = buildVideoShotContext(db, shot, scriptAnalysis, shots.length, duration || 5, false);
-        const { characterDetails } = shotContext;
-
-        // 导演提示词服务
-        let directorPromptResult: any = null;
-        try {
-          // 同上：保持原动态 require 调用的宽松类型行为
-          directorPromptResult = directorPromptService.generateVideoPrompt(shotContext as any, scriptAnalysis);
-        } catch { /* ignore */ }
-
-        // 提示词优化服务
-        const optimized = promptOptimizationService.optimizeVideoPrompt(
-          directorPromptResult?.prompt || shot.action_description || '',
-          shotContext,
-          scriptAnalysis,
-          stylePresetObj
-        );
-
-        // 合并提示词，注入角色视觉描述确保人物一致性
-        finalMotionPrompt = optimized.prompt;
-        if (Object.keys(characterDetails).length > 0) {
-          const charDescText = Object.entries(characterDetails)
-            .map(([name, desc]) => `${name}: ${desc}`)
-            .join('；');
-          finalMotionPrompt += `。【角色视觉一致性】${charDescText}。严格保持角色外观、服装、发型、发色与角色设定一致`;
-        }
+        const styleDescription = resolveStyleDescription(db, episode.project_id);
+        finalMotionPrompt = buildMinimalVideoPrompt(db, shot, styleDescription);
       } catch (err) {
-        console.error('[BatchVideo] 提示词优化失败:', (err as Error).message);
+        console.error('[BatchVideo] 提示词构建失败:', (err as Error).message);
+        finalMotionPrompt = shot.action_description || '';
       }
 
       const videoInterval = ShotVideoIntervalDAO.create(db, {

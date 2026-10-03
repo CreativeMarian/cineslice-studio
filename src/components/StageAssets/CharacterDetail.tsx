@@ -2,26 +2,21 @@ import { useState, useEffect, useCallback } from 'react';
 import {
   User,
   Sparkles,
-  Upload,
   Image as ImageIcon,
   Download,
   LayoutGrid,
   Edit3,
   Trash2,
-  Plus,
-  Shirt,
   Mic2,
-  Star,
 } from 'lucide-react';
 import { Modal, Button, Input, Textarea, Badge } from '../ui';
 import { ConfigPanel } from '../StageScript/ConfigPanel';
 import { characterService } from '../../services/assetService';
-import apiClient from '../../services/apiClient';
 import { useUIStore } from '../../stores/useUIStore';
 import { useModelStore } from '../../stores/useModelStore';
 import { parseModelKey } from '../../types/model';
 import { ROLE_TYPE_LABELS, GENDER_LABELS } from '../../utils';
-import type { Character, CharacterOutfit } from '../../types';
+import type { Character } from '../../types';
 
 // 豆包 TTS 8 音色（与后端 VOICE_LIBRARY 对齐，NovelReel 式角色声音档案）
 const VOICE_OPTIONS = [
@@ -65,65 +60,10 @@ export function CharacterDetail({ character, onClose, onUpdate, onDelete }: Char
   const [imagePrompt, setImagePrompt] = useState('');
   const [fourViewPrompt, setFourViewPrompt] = useState('');
 
-  // P1-4: 九宫格表情图
-  const [isGeneratingExpressions, setIsGeneratingExpressions] = useState(false);
-  const [expressionImages, setExpressionImages] = useState<Record<string, string>>({});
-  const EXPRESSION_TYPES = [
-    // 基础表情
-    { key: 'happy', name: '喜', category: 'macro', emoji: '😊' },
-    { key: 'angry', name: '怒', category: 'macro', emoji: '😠' },
-    { key: 'sad', name: '哀', category: 'macro', emoji: '😢' },
-    { key: 'surprised', name: '惊', category: 'macro', emoji: '😲' },
-    { key: 'fear', name: '恐', category: 'macro', emoji: '😨' },
-    { key: 'thinking', name: '思', category: 'macro', emoji: '🤔' },
-    { key: 'calm', name: '平静', category: 'macro', emoji: '😐' },
-    { key: 'smirk', name: '冷笑', category: 'macro', emoji: '😏' },
-    { key: 'crying', name: '哭泣', category: 'macro', emoji: '😭' },
-    // 微表情
-    { key: 'micro_smile', name: '浅笑', category: 'micro', emoji: '🙂' },
-    { key: 'micro_frown', name: '微蹙', category: 'micro', emoji: '😟' },
-    { key: 'micro_glance', name: '眼神闪烁', category: 'micro', emoji: '👀' },
-    { key: 'micro_clench', name: '咬唇', category: 'micro', emoji: '😬' },
-    { key: 'micro_nostril', name: '鼻翼微动', category: 'micro', emoji: '😤' },
-    { key: 'micro_eyeroll', name: '眼波流转', category: 'micro', emoji: '😏' },
-    { key: 'micro_tremble', name: '嘴角微颤', category: 'micro', emoji: '🥺' },
-    { key: 'micro_blink', name: '频繁眨眼', category: 'micro', emoji: '😰' },
-    // 心理活动
-    { key: 'hesitation', name: '犹豫', category: 'psychology', emoji: '🤷' },
-    { key: 'tension', name: '紧张', category: 'psychology', emoji: '😰' },
-    { key: 'anticipation', name: '期待', category: 'psychology', emoji: '🤩' },
-    { key: 'restraint', name: '隐忍', category: 'psychology', emoji: '😣' },
-    { key: 'doubt', name: '怀疑', category: 'psychology', emoji: '🤨' },
-    { key: 'longing', name: '思念', category: 'psychology', emoji: '🥹' },
-    { key: 'determination', name: '决绝', category: 'psychology', emoji: '😠' },
-    { key: 'guilt', name: '愧疚', category: 'psychology', emoji: '😔' },
-  ];
-  const EXPRESSION_CATEGORIES = [
-    { key: 'macro', label: '基础表情', color: 'text-blue-500' },
-    { key: 'micro', label: '微表情', color: 'text-purple-500' },
-    { key: 'psychology', label: '心理活动', color: 'text-pink-500' },
-  ];
-
   // 音色档案（NovelReel 式：跨镜头/跨集声音一致）
   const [voice, setVoice] = useState<string>('');
   const [speed, setSpeed] = useState<number>(1.0);
 
-  // 衣橱（BigBanana Base Look 方案）
-  const [outfits, setOutfits] = useState<CharacterOutfit[]>([]);
-  const [outfitModalOpen, setOutfitModalOpen] = useState(false);
-  const [newOutfitName, setNewOutfitName] = useState('');
-  const [newOutfitDesc, setNewOutfitDesc] = useState('');
-  const [outfitGenTarget, setOutfitGenTarget] = useState<CharacterOutfit | null>(null);
-  const [isGeneratingOutfitImage, setIsGeneratingOutfitImage] = useState(false);
-
-  const loadOutfits = async (characterId: string) => {
-    try {
-      const res = await apiClient.get<unknown, { success?: boolean; data?: CharacterOutfit[] }>(`/characters/${characterId}/outfits`);
-      if (res.success && res.data) setOutfits(res.data);
-    } catch {
-      setOutfits([]);
-    }
-  };
   // 生成默认概念图提示词（正位站立，严谨描述，可用于视频生成）
   const generateDefaultImagePrompt = useCallback(() => {
     const genderText = character?.gender === 'male' ? '男性' : character?.gender === 'female' ? '女性' : '人物';
@@ -155,7 +95,6 @@ export function CharacterDetail({ character, onClose, onUpdate, onDelete }: Char
         setSpeed(1.0);
       }
     }
-    if (character) loadOutfits(character.id);
   }, [character, generateDefaultImagePrompt, generateDefaultFourViewPrompt]);
 
   // 外貌描述变化时更新提示词
@@ -174,20 +113,6 @@ export function CharacterDetail({ character, onClose, onUpdate, onDelete }: Char
     if (model) return `${model.provider}/${model.model_name}`;
     return '';
   })();
-
-  // 加载已有表情图（必须在提前返回之前）
-  useEffect(() => {
-    if (character?.expression_images) {
-      try {
-        const parsed = JSON.parse(character.expression_images);
-        setExpressionImages(parsed);
-      } catch {
-        setExpressionImages({});
-      }
-    } else {
-      setExpressionImages({});
-    }
-  }, [character?.expression_images, character?.id]);
 
   if (!character) return null;
 
@@ -277,109 +202,6 @@ export function CharacterDetail({ character, onClose, onUpdate, onDelete }: Char
       console.error('[FourView] 生成失败:', err);
     } finally {
       setIsGeneratingFourView(false);
-    }
-  };
-
-  // ============ P1-4: 九宫格表情图 ============
-  const handleGenerateExpressions = async () => {
-    if (!character) return;
-    const defaultImageModel = getDefaultModel('image');
-    if (!defaultImageModel) {
-      showToast('请先在模型配置中设置默认图像模型', 'error');
-      return;
-    }
-    setIsGeneratingExpressions(true);
-    try {
-      const provider = defaultImageModel.provider;
-      const modelName = defaultImageModel.model_name;
-      const res = await apiClient.post<unknown, { success?: boolean; data?: { expressions: Record<string, string> } }>(
-        `/characters/${character.id}/generate-expressions`,
-        { provider, modelName }
-      );
-      if (res.success && res.data?.expressions) {
-        setExpressionImages(res.data.expressions);
-        const count = Object.keys(res.data.expressions).length;
-        showToast(`表情图生成成功（${count}/25），视频生成将自动匹配表情参考`, 'success');
-      } else {
-        showToast('表情图生成失败', 'error');
-      }
-    } catch (err: any) {
-      const errorMsg = err?.response?.data?.message || err?.message || '表情图生成失败';
-      showToast(errorMsg, 'error');
-      console.error('[Expressions] 生成失败:', err);
-    } finally {
-      setIsGeneratingExpressions(false);
-    }
-  };
-
-  // ============ 衣橱操作 ============
-
-  const handleAddOutfit = async () => {
-    if (!newOutfitName.trim()) {
-      showToast('请输入造型名称', 'error');
-      return;
-    }
-    try {
-      const res = await apiClient.post<unknown, { success?: boolean; data?: CharacterOutfit; message?: string }>(`/characters/${character.id}/outfits`, {
-        name: newOutfitName.trim(),
-        description: newOutfitDesc.trim(),
-      });
-      if (res.success && res.data) {
-        setOutfits(prev => [...prev, res.data!]);
-        setNewOutfitName('');
-        setNewOutfitDesc('');
-        setOutfitModalOpen(false);
-        showToast('造型已添加', 'success');
-      } else {
-        showToast(res.message || '添加失败', 'error');
-      }
-    } catch (err: any) {
-      showToast(err?.response?.data?.message || '添加失败', 'error');
-    }
-  };
-
-  const handleSetDefaultOutfit = async (outfit: CharacterOutfit) => {
-    try {
-      const res = await apiClient.put<unknown, { success?: boolean; data?: CharacterOutfit }>(`/outfits/${outfit.id}/default`);
-      if (res.success && res.data) {
-        setOutfits(prev => prev.map(o => ({ ...o, is_default: o.id === outfit.id ? 1 : 0 })));
-        showToast(`已将「${outfit.name}」设为默认造型，将作为角色参考图注入镜头`, 'success');
-      }
-    } catch {
-      showToast('设置默认造型失败', 'error');
-    }
-  };
-
-  const handleDeleteOutfit = async (outfit: CharacterOutfit) => {
-    try {
-      await apiClient.delete(`/outfits/${outfit.id}`);
-      setOutfits(prev => prev.filter(o => o.id !== outfit.id));
-      showToast('造型已删除', 'success');
-    } catch {
-      showToast('删除失败', 'error');
-    }
-  };
-
-  const handleGenerateOutfitImage = async (params: { modelKey: string }) => {
-    if (!outfitGenTarget) return;
-    setIsGeneratingOutfitImage(true);
-    try {
-      const { provider, modelName } = parseModelKey(params.modelKey);
-      const res = await apiClient.post<unknown, { success?: boolean; data?: CharacterOutfit; message?: string }>(`/outfits/${outfitGenTarget.id}/generate-image`, {
-        provider,
-        modelName,
-      });
-      if (res.success && res.data) {
-        setOutfits(prev => prev.map(o => o.id === res.data!.id ? res.data! : o));
-        showToast('造型图生成成功（保持面容一致，仅换装）', 'success');
-      } else {
-        showToast(res.message || '造型图生成失败', 'error');
-      }
-    } catch (err: any) {
-      showToast(err?.response?.data?.message || '造型图生成失败', 'error');
-    } finally {
-      setIsGeneratingOutfitImage(false);
-      setOutfitGenTarget(null);
     }
   };
 
@@ -473,9 +295,6 @@ export function CharacterDetail({ character, onClose, onUpdate, onDelete }: Char
               >
                 生成概念图
               </Button>
-              <Button variant="outline" size="sm" leftIcon={<Upload className="w-4 h-4" />}>
-                上传
-              </Button>
             </div>
 
             {/* 四视图区域 */}
@@ -506,60 +325,6 @@ export function CharacterDetail({ character, onClose, onUpdate, onDelete }: Char
                 <div className="aspect-video rounded-lg border border-dashed border-[var(--border)] bg-[var(--panel-2)]/50 flex items-center justify-center">
                   <p className="text-xs text-[var(--ink-3)]">点击「生成四视图」生成面部特写+正面/侧面/背面三视图</p>
                 </div>
-              )}
-            </div>
-
-            {/* P1-4: 九宫格表情图 */}
-            <div className="rounded-xl border border-[var(--border)] bg-[var(--panel)] p-4">
-              <div className="flex items-center justify-between mb-3">
-                <p className="text-xs font-medium text-[var(--ink-2)] flex items-center gap-1">
-                  <span className="text-base">🎭</span> 表情图库（25张 · 基础/微表情/心理活动）
-                </p>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  leftIcon={<Sparkles className="w-3 h-3" />}
-                  onClick={handleGenerateExpressions}
-                  isLoading={isGeneratingExpressions}
-                >
-                  {Object.keys(expressionImages).length > 0 ? '重新生成' : '生成表情图'}
-                </Button>
-              </div>
-              {EXPRESSION_CATEGORIES.map(cat => (
-                <div key={cat.key} className="mb-4 last:mb-0">
-                  <p className={`text-xs font-semibold mb-2 ${cat.color}`}>
-                    {cat.label}（{EXPRESSION_TYPES.filter(e => e.category === cat.key).length}种）
-                  </p>
-                  <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
-                    {EXPRESSION_TYPES.filter(e => e.category === cat.key).map(expr => (
-                      <div
-                        key={expr.key}
-                        className="aspect-square rounded-lg border border-[var(--border)] bg-[var(--panel-2)] overflow-hidden relative group"
-                      >
-                        {expressionImages[expr.key] ? (
-                          <img
-                            src={expressionImages[expr.key]}
-                            alt={`${character.name} ${expr.name}表情`}
-                            className="w-full h-full object-cover"
-                          />
-                        ) : (
-                          <div className="w-full h-full flex flex-col items-center justify-center text-[var(--ink-3)]">
-                            <span className="text-2xl mb-1">{expr.emoji}</span>
-                            <span className="text-xs">{expr.name}</span>
-                          </div>
-                        )}
-                        <div className="absolute bottom-0 left-0 right-0 bg-black/50 text-white text-xs py-0.5 text-center">
-                          {expr.emoji} {expr.name}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              ))}
-              {Object.keys(expressionImages).length > 0 && (
-                <p className="text-xs text-[var(--ink-3)] mt-2 pt-2 border-t border-[var(--border)]">
-                  已生成 {Object.keys(expressionImages).length}/25 张表情图，视频生成时将根据镜头情绪自动匹配（心理活动优先，微表情次之）
-                </p>
               )}
             </div>
           </div>
@@ -634,81 +399,6 @@ export function CharacterDetail({ character, onClose, onUpdate, onDelete }: Char
               <p className="text-[10px] text-[var(--ink-3)] mt-1.5">保存后该角色台词将始终使用此音色，配音不再漂移</p>
             </div>
 
-            {/* 衣橱 / 多套造型（BigBanana Base Look） */}
-            <div className="p-3 rounded-[var(--radius-control)] bg-[var(--panel-2)] border border-[var(--border)]">
-              <div className="flex items-center justify-between mb-2">
-                <p className="text-xs font-medium text-[var(--ink-2)] flex items-center gap-1">
-                  <Shirt className="w-3 h-3" /> 衣橱 / 多套造型
-                </p>
-                <Button variant="outline" size="sm" leftIcon={<Plus className="w-3 h-3" />} onClick={() => setOutfitModalOpen(true)}>
-                  新增造型
-                </Button>
-              </div>
-              <p className="text-[10px] text-[var(--ink-3)] mb-2">默认造型图会作为角色参考图注入镜头生成，保证跨镜服装一致</p>
-              {outfits.length === 0 ? (
-                <div className="rounded-lg border border-dashed border-[var(--border)] py-4 text-center">
-                  <p className="text-xs text-[var(--ink-3)]">还没有造型。新增造型后可生成换装图（保持面容一致，仅更换服装）</p>
-                </div>
-              ) : (
-                <div className="grid grid-cols-3 gap-2">
-                  {outfits.map(o => (
-                    <div key={o.id} className={`rounded-lg overflow-hidden border ${o.is_default ? 'border-[var(--accent)] ring-1 ring-[var(--accent)]/30' : 'border-[var(--border)]'}`}>
-                      <div className="aspect-[3/4] bg-[var(--panel-3)] relative group">
-                        {o.image_url ? (
-                          <img src={o.image_url} alt={o.name} className="w-full h-full object-cover" />
-                        ) : (
-                          <div className="w-full h-full flex items-center justify-center">
-                            <Shirt className="w-6 h-6 text-[var(--ink-3)] opacity-50" />
-                          </div>
-                        )}
-                        {o.is_default === 1 && (
-                          <span className="absolute top-1 left-1 flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-[var(--accent)] text-white text-[9px]">
-                            <Star className="w-2.5 h-2.5" /> 默认
-                          </span>
-                        )}
-                      </div>
-                      <div className="p-1.5">
-                        <p className="text-[10px] text-[var(--ink-1)] truncate">{o.name}</p>
-                        {o.image_url ? (
-                          <button
-                            onClick={() => setOutfitGenTarget(o)}
-                            className="mt-1 w-full px-1 py-0.5 rounded text-[9px] text-[var(--accent)] border border-[var(--accent)]/30 hover:bg-[var(--accent)]/10 transition-colors"
-                          >
-                            <Sparkles className="w-2.5 h-2.5 inline mr-0.5" />
-                            重新生成换装图
-                          </button>
-                        ) : (
-                          <button
-                            onClick={() => setOutfitGenTarget(o)}
-                            className="mt-1 w-full px-1 py-0.5 rounded text-[9px] text-[var(--accent)] border border-[var(--accent)]/30 hover:bg-[var(--accent)]/10 transition-colors"
-                          >
-                            <Sparkles className="w-2.5 h-2.5 inline mr-0.5" />
-                            生成造型图
-                          </button>
-                        )}
-                        <div className="mt-1 flex gap-1">
-                          {o.is_default !== 1 && (
-                            <button
-                              onClick={() => handleSetDefaultOutfit(o)}
-                              className="flex-1 px-1 py-0.5 rounded text-[9px] text-[var(--ink-2)] border border-[var(--border)] hover:bg-[var(--panel-3)] transition-colors"
-                            >
-                              设为默认
-                            </button>
-                          )}
-                          <button
-                            onClick={() => handleDeleteOutfit(o)}
-                            className="flex-1 px-1 py-0.5 rounded text-[9px] text-red-500 border border-red-500/30 hover:bg-red-500/10 transition-colors"
-                          >
-                            删除
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-
             {/* 概念图提示词编辑 */}
             <div className="p-3 rounded-[var(--radius-control)] bg-[var(--panel-2)] border border-[var(--border)]">
               <div className="flex items-center justify-between mb-2">
@@ -776,51 +466,6 @@ export function CharacterDetail({ character, onClose, onUpdate, onDelete }: Char
         modelType="image"
         onGenerate={handleGenerateFourView}
         isLoading={isGeneratingFourView}
-        defaultModelKey={defaultImageModelKey}
-      />
-
-      {/* 新增造型弹窗 */}
-      <Modal
-        open={outfitModalOpen}
-        onOpenChange={setOutfitModalOpen}
-        title="新增造型"
-        size="md"
-        footer={
-          <>
-            <Button variant="secondary" onClick={() => setOutfitModalOpen(false)}>
-              取消
-            </Button>
-            <Button onClick={handleAddOutfit}>添加造型</Button>
-          </>
-        }
-      >
-        <div className="space-y-3">
-          <Input
-            label="造型名称"
-            value={newOutfitName}
-            onChange={(e) => setNewOutfitName(e.target.value)}
-            placeholder="如：便装 / 晚礼服 / 古装 / 战斗服"
-          />
-          <Textarea
-            label="造型描述（用于生成换装图）"
-            value={newOutfitDesc}
-            onChange={(e) => setNewOutfitDesc(e.target.value)}
-            rows={3}
-            placeholder="如：黑色西装的正式着装，深蓝色领带，皮鞋；或 浅蓝色汉服长裙，发髻..."
-          />
-          <p className="text-[10px] text-[var(--ink-3)]">添加后点击「生成造型图」，将保持角色面容一致、仅更换服装</p>
-        </div>
-      </Modal>
-
-      {/* 生成造型图（用角色定妆照作参考换装） */}
-      <ConfigPanel
-        open={!!outfitGenTarget}
-        onOpenChange={(open) => !open && setOutfitGenTarget(null)}
-        title={`生成造型图：${outfitGenTarget?.name || ''}`}
-        description={`保持「${character.name}」面部、体型、发型一致，仅更换为：${outfitGenTarget?.description || outfitGenTarget?.name || ''}`}
-        modelType="image"
-        onGenerate={handleGenerateOutfitImage}
-        isLoading={isGeneratingOutfitImage}
         defaultModelKey={defaultImageModelKey}
       />
     </>

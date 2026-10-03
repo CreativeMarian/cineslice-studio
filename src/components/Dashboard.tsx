@@ -9,7 +9,6 @@ import { Button, Card, EmptyState, Modal, Input, Badge } from './ui';
 import { projectService } from '../services/projectService';
 import { modelConfigService } from '../services/modelConfigService';
 import { useUIStore } from '../stores/useUIStore';
-import { StylePresetSelector } from './StylePreset/StylePresetSelector';
 import { TaskCenter } from './ui/TaskCenter';
 import type { Project, PipelineMode } from '../types';
 import { formatRelativeTime } from '../utils';
@@ -25,7 +24,7 @@ export function Dashboard() {
   const [newTitle, setNewTitle] = useState('');
   const [newDesc, setNewDesc] = useState('');
   const [newMode, setNewMode] = useState<PipelineMode>('semi-auto');
-  const [newStylePresetId, setNewStylePresetId] = useState<string | undefined>(undefined);
+  const [newStyleDescription, setNewStyleDescription] = useState('');
   const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [modelCount, setModelCount] = useState(0);
@@ -107,7 +106,7 @@ export function Dashboard() {
         title: newTitle,
         description: newDesc,
         mode: newMode,
-        style_preset_id: newStylePresetId,
+        style_description: newStyleDescription || undefined,
       });
       if (res.success && res.data) {
         showToast('项目创建成功', 'success');
@@ -115,7 +114,7 @@ export function Dashboard() {
         setNewTitle('');
         setNewDesc('');
         setNewMode('semi-auto');
-        setNewStylePresetId(undefined);
+        setNewStyleDescription('');
         navigate(`/projects/${res.data.id}`);
       }
     } catch {
@@ -471,6 +470,11 @@ export function Dashboard() {
                             <Clock className="w-3.5 h-3.5" />
                             {formatRelativeTime(project.updated_at)}
                           </span>
+                          {project.style_description && (
+                            <span className="truncate max-w-[220px]" title={project.style_description}>
+                              {project.style_description}
+                            </span>
+                          )}
                           {!isArchived && (
                             <span className="flex items-center gap-1.5">
                               <span className="text-[var(--term-green)]">{progress}%</span>
@@ -674,11 +678,14 @@ export function Dashboard() {
             </div>
           </div>
 
-          <StylePresetSelector
-            value={newStylePresetId}
-            onChange={(id) => setNewStylePresetId(id)}
-            showDetails={false}
-          />
+          <div>
+            <label className="block text-sm font-medium text-[var(--ink-2)] mb-1.5">风格描述（可选）</label>
+            <Input
+              placeholder="如：真人短剧，电影级画质"
+              value={newStyleDescription}
+              onChange={(e) => setNewStyleDescription(e.target.value)}
+            />
+          </div>
         </div>
       </Modal>
 

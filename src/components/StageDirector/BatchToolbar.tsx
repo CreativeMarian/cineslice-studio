@@ -1,12 +1,13 @@
-// 批量生成工具栏：模型选择 + 一键批量生成首帧/视频（自含批量逻辑与进度状态）
+// 批量生成工具栏：模型选择 + 一键批量生成首帧/视频 + 批量删除（自含批量逻辑与进度状态）
 import { useEffect, useState } from 'react';
-import { Video, Image, Zap, Layers, ShieldCheck } from 'lucide-react';
-import { Card, Button, Modal, Badge } from '../ui';
+import { Video, Image, Zap, Layers, Trash2 } from 'lucide-react';
+import { Card, Button, Modal } from '../ui';
 import { useProjectStore } from '../../stores/useProjectStore';
 import { useModelStore } from '../../stores/useModelStore';
 import { useUIStore } from '../../stores/useUIStore';
 import { ModelSelector } from '../ModelConfig/ModelSelector';
 import { videoService } from '../../services/videoService';
+import { shotService } from '../../services/shotService';
 import { useStoredModelKey } from './useStoredModelKey';
 import apiClient from '../../services/apiClient';
 
@@ -64,31 +65,34 @@ export function BatchToolbar() {
   const [batchImageModel, setBatchImageModel] = useStoredModelKey('moo:last_image_model');
   const [batchVideoModel, setBatchVideoModel] = useStoredModelKey('moo:last_video_model');
 
-  // P1-1: 一致性检查报告
-  const [isCheckingConsistency, setIsCheckingConsistency] = useState(false);
-  const [consistencyReport, setConsistencyReport] = useState<any>(null);
-  const [showConsistencyModal, setShowConsistencyModal] = useState(false);
+  // 批量删除
+  const [isBatchDeleting, setIsBatchDeleting] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
-  const handleCheckConsistency = async () => {
+  const handleBatchDelete = async () => {
     if (!currentEpisodeId) return;
-    setIsCheckingConsistency(true);
+    setShowDeleteConfirm(false);
+    setIsBatchDeleting(true);
     try {
-      const res = await apiClient.get<unknown, { success?: boolean; data?: any }>(`/episodes/${currentEpisodeId}/consistency-report`);
-      if (res.success && res.data) {
-        setConsistencyReport(res.data);
-        setShowConsistencyModal(true);
-        if (res.data.checkedShots > 0) {
-          showToast(`一致性检查完成：平均分 ${res.data.averageScore}，通过 ${res.data.passedShots}/${res.data.checkedShots}`, res.data.failedShots > 0 ? 'warning' : 'success');
-        } else {
-          showToast('暂无已完成视频可检查，请先生成视频', 'info');
+      let success = 0;
+      let failed = 0;
+      for (const shot of shots) {
+        try {
+          const res = await shotService.delete(shot.id);
+          if (res.success) success += 1;
+          else failed += 1;
+        } catch {
+          failed += 1;
         }
-      } else {
-        showToast('一致性检查失败', 'error');
       }
-    } catch (err: any) {
-      showToast(err?.response?.data?.message || '一致性检查失败', 'error');
+      if (failed > 0) {
+        showToast(`批量删除：成功${success}个，失败${failed}个`, 'warning');
+      } else {
+        showToast(`已删除 ${success} 个镜头`, 'success');
+      }
+      loadShots(currentEpisodeId);
     } finally {
-      setIsCheckingConsistency(false);
+      setIsBatchDeleting(false);
     }
   };
 
@@ -262,11 +266,11 @@ export function BatchToolbar() {
           <Button
             size="sm"
             variant="outline"
-            leftIcon={<ShieldCheck className="w-4 h-4" />}
-            onClick={handleCheckConsistency}
-            isLoading={isCheckingConsistency}
+            leftIcon={<Trash2 className="w-4 h-4" />}
+            onClick={() => setShowDeleteConfirm(true)}
+            disabled={isBatchGeneratingKeyframes || isBatchGeneratingVideos || shots.length === 0}
           >
-            一致性检查
+            批量删除
           </Button>
         </div>
       </div>
@@ -285,93 +289,25 @@ export function BatchToolbar() {
         </div>
       )}
 
-      {/* P1-1: 一致性检查报告 Modal */}
+      {/* 批量删除确认 Modal */}
       <Modal
-        open={showConsistencyModal}
-        onOpenChange={setShowConsistencyModal}
-        title="一致性检查报告"
+        open={showDeleteConfirm}
+        onOpenChange={setShowDeleteConfirm}
+        title="批量删除镜头"
       >
-        {consistencyReport && (
-          <div className="space-y-4">
-            {/* 总览统计 */}
-            <div className="grid grid-cols-4 gap-3">
-              <div className="text-center p-3 rounded-lg bg-[var(--panel-2)]">
-                <p className="text-2xl font-bold text-[var(--accent)]">{consistencyReport.totalShots}</p>
-                <p className="text-xs text-[var(--ink-3)]">总镜头数</p>
-              </div>
-              <div className="text-center p-3 rounded-lg bg-[var(--panel-2)]">
-                <p className="text-2xl font-bold text-blue-500">{consistencyReport.checkedShots}</p>
-                <p className="text-xs text-[var(--ink-3)]">已检查</p>
-              </div>
-              <div className="text-center p-3 rounded-lg bg-[var(--panel-2)]">
-                <p className="text-2xl font-bold text-green-500">{consistencyReport.passedShots}</p>
-                <p className="text-xs text-[var(--ink-3)]">通过</p>
-              </div>
-              <div className="text-center p-3 rounded-lg bg-[var(--panel-2)]">
-                <p className={`text-2xl font-bold ${consistencyReport.averageScore >= 80 ? 'text-green-500' : consistencyReport.averageScore >= 60 ? 'text-yellow-500' : 'text-red-500'}`}>
-                  {consistencyReport.averageScore}
-                </p>
-                <p className="text-xs text-[var(--ink-3)]">平均分</p>
-              </div>
-            </div>
-
-            {/* 评分进度条 */}
-            <div>
-              <div className="flex items-center justify-between text-xs text-[var(--ink-3)] mb-1">
-                <span>整体一致性评分</span>
-                <span>{consistencyReport.averageScore}/100</span>
-              </div>
-              <div className="w-full h-2 bg-[var(--panel-3)] rounded-full overflow-hidden">
-                <div
-                  className={`h-full transition-all duration-500 ${consistencyReport.averageScore >= 80 ? 'bg-green-500' : consistencyReport.averageScore >= 60 ? 'bg-yellow-500' : 'bg-red-500'}`}
-                  style={{ width: `${consistencyReport.averageScore}%` }}
-                />
-              </div>
-            </div>
-
-            {/* 失败镜头详情 */}
-            {consistencyReport.details?.filter((d: any) => !d.passed).length > 0 && (
-              <div>
-                <p className="text-sm font-medium text-[var(--ink-1)] mb-2 flex items-center gap-2">
-                  <Badge variant="danger">{consistencyReport.details.filter((d: any) => !d.passed).length} 个镜头需优化</Badge>
-                </p>
-                <div className="max-h-48 overflow-y-auto space-y-2">
-                  {consistencyReport.details.filter((d: any) => !d.passed).map((d: any) => (
-                    <div key={d.shotId} className="p-3 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800">
-                      <div className="flex items-center justify-between mb-1">
-                        <span className="text-xs font-medium text-[var(--ink-1)]">第 {d.shotNumber} 镜</span>
-                        <Badge variant="danger">{d.score}分</Badge>
-                      </div>
-                      {d.issues?.length > 0 && (
-                        <ul className="text-xs text-[var(--ink-2)] space-y-0.5">
-                          {d.issues.map((issue: string, i: number) => (
-                            <li key={i}>• {issue}</li>
-                          ))}
-                        </ul>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* 全部通过 */}
-            {consistencyReport.details?.filter((d: any) => !d.passed).length === 0 && consistencyReport.checkedShots > 0 && (
-              <div className="text-center py-6">
-                <ShieldCheck className="w-12 h-12 mx-auto text-green-500 mb-2" />
-                <p className="text-sm font-medium text-green-600 dark:text-green-400">所有镜头一致性检查通过！</p>
-                <p className="text-xs text-[var(--ink-3)] mt-1">角色、场景、风格保持一致</p>
-              </div>
-            )}
-
-            {consistencyReport.checkedShots === 0 && (
-              <div className="text-center py-6">
-                <p className="text-sm text-[var(--ink-3)]">暂无已完成视频可检查</p>
-                <p className="text-xs text-[var(--ink-3)] mt-1">请先生成视频后再进行一致性检查</p>
-              </div>
-            )}
+        <div className="space-y-4">
+          <p className="text-sm text-[var(--ink-2)]">
+            确定要删除当前剧集的全部 {shots.length} 个镜头吗？此操作会同时删除关联的首帧、视频与音频，且不可恢复。
+          </p>
+          <div className="flex items-center justify-end gap-2">
+            <Button variant="ghost" size="sm" onClick={() => setShowDeleteConfirm(false)}>
+              取消
+            </Button>
+            <Button size="sm" variant="danger" onClick={handleBatchDelete} isLoading={isBatchDeleting}>
+              确认删除
+            </Button>
           </div>
-        )}
+        </div>
       </Modal>
     </Card>
   );

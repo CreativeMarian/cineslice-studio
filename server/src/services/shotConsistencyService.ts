@@ -22,7 +22,7 @@ import {
   CharacterOutfitDAO,
 } from '../models';
 import { projectStorage } from './projectStorage';
-import { keyframePrompt } from './prompts/keyframePrompt';
+import { buildKeyframePrompt } from './prompts/keyframe';
 import { aiProxy } from './aiProxy';
 import { characterExpressionService, type ExpressionKey } from './characterExpressionService';
 
@@ -451,30 +451,9 @@ export async function generateKeyframeCandidates(
 ): Promise<ShotKeyframe[]> {
   const count = Math.min(Math.max(opts.count || 4, 1), 9);
 
-    // 解析镜头角色（缺省自动按 characters_in_shot 收集，参考图与提示词双注入防漂移）
-  const charRefs = parseShotCharacterIds(shot);
-  const characters: Array<{ name: string; visualDescription: string }> = [];
-  for (const ref of charRefs) {
-    let c = ScriptCharacterDAO.getById(db, ref);
-    if (!c) {
-      const epChars = ScriptCharacterDAO.listByEpisode(db, shot.episode_id);
-      c = epChars.find((x: any) => x.name === ref) || null;
-    }
-    if (c) characters.push({ name: c.name, visualDescription: c.visual_description });
-  }
-  // 解析镜头场景
-  let scene: any = null;
-  if (shot.scene_id) {
-    const sc = ScriptSceneDAO.getById(db, shot.scene_id);
-    if (sc) scene = { name: sc.name, description: sc.description, timeOfDay: sc.time_of_day, atmosphere: sc.atmosphere };
-  }
-
-  const { prompt, negativePrompt } = keyframePrompt({
-    shotDescription: shot.action_description || '',
-    characters: characters.length > 0 ? characters : undefined,
-    scene: scene || undefined,
-    frameType: 'first',
-  });
+  // 极简提示词：风格兜底 + 镜头动作描述（候选帧一致性主要靠参考图）
+  const prompt = buildKeyframePrompt(shot.action_description || '');
+  const negativePrompt = undefined;
 
   const episode = NovelEpisodeDAO.getById(db, shot.episode_id);
   const projectId = episode?.project_id || '';
@@ -550,10 +529,9 @@ export async function generateEndFrameForShot(
     referenceImages?: string[];
   }
 ): Promise<ShotKeyframe> {
-  const { prompt, negativePrompt } = keyframePrompt({
-    shotDescription: shot.action_description || '',
-    frameType: 'last',
-  });
+  // 极简提示词：风格兜底 + 镜头动作描述（尾帧一致性主要靠参考图）
+  const prompt = buildKeyframePrompt(shot.action_description || '');
+  const negativePrompt = undefined;
 
   const episode = NovelEpisodeDAO.getById(db, shot.episode_id);
   const projectId = episode?.project_id || '';

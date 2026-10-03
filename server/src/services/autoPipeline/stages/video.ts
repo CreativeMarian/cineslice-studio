@@ -8,30 +8,26 @@ import {
   ShotKeyframeDAO,
   ShotVideoIntervalDAO,
   SubtitleDAO,
+  ScriptCharacterDAO,
+  ScriptSceneDAO,
 } from '../../../models';
 import { aiProxy } from '../../aiProxy';
 import { downloadToFile } from '../../../utils/download';
 import { projectStorage } from '../../projectStorage';
-import { directorPromptService } from '../../directorPromptService';
-import { aiPromptOptimizerService, type ScriptContextForAI } from '../../aiPromptOptimizerService';
+import { buildVideoPrompt, type VideoPromptInput } from '../../prompts/video';
 import {
   resolveLastFrameForShot,
   collectShotReferenceImages,
   collectExpressionReferenceImages,
   imageToDataUrl,
 } from '../../shotConsistencyService';
-import type { ScriptAnalysisResult } from '../../scriptAnalysisService';
 import type { AutoPipelineTask } from '../types';
-import { getFirstModel, getOrCreateScriptAnalysis, getProjectStylePreset, buildDirectorShotContext } from '../helpers';
+import { getFirstModel, getProjectStyleDescription } from '../helpers';
 import { saveTask } from '../taskStore';
-import { UserPreferenceDAO } from '../../../models';
-import { getPromptSkillForVideoModel, getPromptSkill } from '../../promptSkills';
-import { promptRefactorService } from '../../promptRefactorService';
 import { assessVideoClip } from '../../videoQualityGate';
 import { parseCharactersInShot } from '../../../models/shot';
 import { projectMemoryService } from '../../projectMemoryService';
 import { visualMemoryService } from '../../visualMemoryService';
-import { actionRealismService } from '../../actionRealismService';
 
 
 export async function stageVideo(db: Database, task: AutoPipelineTask): Promise<void> {
@@ -93,29 +89,8 @@ export async function stageVideo(db: Database, task: AutoPipelineTask): Promise<
     saveTask(db, task);
   };
 
-  // 提示词 Skill：按用户预选视频模型加载（视频生成阶段官方三段式包装）
-  const pref = UserPreferenceDAO.getByUser(db, task.userId);
-  const promptSkill = getPromptSkill(model.provider, model.modelName) || getPromptSkillForVideoModel(pref?.default_video_model);
-  if (promptSkill) console.log(`[AutoPipeline] video 加载官方提示词 skill: ${promptSkill.displayName}`);
-  // 从项目风格预设获取统一风格（保证全片画风一致）
-  const stylePreset = getProjectStylePreset(db, task.projectId);
-  console.log(`[AutoPipeline] video 使用风格预设: ${stylePreset.presetName}`);
-
-  // 剧本分析（在视频生成之前分析剧情、场景、角色、情绪，用于提示词优化）
-  const episodesForAnalysis = NovelEpisodeDAO.listByProject(db, task.projectId);
-  const firstEpisodeForAnalysis = episodesForAnalysis[0];
-  let scriptAnalysis: ScriptAnalysisResult | null = null;
-  if (firstEpisodeForAnalysis) {
-    scriptAnalysis = await getOrCreateScriptAnalysis(db, task.projectId, task.userId, firstEpisodeForAnalysis.id);
-    if (scriptAnalysis) {
-      console.log(`[AutoPipeline] video 使用剧本分析结果优化提示词`);
-    }
-  }
-
-  // 构建 AI 深度优化用的剧本上下文（包含整个剧本的剧情、角色、场景、情绪曲线）
-  const scriptContextForAI: ScriptContextForAI = scriptAnalysis
-    ? aiPromptOptimizerService.buildScriptContextFromAnalysis(scriptAnalysis)
-    : { characters: [], scenes: [] };
+  // 从项目风格描述获取统一风格（极简系统：一句话风格拼在提示词开头）
+  const styleDescription = getProjectStyleDescription(db, task.projectId);
 
   const processShot = async (shot: typeof shots[0]): Promise<void> => {
     if (task.cancelled) return;
@@ -147,13 +122,11 @@ export async function stageVideo(db: Database, task: AutoPipelineTask): Promise<
       // ═══════════════════════════════════════════════════════════
       let lastFrameImageForApi: string | undefined;
       let resolvedEndFrameId: string | null = null;
-      let lastFrameSource: string | null = null;
       try {
         const lastFrame = resolveLastFrameForShot(db, shot, shots);
         if (lastFrame) {
           lastFrameImageForApi = imageToDataUrl(lastFrame.imageUrl);
           resolvedEndFrameId = lastFrame.keyframeId;
-          lastFrameSource = lastFrame.source;
         }
       } catch { /* 尾帧解析失败，退化为单首帧生成 */ }
 
@@ -188,135 +161,43 @@ export async function stageVideo(db: Database, task: AutoPipelineTask): Promise<
       const allReferenceImages = [...new Set([...shotReferenceImages, ...visualMemoryRefs, ...expressionReferenceImages])];
 
       // ═══════════════════════════════════════════════════════════
-      // 导演级提示词生成（v2.0）
-      // 包含：时序控制、动作分解、表情细节、心理活动、环境交互、连贯性、真实性校验
-      // 解决：打电话点屏幕、无厘头耳光、角色突然消失、剧情不连贯等问题
+      // 极简视频提示词（v3.0）：风格 + 动作 + 角色定妆 + 场景
+      // 一致性主要靠参考图（collectShotReferenceImages/视觉记忆/表情图），不再做导演级/AI深度优化
       // ═══════════════════════════════════════════════════════════
-      const directorContext = buildDirectorShotContext(
-        db,
-        shot,
-        shots,
-        first.id,
-        shots.length
-      );
-
-      const directorResult = directorPromptService.generateVideoPrompt(
-        directorContext,
-        scriptAnalysis || undefined
-      );
-
-      // ═══════════════════════════════════════════════════════════
-      // AI 深度优化（让 AI 关联剧本上下文，深度分析后生成优化提示词）
-      // 这是核心优化：不是模板化，而是真正的 AI 理解和分析
-      // ═══════════════════════════════════════════════════════════
-      // 【全局风格锚点】放在最开头，确保所有镜头统一风格
-      const globalStyleAnchor = stylePreset.visualStyle
-        ? `【全局风格】${stylePreset.visualStyle}。`
-        : '【全局风格】真人短剧，电影级画质，统一暖色调，浅景深，cinematic lighting，高细节，真实人物皮肤质感。';
-      let finalPrompt = globalStyleAnchor + directorResult.prompt;
-      let finalNegativePrompt = directorResult.negativePrompt;
-
+      const promptInput: VideoPromptInput = {
+        styleDescription: styleDescription || undefined,
+        action: shot.action_description || '',
+      };
+      // 镜头角色定妆信息（buildVideoPrompt 的 characters 段）
       try {
-        const aiOptimized = await aiPromptOptimizerService.optimizeVideoPrompt(
-          db,
-          task.userId,
-          directorContext,
-          scriptContextForAI
-        );
-        if (aiOptimized.prompt && aiOptimized.prompt.length > 50) {
-          finalPrompt = aiOptimized.prompt;
-          finalNegativePrompt = aiOptimized.negativePrompt || directorResult.negativePrompt;
-          console.log(`[AutoPipeline] video shot=${shot.shot_number} AI深度优化成功: ${aiOptimized.actionBreakdown.length}个动作分解`);
-        }
-      } catch (aiErr) {
-        console.warn(`[AutoPipeline] video shot=${shot.shot_number} AI深度优化失败，使用导演级提示词:`, (aiErr as Error).message);
-      }
-
-      // ═══════════════════════════════════════════════════════════
-      // 动作真实性增强（道具细节/物理反应链/心理-行为映射）
-      // 规则驱动，无需 AI 调用，深度提升视频真实度
-      // ═══════════════════════════════════════════════════════════
-      try {
-        const realism = actionRealismService.enhanceRealism(directorContext);
-        if (realism.combinedText) {
-          finalPrompt = finalPrompt + realism.combinedText;
-          console.log(`[AutoPipeline] video shot=${shot.shot_number} 真实性增强: 道具${realism.propDetails.length}+物理${realism.physicsChains.length}+心理${realism.psychologyBehaviors.length}`);
-        }
-      } catch (realismErr) {
-        console.warn(`[AutoPipeline] video shot=${shot.shot_number} 真实性增强失败:`, (realismErr as Error).message);
-      }
-
-      // 注入项目风格预设（统一画风：关键帧/单镜/批量/自动流水线四路一致）
-      // 注意：全局风格锚点已在开头注入，此处只补充色调和镜头语言（如果有）
-      const styleSuffix = [
-        stylePreset.colorPalette ? `【色调】${stylePreset.colorPalette}` : '',
-        stylePreset.cameraLanguage ? `【镜头语言】${stylePreset.cameraLanguage}` : '',
-      ].filter(Boolean).join('\n');
-      if (styleSuffix) {
-        finalPrompt = finalPrompt + '\n\n' + styleSuffix;
-      }
-
-      // ═══════════════════════════════════════════════════════════
-      // 首尾帧动作弧注入（根源修复：5秒一个慢动作）
-      // 首帧=动作起点画面，尾帧=动作终点画面（explicit_end=本镜last帧才可引用尾帧描述；
-      // next_shot_first=下一镜首帧作尾帧时只注入首帧描述+泛化动作弧，避免描述与画面不符）
-      // ═══════════════════════════════════════════════════════════
-      const firstFrameDesc = shot.first_frame_description || null;
-      const lastFrameDesc = (lastFrameSource === 'explicit_end' && shot.last_frame_description) ? shot.last_frame_description : null;
-      if (firstFrameDesc || lastFrameDesc) {
-        const arcParts = [
-          '【首尾帧动作弧·强制】',
-          firstFrameDesc ? `首帧画面为动作起点：${firstFrameDesc}` : '',
-          lastFrameDesc ? `尾帧画面为动作终点：${lastFrameDesc}` : '',
-          '视频必须在这5秒内完成从动作起点到动作终点的完整过渡：约1秒动作起始→3秒主体动作（动作幅度充分、位移明显、节奏紧凑）→1秒动作收尾定格。',
-          '⚠️ 禁止缓慢微动、禁止几乎静止的画面、禁止5秒内只有一个细微动作或慢吞吞的单一动作；动作要有明确过程和幅度，接近真人影视短剧的节奏。',
-        ].filter(Boolean).join('\n');
-        finalPrompt = finalPrompt + '\n\n' + arcParts;
-      }
-
-      let videoMotionPrompt = `${finalPrompt}\n\n【负面提示词·绝对避免】${finalNegativePrompt}`;
-
-      // ── 提示词 Skill（重构式）：优先消费分镜重构成品（官方公式，skill 匹配时），
-      // 缺成品/换模型时自动补重构；两者都不行才用运行期包装兜底 ──
-      let usedRefactored = false;
-      if (shot.video_prompt && shot.video_skill === promptSkill?.id) {
-        videoMotionPrompt = shot.video_prompt;
-        usedRefactored = true;
-        console.log(`[AutoPipeline] video shot=${shot.shot_number} 使用分镜重构成品提示词（${promptSkill?.displayName}）`);
-      } else {
-        try {
-          const refactored = await promptRefactorService.refactorShotVideoPrompt(db, task.userId, shot.id, {
-            videoProvider: model.provider,
-            videoModelName: model.modelName,
-          });
-          if (refactored) {
-            videoMotionPrompt = refactored;
-            usedRefactored = true;
-            console.log(`[AutoPipeline] video shot=${shot.shot_number} 自动补重构完成`);
+        const charRefs = parseCharactersInShot(shot.characters_in_shot);
+        const characters: Array<{ name: string; appearance: string }> = [];
+        for (const ref of charRefs) {
+          let c = ScriptCharacterDAO.getById(db, ref);
+          if (!c) {
+            const epChars = ScriptCharacterDAO.listByEpisode(db, shot.episode_id);
+            c = epChars.find((x: any) => x.name === ref) || null;
           }
-        } catch (refErr) {
-          console.warn(`[AutoPipeline] video shot=${shot.shot_number} 补重构失败，回退运行期包装:`, (refErr as Error).message);
+          if (c && (c.visual_description || c.description)) {
+            characters.push({ name: c.name, appearance: (c.visual_description || c.description || '').slice(0, 120) });
+          }
         }
+        if (characters.length > 0) promptInput.characters = characters;
+      } catch (charErr) {
+        console.warn(`[AutoPipeline] video shot=${shot.shot_number} 角色信息解析失败:`, (charErr as Error).message);
       }
-      if (!usedRefactored && promptSkill?.buildVideoPrompt) {
-        const skPrompt = promptSkill.buildVideoPrompt({
-          actionDescription: videoMotionPrompt,
-          shotSize: shot.shot_size || 'medium',
-          cameraMovement: shot.camera_movement || 'static',
-          duration: shot.duration_seconds || 5,
-          ratio: '16:9',
-          charactersInShot: parseCharactersInShot(shot.characters_in_shot),
-          dialogue: (shot.dialogue || '').trim() || undefined,
-          stylePrompt: stylePreset.visualStyle,
-          isImageToVideo: true,
-          isFirstLastFrame: !!lastFrameImageForApi,
-        });
-        if (skPrompt) {
-          videoMotionPrompt = skPrompt;
-          console.log(`[AutoPipeline] video shot=${shot.shot_number} 官方提示词 skill 包装完成（${promptSkill.displayName}）`);
+      // 场景描述（buildVideoPrompt 的 scene 段）
+      try {
+        if (shot.scene_id) {
+          const sc = ScriptSceneDAO.getById(db, shot.scene_id);
+          if (sc) {
+            promptInput.scene = { name: sc.name, environment: (sc.description || sc.atmosphere || '').slice(0, 150) };
+          }
         }
+      } catch (sceneErr) {
+        console.warn(`[AutoPipeline] video shot=${shot.shot_number} 场景信息解析失败:`, (sceneErr as Error).message);
       }
-      // 合并正面提示词和负面提示词（视频模型通常不支持独立的负面提示词参数）
+      let videoMotionPrompt = buildVideoPrompt(promptInput);
       console.log(`[AutoPipeline] video shot=${shot.shot_number} 提示词生成完成`);
 
       // ═══════════════════════════════════════════════════════════════

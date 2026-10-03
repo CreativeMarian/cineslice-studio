@@ -2,7 +2,7 @@
 import type { Database } from '../../../types';
 import { NovelChapterDAO, NovelEpisodeDAO } from '../../../models';
 import { aiProxy } from '../../aiProxy';
-import { novelToScriptPrompt } from '../../prompts/novelToScript';
+import { buildNovelToScriptPrompt } from '../../prompts/novelToScript';
 import { parseAiJsonOrThrow, parseAiJson } from '../../../utils/aiJsonParser';
 import type { AutoPipelineTask } from '../types';
 import { getFirstModel, withRetry } from '../helpers';
@@ -21,11 +21,8 @@ export async function stageEpisodes(db: Database, task: AutoPipelineTask): Promi
   const chapters = NovelChapterDAO.listByProject(db, task.projectId);
   const allContent = chapters.map(c => c.content).join('\n\n');
 
-  const { systemPrompt: baseSystemPrompt, prompt } = novelToScriptPrompt({
-    novelContent: allContent,
-    episodesCount: 1,
-  });
-  const systemPrompt = applyStageRules(baseSystemPrompt, 'episodes');
+  const prompt = buildNovelToScriptPrompt(allContent);
+  const systemPrompt = applyStageRules('', 'episodes');
 
   const result = await withRetry(
     () => aiProxy.generateText({

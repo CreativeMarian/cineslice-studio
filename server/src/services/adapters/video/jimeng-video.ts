@@ -8,7 +8,6 @@
 import type { VideoAdapter, VideoGenerateParams, VideoGenerateResult } from '../base';
 import { AIError, httpRequest } from '../base';
 import { registerVideoFactory } from '../registry';
-import { enhanceVideoPrompt } from '../../prompts/videoQuality';
 
 export class JimengVideoAdapter implements VideoAdapter {
   readonly provider = 'jimeng';
@@ -23,23 +22,15 @@ export class JimengVideoAdapter implements VideoAdapter {
   }
 
   async generate(params: VideoGenerateParams): Promise<VideoGenerateResult> {
-    // 即梦prompt建议400字以内，不超过800字，使用简化版增强
+    // 直接使用传入提示词（极简系统：一致性靠参考图，不再做增强包装）
     const basePrompt = params.motion || params.prompt || '';
-    const isAction = /打斗|攻击|打|踢|拳|鞭|战斗|追逐|跑|跳|摔|撞|fight|attack|punch|kick|whip|chase|run|jump/i.test(basePrompt);
-    const { prompt: enhancedPrompt, negativePrompt } = enhanceVideoPrompt(basePrompt, { 
-      isActionScene: isAction,
-      includeQuality: false, // 即梦不需要电影级画质描述
-      includeConsistency: true,
-    });
 
     // 即梦prompt限制800字符，超长则截断
-    const prompt = enhancedPrompt.length > 800 ? enhancedPrompt.substring(0, 797) + '...' : enhancedPrompt;
-    const truncatedNegative = negativePrompt.length > 400 ? negativePrompt.substring(0, 397) + '...' : negativePrompt;
+    const prompt = basePrompt.length > 800 ? basePrompt.substring(0, 797) + '...' : basePrompt;
 
     const body: Record<string, unknown> = {
       model: this.modelName,
       prompt,
-      negative_prompt: truncatedNegative,
       duration: params.duration || 5,
       resolution: params.resolution || '720p',
       ratio: params.ratio || '16:9',

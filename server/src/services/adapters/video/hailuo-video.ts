@@ -7,7 +7,6 @@
 import type { VideoAdapter, VideoGenerateParams, VideoGenerateResult } from '../base';
 import { AIError, httpRequest } from '../base';
 import { registerVideoFactory } from '../registry';
-import { enhanceVideoPrompt } from '../../prompts/videoQuality';
 
 export class HailuoVideoAdapter implements VideoAdapter {
   readonly provider = 'hailuo';
@@ -22,17 +21,11 @@ export class HailuoVideoAdapter implements VideoAdapter {
   }
 
   async generate(params: VideoGenerateParams): Promise<VideoGenerateResult> {
-    // 海螺prompt最大2000字符，使用简化版增强
+    // 直接使用传入提示词（极简系统：一致性靠参考图，不再做增强包装）
     const basePrompt = params.motion || params.prompt || '';
-    const isAction = /打斗|攻击|打|踢|拳|鞭|战斗|追逐|跑|跳|摔|撞|fight|attack|punch|kick|whip|chase|run|jump/i.test(basePrompt);
-    const { prompt: enhancedPrompt } = enhanceVideoPrompt(basePrompt, { 
-      isActionScene: isAction,
-      includeQuality: false, // 海螺不需要电影级画质描述
-      includeConsistency: true,
-    });
 
     // 海螺prompt限制2000字符，超长则截断
-    const prompt = enhancedPrompt.length > 2000 ? enhancedPrompt.substring(0, 1997) + '...' : enhancedPrompt;
+    const prompt = basePrompt.length > 2000 ? basePrompt.substring(0, 1997) + '...' : basePrompt;
 
     // 海螺resolution为768P或1080P，转换格式
     let resolution = params.resolution || '768P';

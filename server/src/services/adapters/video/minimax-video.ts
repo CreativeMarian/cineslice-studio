@@ -6,7 +6,6 @@
 import type { VideoAdapter, VideoGenerateParams, VideoGenerateResult } from '../base';
 import { AIError, httpRequest } from '../base';
 import { registerVideoFactory } from '../registry';
-import { enhanceVideoPrompt } from '../../prompts/videoQuality';
 
 export class MiniMaxVideoAdapter implements VideoAdapter {
   readonly provider = 'minimax';
@@ -22,17 +21,11 @@ export class MiniMaxVideoAdapter implements VideoAdapter {
   }
 
   async generate(params: VideoGenerateParams): Promise<VideoGenerateResult> {
-    // MiniMax V2 prompt最大7000字符，使用简化版增强
+    // 直接使用传入提示词（极简系统：一致性靠参考图，不再做增强包装）
     const basePrompt = params.motion || params.prompt || '';
-    const isAction = /打斗|攻击|打|踢|拳|鞭|战斗|追逐|跑|跳|摔|撞|fight|attack|punch|kick|whip|chase|run|jump/i.test(basePrompt);
-    const { prompt: enhancedPrompt } = enhanceVideoPrompt(basePrompt, {
-      isActionScene: isAction,
-      includeQuality: false,
-      includeConsistency: true,
-    });
 
     // MiniMax V2 prompt限制7000字符，超长则截断
-    const prompt = enhancedPrompt.length > 7000 ? enhancedPrompt.substring(0, 6997) + '...' : enhancedPrompt;
+    const prompt = basePrompt.length > 7000 ? basePrompt.substring(0, 6997) + '...' : basePrompt;
 
     // 构建content数组（V2 API必须使用content数组）
     const content: Array<Record<string, unknown>> = [];

@@ -22,7 +22,6 @@ import { errorHandler } from './middleware/errorHandler';
 import { ensureLocalUser, UserPreferenceDAO } from './models';
 import { AutoPipelineService } from './services/autoPipelineService';
 import './services/adapters';
-import { seedStylePresets } from './seed/seedStylePresets';
 import authRoutes from './routes/auth';
 import projectRoutes from './routes/projects';
 import assetRoutes from './routes/assets';
@@ -32,7 +31,6 @@ import costRoutes from './routes/costs';
 import dataTransferRoutes from './routes/dataTransfer';
 import preferenceRoutes from './routes/preferences';
 import visualStyleRoutes from './routes/visualStyles';
-import stylePresetRoutes from './routes/stylePresets';
 import pipelineRoutes from './routes/pipeline';
 import taskRoutes from './routes/tasks';
 import aiRoutes from './routes/ai';
@@ -76,8 +74,13 @@ async function main() {
   const { ensureVoiceStudio } = await import('./services/voiceStudioLauncher');
   ensureVoiceStudio();
 
-  // 4.2 初始化内置风格预设
-  seedStylePresets(db);
+  // 4.2 projects 表新增 style_description 列（幂等：列已存在则跳过）
+  // 旧 style_preset_id 列保留不动，不做破坏性迁移
+  const projectColumns = db.prepare('PRAGMA table_info(projects)').all() as { name: string }[];
+  if (!projectColumns.some(c => c.name === 'style_description')) {
+    db.exec('ALTER TABLE projects ADD COLUMN style_description TEXT');
+    console.log('[DB] 已为 projects 表添加 style_description 列');
+  }
 
   // 5. 创建 Express 应用
   const app = express();
@@ -152,7 +155,6 @@ async function main() {
   app.use('/api', dataTransferRoutes); // /api/projects/:id/export, /api/projects/import
   app.use('/api/preferences', preferenceRoutes);
   app.use('/api/visual-styles', visualStyleRoutes);
-  app.use('/api/style-presets', stylePresetRoutes);
   app.use('/api/projects/:id/pipeline', pipelineRoutes);
   app.use('/api/tasks', taskRoutes);
   app.use('/api/ai', aiRoutes);

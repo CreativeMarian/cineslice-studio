@@ -82,26 +82,8 @@ export interface Project {
   pipeline_step: string | null;
   mode: PipelineMode;
   pipeline_status: string | null;
-  style_preset_id: string | null;
+  style_description: string | null;
   model_preferences: string | null;
-  created_at: string;
-  updated_at: string;
-}
-
-// ============ 预设风格 ============
-
-export interface StylePreset {
-  id: string;
-  name: string;
-  description: string | null;
-  category: string;
-  visual_style: string;
-  camera_language: string | null;
-  color_palette: string | null;
-  shot_rhythm: string | null;
-  video_params: string | null;
-  is_builtin: number;
-  sort_order: number;
   created_at: string;
   updated_at: string;
 }

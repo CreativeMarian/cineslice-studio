@@ -128,7 +128,7 @@ export function getStageSkillIds(stage: PipelineStage): StageSkillId[] {
 
 /**
  * 将阶段技能规则追加到已有 systemPrompt（去重：同一技能只注入一次）。
- * 供各流水线阶段在提示词构造处调用，与 promptSkills.applySkillRules 叠加使用。
+ * 供各流水线阶段在提示词构造处调用。
  */
 export function applyStageRules(systemPrompt: string, stage: PipelineStage): string {
   let out = systemPrompt;

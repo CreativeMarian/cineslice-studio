@@ -4,10 +4,8 @@ import type { AutoPipelineTask } from './types';
 import { saveTask, getTask, getCurrentRunningTask, cancel, init } from './taskStore';
 import {
   getFirstModel,
-  getProjectStylePreset,
+  getProjectStyleDescription,
   getOrCreateScriptAnalysis,
-  buildDirectorShotContext,
-  inferMoodFromShot,
 } from './helpers';
 import { start, resume, runPipeline } from './runner';
 import { stageNovel } from './stages/novel';
@@ -58,8 +56,8 @@ export const AutoPipelineService = {
     return getFirstModel(db, userId, modelType);
   },
 
-  getProjectStylePreset(db: Database, projectId: string) {
-    return getProjectStylePreset(db, projectId);
+  getProjectStyleDescription(db: Database, projectId: string): string | null {
+    return getProjectStyleDescription(db, projectId);
   },
 
   getOrCreateScriptAnalysis(
@@ -69,20 +67,6 @@ export const AutoPipelineService = {
     episodeId: string
   ) {
     return getOrCreateScriptAnalysis(db, projectId, userId, episodeId);
-  },
-
-  buildDirectorShotContext(
-    db: Database,
-    shot: any,
-    allShots: any[],
-    episodeId: string,
-    totalShots: number
-  ) {
-    return buildDirectorShotContext(db, shot, allShots, episodeId, totalShots);
-  },
-
-  inferMoodFromShot(shot: any): string {
-    return inferMoodFromShot(shot);
   },
 
   async runPipeline(db: Database, task: AutoPipelineTask): Promise<void> {

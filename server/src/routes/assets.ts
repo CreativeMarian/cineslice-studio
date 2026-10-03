@@ -15,9 +15,9 @@ import { createError, asyncHandler } from '../middleware/errorHandler';
 import { validateBody } from '../middleware/validate';
 import { imageUpload } from '../middleware/upload';
 import { aiProxy } from '../services/aiProxy';
-import { characterExtractPrompt } from '../services/prompts/characterExtract';
-import { sceneExtractPrompt } from '../services/prompts/sceneExtract';
-import { characterConceptPrompt, sceneConceptPrompt, characterFourViewPrompt, propConceptPrompt } from '../services/prompts/keyframePrompt';
+import { buildCharacterExtractPrompt } from '../services/prompts/characterExtract';
+import { buildSceneExtractPrompt } from '../services/prompts/sceneExtract';
+import { buildKeyframePrompt, buildCharacterConceptPrompt, buildSceneConceptPrompt } from '../services/prompts/keyframe';
 import { characterExpressionService } from '../services/characterExpressionService';
 import { parseAiJsonOrThrow } from '../utils/aiJsonParser';
 import type { Database, CharacterOutfit } from '../types';
@@ -86,11 +86,11 @@ router.post('/episodes/:id/characters/extract', validateBody(extractSchema), asy
   const scriptForExtract = episode.enriched_script && episode.enriched_script.trim().length > 0
     ? episode.enriched_script
     : episode.script_content;
-  const { systemPrompt, prompt } = characterExtractPrompt(scriptForExtract);
+  const prompt = buildCharacterExtractPrompt(scriptForExtract);
 
   const result = await aiProxy.generateText({
     db, userId: req.user.id, provider, modelName,
-    prompt, systemPrompt, responseFormat: 'json', maxTokens: 4096,
+    prompt, responseFormat: 'json', maxTokens: 4096,
   });
 
   let characters: any[];
@@ -171,15 +171,14 @@ router.post('/characters/:id/generate-image', validateBody(generateImageSchema),
     ? character.visual_description
     : `${character.name}，${character.gender === 'male' ? '男性' : character.gender === 'female' ? '女性' : '人物'}，${character.role_type === 'protagonist' ? '主角形象，气质突出' : character.role_type === 'antagonist' ? '反派形象，气场强烈' : '配角形象，特征鲜明'}，详细的面部特征和服装设计`;
 
-  // 使用自定义提示词或自动生成提示词
+  // 使用自定义提示词或极简概念图提示词
   let prompt, negativePrompt;
   if (customPrompt && customPrompt.trim()) {
     prompt = customPrompt;
     negativePrompt = undefined;
   } else {
-    const result = characterConceptPrompt(character.name, visualDesc);
-    prompt = result.prompt;
-    negativePrompt = result.negativePrompt;
+    prompt = buildCharacterConceptPrompt(character.name, visualDesc);
+    negativePrompt = undefined;
   }
 
   // 图片生成带重试（最多2次）
@@ -226,15 +225,14 @@ router.post('/characters/:id/generate-four-view', validateBody(generateImageSche
     ? character.visual_description
     : `${character.name}，${character.gender === 'male' ? '男性' : character.gender === 'female' ? '女性' : '人物'}，${character.role_type === 'protagonist' ? '主角形象，气质突出' : character.role_type === 'antagonist' ? '反派形象，气场强烈' : '配角形象，特征鲜明'}，详细的面部特征和服装设计`;
 
-  // 使用自定义提示词或自动生成提示词
+  // 使用自定义提示词或极简四视图提示词（buildKeyframePrompt：风格 + 主体描述）
   let prompt, negativePrompt;
   if (customPrompt && customPrompt.trim()) {
     prompt = customPrompt;
     negativePrompt = undefined;
   } else {
-    const result = characterFourViewPrompt(character.name, visualDesc);
-    prompt = result.prompt;
-    negativePrompt = result.negativePrompt;
+    prompt = buildKeyframePrompt(`角色四视图设定图：${character.name}，${visualDesc}。画面包含左侧超大人脸特写与右侧全身正面、侧面、背面三视图，16:9宽画幅`);
+    negativePrompt = undefined;
   }
 
   let result;
@@ -456,11 +454,11 @@ router.post('/episodes/:id/scenes/extract', validateBody(extractSchema), asyncHa
   const scriptForExtract = episode.enriched_script && episode.enriched_script.trim().length > 0
     ? episode.enriched_script
     : episode.script_content;
-  const { systemPrompt, prompt } = sceneExtractPrompt(scriptForExtract);
+  const prompt = buildSceneExtractPrompt(scriptForExtract);
 
   const result = await aiProxy.generateText({
     db, userId: req.user.id, provider, modelName,
-    prompt, systemPrompt, responseFormat: 'json', maxTokens: 4096,
+    prompt, responseFormat: 'json', maxTokens: 4096,
   });
 
   let scenes: any[];
@@ -534,15 +532,14 @@ router.post('/scenes/:id/generate-image', validateBody(generateImageSchema), asy
     ? scene.description
     : `${scene.name}，${scene.location || '未指定地点'}，${scene.time_of_day === 'night' ? '夜晚，月光照明' : scene.time_of_day === 'dawn' ? '黎明，柔和晨光' : scene.time_of_day === 'dusk' ? '黄昏，金色夕阳' : '白天，自然光'}，氛围${scene.atmosphere || '自然'}，详细的环境布局和陈设`;
 
-  // 使用自定义提示词或自动生成提示词
+  // 使用自定义提示词或极简场景概念图提示词
   let prompt, negativePrompt;
   if (customPrompt && customPrompt.trim()) {
     prompt = customPrompt;
     negativePrompt = undefined;
   } else {
-    const result = sceneConceptPrompt(scene.name, sceneDesc, scene.time_of_day, scene.atmosphere);
-    prompt = result.prompt;
-    negativePrompt = result.negativePrompt;
+    prompt = buildSceneConceptPrompt(scene.name, sceneDesc);
+    negativePrompt = undefined;
   }
 
   // 图片生成带重试（最多2次）
@@ -724,15 +721,14 @@ router.post('/props/:id/generate-image', validateBody(generateImageSchema), asyn
     ? prop.description
     : `${prop.name}，详细的外观、材质、颜色、尺寸描述`;
 
-  // 使用自定义提示词或自动生成提示词
+  // 使用自定义提示词或极简道具概念图提示词
   let prompt, negativePrompt;
   if (customPrompt && customPrompt.trim()) {
     prompt = customPrompt;
     negativePrompt = undefined;
   } else {
-    const result = propConceptPrompt(prop.name, desc);
-    prompt = result.prompt;
-    negativePrompt = result.negativePrompt;
+    prompt = buildKeyframePrompt(`物品道具概念图：${prop.name}，${desc}`);
+    negativePrompt = undefined;
   }
 
   // 图片生成带重试（最多2次）

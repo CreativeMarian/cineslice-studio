@@ -4,7 +4,7 @@
 
 import type { Database } from '../types';
 import { aiProxy } from './aiProxy';
-import { novelToScriptPrompt } from './prompts/novelToScript';
+import { buildNovelToScriptPrompt } from './prompts/novelToScript';
 import { parseAiJson } from '../utils/aiJsonParser';
 import { chineseToNumber } from './novelParser';
 
@@ -189,7 +189,7 @@ export async function generateEpisodeBatch(
   userId: string,
   provider: string,
   modelName: string,
-  style: string | undefined,
+  style: string | undefined, // 保留签名兼容前端调用；极简系统下不再注入风格到剧集提示词
   novelContent: string,
   startEpisode: number,
   batchCount: number,
@@ -199,11 +199,7 @@ export async function generateEpisodeBatch(
   const expectedSet = new Set(expectedNums);
 
   const callBatch = async (nums: number[]): Promise<any[]> => {
-    const { systemPrompt, prompt } = novelToScriptPrompt({
-      novelContent,
-      episodesCount: nums.length,
-      style,
-    });
+    const prompt = buildNovelToScriptPrompt(novelContent);
     const rangeDesc = nums.length === 1
       ? `第${nums[0]}集`
       : `第${nums[0]}到第${nums[nums.length - 1]}集（共${nums.length}集）`;
@@ -211,7 +207,7 @@ export async function generateEpisodeBatch(
       `\n\n注意：本次只需生成${rangeDesc}，episodeNumber 必须分别等于 ${nums.join('、')}，不得生成其他集数。`;
     const result = await aiProxy.generateText({
       db, userId, provider, modelName,
-      prompt: batchPrompt, systemPrompt, responseFormat: 'json', maxTokens: 32000,
+      prompt: batchPrompt, responseFormat: 'json', maxTokens: 32000,
     });
     const preview = result.content.length > 2000 ? result.content.slice(0, 2000) + '...[截断]' : result.content;
     console.log(`[GenerateEpisodes] 批次 ${nums[0]}${nums.length > 1 ? '-' + nums[nums.length - 1] : ''} AI返回长度: ${result.content.length}, 预览: ${preview}`);

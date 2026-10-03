@@ -4,8 +4,7 @@
 
 import type { Database } from '../types';
 import { aiProxy } from './aiProxy';
-import { NovelEpisodeDAO, ScriptCharacterDAO, ScriptSceneDAO, ShotDAO, ModelRegistryDAO, UserPreferenceDAO } from '../models';
-import { getPromptSkillForVideoModel, applySkillRules } from './promptSkills';
+import { NovelEpisodeDAO, ScriptCharacterDAO, ScriptSceneDAO, ShotDAO, ModelRegistryDAO } from '../models';
 import { parseAiJsonOrThrow } from '../utils/aiJsonParser';
 import { generateId, now } from '../models/index';
 
@@ -219,11 +218,6 @@ export const scriptAnalysisService = {
   ): Promise<ScriptAnalysisResult> {
     console.log(`[ScriptAnalysis] 开始分析剧本 episode=${episodeId}`);
 
-    // ── 提示词 Skill：AI 分析剧情之前，按用户预选视频模型自动传入并适配官方提示词规范 ──
-    const videoModelUsed = UserPreferenceDAO.getByUser(db, userId)?.default_video_model;
-    const promptSkill = getPromptSkillForVideoModel(videoModelUsed);
-    if (promptSkill) console.log(`[ScriptAnalysis] 注入官方提示词 skill: ${promptSkill.displayName}（视频模型: ${videoModelUsed || '未设置'}）`);
-
     // 获取剧集内容
     const episode = NovelEpisodeDAO.getById(db, episodeId);
     if (!episode) {
@@ -306,10 +300,8 @@ export const scriptAnalysisService = {
         provider,
         modelName,
         prompt: fullPrompt,
-        systemPrompt: applySkillRules(
-          '你是一位专业的影视剧本分析师，擅长从剧情、场景、角色、情绪、节奏、视觉风格等多个维度深度拆解剧本。输出严格的JSON格式。',
-          promptSkill, 'shotRule'
-        ) + '\n\n【转换质量硬性要求】以上分析结果将直接转化为当前视频模型的官方提示词输入：1) 所有描述语句必须通顺完整，禁止碎片化关键词堆砌；2) 场景/角色/分镜描述必须按上述官方提示词规范组织；3) 人物外观（面容/发型/服装/体型）、场景陈设、关键道具的描述词必须在全部分析结果中保持一致，供后续生成分镜、概念图与视频时跨镜头复用，保证剧情连贯与资产一致性。',
+        systemPrompt: '你是一位专业的影视剧本分析师，擅长从剧情、场景、角色、情绪、节奏、视觉风格等多个维度深度拆解剧本。输出严格的JSON格式。'
+          + '\n\n【转换质量硬性要求】以上分析结果将直接用于生成分镜、概念图与视频提示词：1) 所有描述语句必须通顺完整，禁止碎片化关键词堆砌；2) 场景/角色/分镜描述必须保持一致；3) 人物外观（面容/发型/服装/体型）、场景陈设、关键道具的描述词必须在全部分析结果中保持一致，供后续生成分镜、概念图与视频时跨镜头复用，保证剧情连贯与资产一致性。',
         temperature: 0.3,  // 低温度保证分析准确性
         maxTokens: 8000,   // v1.1：4000→8000，降低长剧本分析 JSON 被截断导致解析失败的概率
         responseFormat: 'json',
@@ -346,7 +338,7 @@ export const scriptAnalysisService = {
           model_used = excluded.model_used,
           video_skill = excluded.video_skill,
           updated_at = excluded.updated_at`)
-        .run(generateId('sana'), userId, episodeId, JSON.stringify(analysis), `${provider}/${modelName}`, promptSkill.id, ts, ts);
+        .run(generateId('sana'), userId, episodeId, JSON.stringify(analysis), `${provider}/${modelName}`, 'minimal', ts, ts);
     } catch (cacheErr) {
       console.warn('[ScriptAnalysis] 缓存写入失败（不影响主流程）:', (cacheErr as Error).message);
     }

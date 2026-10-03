@@ -78,19 +78,6 @@ export interface PipelineStatusData {
   stage_order?: PipelineStage[];
 }
 
-export interface StylePreset extends BaseEntity {
-  name: string;
-  description?: string;
-  category: string;
-  visual_style: string;
-  camera_language?: string;
-  color_palette?: string;
-  shot_rhythm?: string;
-  video_params?: Record<string, unknown>;
-  is_builtin: boolean;
-  sort_order: number;
-}
-
 export interface Project extends BaseEntity {
   user_id: string;
   title: string;
@@ -107,7 +94,7 @@ export interface Project extends BaseEntity {
   pipeline_step?: 'novel' | 'episodes' | 'script' | 'shots';
   mode?: PipelineMode;
   pipeline_status?: string;
-  style_preset_id?: string;
+  style_description?: string;
   model_preferences?: Record<string, string>;
 }
 

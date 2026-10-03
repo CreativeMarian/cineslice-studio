@@ -3,16 +3,12 @@
 import type { Database } from '../../../types';
 import { NovelEpisodeDAO, ShotDAO, ScriptCharacterDAO, ProjectDAO } from '../../../models';
 import { aiProxy } from '../../aiProxy';
-import { shotGenerationPrompt } from '../../prompts/shotGeneration';
-import { promptOptimizationService } from '../../promptOptimizationService';
+import { buildShotGenerationPrompt } from '../../prompts/shotGeneration';
 import { parseShotListArray } from '../../../utils/aiJsonParser';
 import { buildShotSceneMap } from '../../shotConsistencyService';
 import type { AutoPipelineTask } from '../types';
-import { getFirstModel, getOrCreateScriptAnalysis, withRetry } from '../helpers';
-import { saveTask } from '../taskStore';
-import { getPromptSkillForVideoModel, applySkillRules } from '../../promptSkills';
+import { getFirstModel, withRetry } from '../helpers';
 import { applyStageRules } from '../../stageSkills';
-import { UserPreferenceDAO } from '../../../models';
 import { runStageGates } from '../../stageSkills';
 import { runNativeGates } from '../../stageSkills/nativeGates';
 import { episodeEnrichService } from '../../episodeEnrichService';
@@ -103,28 +99,19 @@ export async function stageShots(db: Database, task: AutoPipelineTask): Promise<
   const maxDialogueChars = Math.floor(shotDuration * 4.5); // 4.5字/秒
   console.log(`[AutoPipeline] 分镜阶段使用单镜时长: ${shotDuration}秒, 台词上限: ${maxDialogueChars}字`);
 
-  // 剧本分析（在分镜生成之前分析剧情、场景、角色、情绪、节奏）
-  const scriptAnalysis = await getOrCreateScriptAnalysis(db, task.projectId, task.userId, first.id);
-
   // 已有角色资产（定妆信息）→ 注入分镜 prompt，保证分镜描述贴合定妆角色
   const existingCharacters = ScriptCharacterDAO.listByEpisode(db, first.id)
     .filter(c => c.name)
     .map(c => ({ name: c.name, appearance: c.visual_description || c.description || c.name }));
 
-  const { systemPrompt, prompt } = shotGenerationPrompt({
-    scriptContent: first.script_content,
-    shotDensity: 'normal',
-    includeDialogue: true,
-    characters: existingCharacters.length > 0 ? existingCharacters : undefined,
-  });
+  // 极简分镜提示词：场景内容 + 出场角色
+  const charactersStr = existingCharacters.length > 0
+    ? existingCharacters.map(c => `${c.name}: ${c.appearance}`).join('\n')
+    : '未指定';
+  const prompt = buildShotGenerationPrompt(first.script_content, charactersStr);
 
-  // ── 提示词 Skill：按用户预选视频模型加载官方规范，注入分镜阶段 ──
-  const pref = UserPreferenceDAO.getByUser(db, task.userId);
-  const promptSkill = getPromptSkillForVideoModel(pref?.default_video_model || undefined);
-  if (promptSkill) {
-    console.log(`[AutoPipeline] 分镜阶段加载官方提示词 skill: ${promptSkill.displayName}`);
-  }
-  const finalSystemPrompt = applyStageRules(applySkillRules(systemPrompt, promptSkill, 'shotRule'), 'shots')
+  // 极简系统：不注入模型专属 Skill 规范，仅保留阶段通用规则
+  const finalSystemPrompt = applyStageRules('', 'shots')
 
   // ── 台词容量规则（按用户设置的单镜时长动态计算，阶段性语义拆分，非硬切字数）──
     + `\n\n【台词容量规则（必须严格遵守）】\n- 每个镜头固定 ${shotDuration} 秒（durationSeconds=${shotDuration}），中文台词按 4.5 字/秒折算，${shotDuration} 秒镜头最多装约 ${maxDialogueChars} 字台词（留 0.5 秒缓冲）。\n- 若某段对白超过 ${maxDialogueChars} 字，必须在生成分镜时就自动拆分为多个连续镜头。\n- 【拆分原则：阶段性语义截断，严禁硬切字数】\n  ① 按完整语义单元拆分：一句话说完一个完整意思后再切，不能把一个完整的句子/意思从中间硬切断。\n  ② 在自然停顿处拆分：优先在句号、感叹号、问号处切；其次在逗号、分号处切；绝不能在词语中间切断。\n  ③ 按剧情节奏拆分：一个动作完成后、情绪转折时、场景切换时是最佳切分点。\n  ④ 拆分后每镜台词必须是完整通顺的一句话或完整的语义片段，不能出现"说了一半"的残句。\n  ⑤ 若一句话本身就超过 ${maxDialogueChars} 字，才在句内逗号处拆分，但必须保证每半句语义相对完整。\n- 拆分后保持动作连贯，景别/机位要有变化（如中景→特写、推镜→固定、正面→侧面），说话人不变，前后镜头接续同一段对白。\n- 严禁单个镜头台词超过 ${maxDialogueChars} 字；长对白必须在分镜阶段就按语义阶段拆好，宁多勿塞。\n- 所有镜头的 durationSeconds 字段必须统一为 ${shotDuration}。`;
@@ -140,20 +127,10 @@ export async function stageShots(db: Database, task: AutoPipelineTask): Promise<
     console.log(`[AutoPipeline] 分镜阶段注入项目记忆：角色圣经${memoryInjection.characterBible ? '✓' : '✗'} 世界观${memoryInjection.worldSetting ? '✓' : '✗'} 剧情摘要${memoryInjection.storySummary ? '✓' : '✗'} 伏笔${memoryInjection.openForeshadows ? '✓' : '✗'}`);
   }
 
-  // 提示词优化（基于剧本分析结果细化分镜提示词）
-  let finalPrompt = prompt;
-  if (scriptAnalysis) {
-    const optimized = promptOptimizationService.optimizeShotPrompt(prompt, scriptAnalysis);
-    finalPrompt = optimized.prompt;
-    console.log(`[AutoPipeline] 分镜提示词优化: ${promptOptimizationService.getOptimizationSummary(optimized)}`);
-    task.stageProgress['shots'] = '剧本分析完成，正在生成优化后的分镜...';
-    saveTask(db, task);
-  }
-
   const result = await withRetry(
     () => aiProxy.generateText({
       db, userId: task.userId, provider: model.provider, modelName: model.modelName,
-      prompt: finalPrompt, systemPrompt: memoryEnhancedSystemPrompt, responseFormat: 'json', maxTokens: 32000,
+      prompt, systemPrompt: memoryEnhancedSystemPrompt, responseFormat: 'json', maxTokens: 32000,
     }),
     { maxAttempts: 3, label: '分镜生成AI调用' }
   );

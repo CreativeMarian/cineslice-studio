@@ -2,12 +2,11 @@
 import type { Database } from '../../../types';
 import { NovelEpisodeDAO, ScriptCharacterDAO, CharacterOutfitDAO } from '../../../models';
 import { aiProxy } from '../../aiProxy';
-import { characterExtractPrompt } from '../../prompts/characterExtract';
+import { buildCharacterExtractPrompt } from '../../prompts/characterExtract';
+import { buildCharacterConceptPrompt } from '../../prompts/keyframe';
 import { parseAiJsonOrThrow } from '../../../utils/aiJsonParser';
 import type { AutoPipelineTask } from '../types';
-import { getFirstModel, getOrCreateScriptAnalysis, getProjectStylePreset, withRetry } from '../helpers';
-import { UserPreferenceDAO } from '../../../models';
-import { getPromptSkillForVideoModel, applySkillRules } from '../../promptSkills';
+import { getFirstModel, getOrCreateScriptAnalysis, getProjectStyleDescription, withRetry } from '../helpers';
 import { runStageGates } from '../../stageSkills';
 import { applyStageRules } from '../../stageSkills';
 import { runNativeGates } from '../../stageSkills/nativeGates';
@@ -26,12 +25,10 @@ export async function stageCharacters(db: Database, task: AutoPipelineTask): Pro
   const model = getFirstModel(db, task.userId, 'text');
   if (!model) throw new Error('请先配置文本模型');
 
-  const { systemPrompt, prompt } = characterExtractPrompt(first.script_content);
+  const prompt = buildCharacterExtractPrompt(first.script_content);
 
-  // ── 提示词 Skill：资产提取阶段按用户预选视频模型加载官方规范 ──
-  const promptSkill = getPromptSkillForVideoModel(UserPreferenceDAO.getByUser(db, task.userId)?.default_video_model);
-  if (promptSkill) console.log(`[AutoPipeline] 角色提取加载官方提示词 skill: ${promptSkill.displayName}`);
-  const finalSystem = applyStageRules(applySkillRules(systemPrompt, promptSkill, 'assetRule'), 'characters');
+  // 极简系统：不注入模型专属 Skill 规范，仅保留阶段通用规则
+  const finalSystem = applyStageRules('', 'characters');
   const result = await withRetry(
     () => aiProxy.generateText({
       db, userId: task.userId, provider: model.provider, modelName: model.modelName,
@@ -60,14 +57,15 @@ export async function stageCharacters(db: Database, task: AutoPipelineTask): Pro
   // 角色概念图将作为关键帧生成的参考图，保证人物一致性
   const imageModel = getFirstModel(db, task.userId, 'image');
   if (imageModel && created.length > 0) {
-    // 获取剧本分析结果（用于优化角色概念图提示词）
+    // 获取剧本分析结果（用于角色外观描述兜底）
     const scriptAnalysis = await getOrCreateScriptAnalysis(db, task.projectId, task.userId, first.id);
-    const stylePreset = getProjectStylePreset(db, task.projectId);
+    // 极简系统：风格来自 project.style_description
+    const styleDescription = getProjectStyleDescription(db, task.projectId);
 
     let characterImagesGenerated = 0;
     for (const character of created) {
       try {
-        // 从剧本分析中找到匹配的角色信息
+        // 从剧本分析中找到匹配的角色信息（补充性格/视觉特征）
         let charAnalysis = null;
         if (scriptAnalysis?.characterAnalysis) {
           charAnalysis = scriptAnalysis.characterAnalysis.find(
@@ -75,22 +73,10 @@ export async function stageCharacters(db: Database, task: AutoPipelineTask): Pro
           );
         }
 
-        // 构建角色概念图提示词
-        const visualDesc = character.visual_description || character.description || '';
-        const personality = charAnalysis?.personality || '';
-        const emotionalArc = charAnalysis?.emotionalArc || '';
-        const visualTraits = charAnalysis?.visualTraits || '';
-
-        let characterPrompt = `人物角色概念图，${character.name}，${visualDesc}`;
-        if (personality) characterPrompt += `，性格特征：${personality}`;
-        if (visualTraits) characterPrompt += `，视觉特征：${visualTraits}`;
-        if (emotionalArc) characterPrompt += `，情绪状态：${emotionalArc}`;
-        characterPrompt += `。${stylePreset.visualStyle}`;
-        characterPrompt += '。正面全身像，标准姿势，清晰面部特征，完整服装展示，中性背景，高细节，8K分辨率';
-        // ── 提示词 Skill：追加官方参考图约束（供后续视频生成锁定身份）──
-        if (promptSkill?.assetRule) {
-          characterPrompt += '。此图将作为视频生成的身份参考图：面部正对镜头或轻微侧对镜头、五官清晰、面部不可遮挡、无大面积阴影或过曝、自然光色；画面中只有此人、无任何文字/字母/数字/logo/水印';
-        }
+        // 极简角色概念图提示词（buildCharacterConceptPrompt：风格 + 角色名/外貌 + 纯白背景全身）
+        const visualDesc = [character.visual_description || character.description || '', charAnalysis?.personality || '', charAnalysis?.visualTraits || '']
+          .filter(Boolean).join('，');
+        const characterPrompt = buildCharacterConceptPrompt(character.name, visualDesc || '无描述', styleDescription || undefined);
 
         // 负面提示词
         const charNegativePrompt = '低质量，模糊，变形，多余手指，丑陋，水印，文字，卡通，动漫，3d渲染感，塑料皮肤，蜡像质感，恐怖谷，过度光滑，AI伪影，CG感，不自然对称，背景杂乱，多人，侧脸，背影';

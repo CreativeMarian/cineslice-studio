@@ -8,15 +8,12 @@ import {
   ShotKeyframeDAO,
 } from '../../../models';
 import { aiProxy } from '../../aiProxy';
-import { directorPromptService } from '../../directorPromptService';
-import { aiPromptOptimizerService, type ScriptContextForAI } from '../../aiPromptOptimizerService';
+import { buildKeyframePrompt } from '../../prompts/keyframe';
 import { collectShotReferenceImages } from '../../shotConsistencyService';
 import { parseCharactersInShot } from '../../../models/shot';
 import type { AutoPipelineTask } from '../types';
-import { getFirstModel, getOrCreateScriptAnalysis, getProjectStylePreset, buildDirectorShotContext } from '../helpers';
+import { getFirstModel, getProjectStyleDescription } from '../helpers';
 import { saveTask } from '../taskStore';
-import { UserPreferenceDAO } from '../../../models';
-import { getPromptSkillForVideoModel } from '../../promptSkills';
 import { visualMemoryService } from '../../visualMemoryService';
 
 /** 从动作弧三段式 actionDescription 中提取首/尾帧画面描述（无分段标记时返回 null） */
@@ -44,24 +41,8 @@ export async function stageKeyframes(db: Database, task: AutoPipelineTask): Prom
   // 预加载所有角色（避免循环内重复查询）
   const allCharacters = ScriptCharacterDAO.listByEpisode(db, first.id);
 
-  // 提示词 Skill：按用户预选视频模型加载（关键帧阶段追加官方锚定句）
-  const promptSkill = getPromptSkillForVideoModel(UserPreferenceDAO.getByUser(db, task.userId)?.default_video_model);
-  if (promptSkill) console.log(' + ' + promptSkill.displayName);
-
-  // 统一风格前缀（从项目风格预设读取，保证全片画风一致）
-  const stylePreset = getProjectStylePreset(db, task.projectId);
-  console.log(`[AutoPipeline] keyframes 使用风格预设: ${stylePreset.presetName}`);
-
-  // 剧本分析（在关键帧生成之前分析剧情、场景、角色、情绪，用于提示词优化）
-  const scriptAnalysis = await getOrCreateScriptAnalysis(db, task.projectId, task.userId, first.id);
-  if (scriptAnalysis) {
-    console.log(`[AutoPipeline] keyframes 使用剧本分析结果优化提示词`);
-  }
-
-  // 构建 AI 深度优化用的剧本上下文（包含整个剧本的剧情、角色、场景、情绪曲线）
-  const scriptContextForAI: ScriptContextForAI = scriptAnalysis
-    ? aiPromptOptimizerService.buildScriptContextFromAnalysis(scriptAnalysis)
-    : { characters: [], scenes: [] };
+  // 统一风格前缀（从项目风格描述读取，极简系统：一句话拼在提示词开头）
+  const styleDescription = getProjectStyleDescription(db, task.projectId);
 
   let generated = 0;
   let skipped = 0;
@@ -100,74 +81,15 @@ export async function stageKeyframes(db: Database, task: AutoPipelineTask): Prom
       const referenceImages = collectShotReferenceImages(db, shot);
 
       // ═══════════════════════════════════════════════════════════
-      // 导演级关键帧提示词生成（v2.0）
-      // 包含：时序控制、动作分解、表情细节、心理活动、环境交互、连贯性、真实性校验
-      // 解决：角色变脸、场景不一致、剧情不连贯、无厘头动作等问题
+      // 极简关键帧提示词（v3.0）：首帧/尾帧画面描述 + 风格前缀
+      // 画面描述优先取 frameSpecificDescription 字段，回退到动作弧【起始状态】/【结束状态】分段
+      // 一致性主要靠 collectShotReferenceImages 注入的参考图，不再做导演级/AI深度优化
       // ═══════════════════════════════════════════════════════════
-      // 首帧上下文：动作起始状态（frameSpecificDescription 优先，回退到动作弧【起始状态】）
-      const ctxFirst = buildDirectorShotContext(
-        db,
-        shot,
-        shots,
-        first.id,
-        shots.length
-      );
-      ctxFirst.frameType = 'first';
-      ctxFirst.frameSpecificDescription = shot.first_frame_description || extractFrameDesc(shot.action_description, 'first') || undefined;
-
-      // 尾帧上下文：动作结束状态（frameSpecificDescription 优先，回退到动作弧【结束状态】）
-      const ctxLast = buildDirectorShotContext(
-        db,
-        shot,
-        shots,
-        first.id,
-        shots.length
-      );
-      ctxLast.frameType = 'last';
-      ctxLast.frameSpecificDescription = shot.last_frame_description || extractFrameDesc(shot.action_description, 'last') || undefined;
-
-      const directorFirstResult = directorPromptService.generateKeyframePrompt(
-        ctxFirst,
-        scriptAnalysis || undefined
-      );
-      const directorLastResult = directorPromptService.generateKeyframePrompt(
-        ctxLast,
-        scriptAnalysis || undefined
-      );
-
-      // ═══════════════════════════════════════════════════════════
-      // AI 深度优化（让 AI 关联剧本上下文，深度分析后生成优化提示词）
-      // 这是核心优化：不是模板化，而是真正的 AI 理解和分析
-      // ═══════════════════════════════════════════════════════════
-      let finalFirstPrompt = directorFirstResult.prompt;
-      let finalLastPrompt = directorLastResult.prompt;
-      let finalNegativePrompt = directorFirstResult.negativePrompt;
-      let aiOptimizedOk = false;
-
-      try {
-        const aiOptimized = await aiPromptOptimizerService.optimizeKeyframePrompt(
-          db,
-          task.userId,
-          ctxFirst,
-          scriptContextForAI
-        );
-        if (aiOptimized.prompt && aiOptimized.prompt.length > 50) {
-          finalFirstPrompt = aiOptimized.prompt;
-          finalNegativePrompt = aiOptimized.negativePrompt || directorFirstResult.negativePrompt;
-          aiOptimizedOk = true;
-          console.log(`[AutoPipeline] keyframe shot=${shot.shot_number} AI深度优化成功`);
-        }
-      } catch (aiErr) {
-        console.warn(`[AutoPipeline] keyframe shot=${shot.shot_number} AI深度优化失败，使用导演级提示词:`, (aiErr as Error).message);
-      }
-
-      // 帧专属画面兜底追加：防止 AI 优化丢弃首尾帧差异化信息
-      if (aiOptimizedOk && ctxFirst.frameSpecificDescription && !finalFirstPrompt.includes('【帧专属画面】')) {
-        finalFirstPrompt += `\n【帧专属画面】本帧画面必须严格为以下内容：${ctxFirst.frameSpecificDescription}`;
-      }
-      if (ctxLast.frameSpecificDescription && !finalLastPrompt.includes('【帧专属画面】')) {
-        finalLastPrompt += `\n【帧专属画面】本帧画面必须严格为以下内容：${ctxLast.frameSpecificDescription}`;
-      }
+      const firstDesc = shot.first_frame_description || extractFrameDesc(shot.action_description, 'first') || shot.action_description || '';
+      const lastDesc = shot.last_frame_description || extractFrameDesc(shot.action_description, 'last') || shot.action_description || '';
+      const finalFirstPrompt = buildKeyframePrompt(firstDesc, styleDescription || undefined);
+      const finalLastPrompt = buildKeyframePrompt(lastDesc, styleDescription || undefined);
+      const finalNegativePrompt: string | undefined = undefined;
 
       console.log(`[AutoPipeline] keyframe shot=${shot.shot_number} 提示词生成完成`);
 
@@ -178,11 +100,6 @@ export async function stageKeyframes(db: Database, task: AutoPipelineTask): Prom
         while (attempts < MAX_ATTEMPTS) {
           attempts++;
           try {
-          // ── 提示词 Skill：追加官方关键帧锚定句（H3 I2VA/FL2VA）──
-          if (promptSkill?.keyframeAnchor) {
-            const anchor = promptSkill.keyframeAnchor(frameType);
-            if (anchor && !promptText.includes('锚定')) promptText = promptText + '\n' + anchor;
-          }
           // Pollinations FLUX 对英文提示词理解远优于中文：先经 deepseek 翻译成英文
           let effectivePrompt = promptText;
           if (model.provider === 'pollinations') {

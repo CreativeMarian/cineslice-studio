@@ -6,7 +6,6 @@
 import type { VideoAdapter, VideoGenerateParams, VideoGenerateResult } from '../base';
 import { AIError, httpRequest } from '../base';
 import { registerVideoFactory } from '../registry';
-import { enhanceVideoPrompt } from '../../prompts/videoQuality';
 
 export class AgnesVideoAdapter implements VideoAdapter {
   readonly provider = 'agnes';
@@ -21,17 +20,11 @@ export class AgnesVideoAdapter implements VideoAdapter {
   }
 
   async generate(params: VideoGenerateParams): Promise<VideoGenerateResult> {
-    // 增强提示词
+    // 直接使用传入提示词（极简系统：一致性靠参考图，不再做增强包装）
     const basePrompt = params.motion || params.prompt || '';
-    const isAction = /打斗|攻击|打|踢|拳|鞭|战斗|追逐|跑|跳|摔|撞|fight|attack|punch|kick|whip|chase|run|jump/i.test(basePrompt);
-    const { prompt: enhancedPrompt } = enhanceVideoPrompt(basePrompt, {
-      isActionScene: isAction,
-      includeQuality: true,
-      includeConsistency: true,
-    });
 
     // Agnes prompt限制，超长则截断
-    const prompt = enhancedPrompt.length > 2000 ? enhancedPrompt.substring(0, 1997) + '...' : enhancedPrompt;
+    const prompt = basePrompt.length > 2000 ? basePrompt.substring(0, 1997) + '...' : basePrompt;
 
     // 视频时长由 num_frames 和 frame_rate 控制
     // 约5秒: num_frames=121, frame_rate=24

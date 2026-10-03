@@ -11,7 +11,7 @@ import { useProjectStore } from '../../stores/useProjectStore';
 const steps = [
   { value: 'novel', label: '小说管理', icon: BookOpen, desc: '上传与解析' },
   { value: 'episodes', label: '剧集管理', icon: Film, desc: '生成剧集' },
-  { value: 'script', label: '剧本编辑', icon: FileText, desc: '编辑与润色' },
+  { value: 'script', label: '剧本编辑', icon: FileText, desc: '编辑与预览' },
   { value: 'shots', label: '分镜表', icon: Clapperboard, desc: '镜头与关键帧' },
 ] as const;
 

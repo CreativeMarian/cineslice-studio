@@ -7,13 +7,13 @@ export const projectService = {
   list: (params?: { page?: number; limit?: number; status?: string }) =>
     apiClient.get<unknown, ApiResponse<{ items: Project[]; total: number }>>('/projects', { params }),
 
-  create: (data: { title: string; description?: string; mode?: 'auto' | 'semi-auto'; style_preset_id?: string }) =>
+  create: (data: { title: string; description?: string; mode?: 'auto' | 'semi-auto'; style_description?: string }) =>
     apiClient.post<unknown, ApiResponse<Project>>('/projects', data),
 
   get: (id: string) =>
     apiClient.get<unknown, ApiResponse<Project>>(`/projects/${id}`),
 
-  update: (id: string, data: Partial<Pick<Project, 'title' | 'description' | 'stage' | 'visual_style_id' | 'genre' | 'target_duration' | 'default_shot_duration' | 'language' | 'pipeline_step'>>) =>
+  update: (id: string, data: Partial<Pick<Project, 'title' | 'description' | 'stage' | 'visual_style_id' | 'genre' | 'target_duration' | 'default_shot_duration' | 'language' | 'pipeline_step' | 'style_description'>>) =>
     apiClient.put<unknown, ApiResponse<Project>>(`/projects/${id}`, data),
 
   delete: (id: string) =>

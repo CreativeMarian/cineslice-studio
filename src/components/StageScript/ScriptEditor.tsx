@@ -1,8 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Edit3, Eye, Save, RefreshCw, FileText, Clock, Check, Wand2, Volume2, Sparkles } from 'lucide-react';
+import { Edit3, Eye, Save, RefreshCw, FileText, Clock, Check, Volume2 } from 'lucide-react';
 import { Button, Card, EmptyState, Badge } from '../ui';
 import { ConfigPanel } from './ConfigPanel';
-import { EnrichPanel } from './EnrichPanel';
 import { useProjectStore } from '../../stores/useProjectStore';
 import { useUIStore } from '../../stores/useUIStore';
 import { projectService } from '../../services/projectService';
@@ -18,8 +17,6 @@ export function ScriptEditor() {
   const [isSaved, setIsSaved] = useState(true);
   const [regenerateOpen, setRegenerateOpen] = useState(false);
   const [isRegenerating, setIsRegenerating] = useState(false);
-  const [polishOpen, setPolishOpen] = useState(false);
-  const [isPolishing, setIsPolishing] = useState(false);
   const [ttsOpen, setTtsOpen] = useState(false);
   const [isGeneratingAudio, setIsGeneratingAudio] = useState(false);
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
@@ -28,7 +25,6 @@ export function ScriptEditor() {
   const [ttsModelKey, setTtsModelKey] = useState(() => {
     try { return localStorage.getItem('moo:last_tts_model') || ''; } catch { return ''; }
   });
-  const [enrichOpen, setEnrichOpen] = useState(false);
 
   // 切换 TTS 模型时自动切换到对应提供商的默认音色
   const handleTtsModelChange = (modelKey: string) => {
@@ -101,33 +97,6 @@ export function ScriptEditor() {
       showToast(`重新生成失败: ${errorMsg}`, 'error');
     } finally {
       setIsRegenerating(false);
-    }
-  };
-
-  // 润色剧本（不改变剧情，只优化文字）
-  const handlePolish = async (params: { modelKey: string }) => {
-    if (!currentEpisode) return;
-    setIsPolishing(true);
-    try {
-      const res = await projectService.polishEpisode(currentEpisode.id, {
-        text_model: params.modelKey,
-      });
-      if (res.success && res.data) {
-        setContent(res.data.script_content);
-        updateEpisode(currentEpisode.id, {
-          script_content: res.data.script_content,
-          word_count: res.data.word_count,
-          status: 'edited',
-        });
-        setIsSaved(true);
-        showToast('剧本已润色完成', 'success');
-        setPolishOpen(false);
-      }
-    } catch (err: any) {
-      const errorMsg = err?.response?.data?.message || err?.message || '润色失败';
-      showToast(`润色失败: ${errorMsg}`, 'error');
-    } finally {
-      setIsPolishing(false);
     }
   };
 
@@ -290,22 +259,6 @@ export function ScriptEditor() {
           <Button
             size="sm"
             variant="outline"
-            leftIcon={<Wand2 className="w-4 h-4" />}
-            onClick={() => setPolishOpen(true)}
-          >
-            润色
-          </Button>
-          <Button
-            size="sm"
-            leftIcon={<Sparkles className="w-4 h-4" />}
-            onClick={() => setEnrichOpen(!enrichOpen)}
-            className={enrichOpen ? '' : ''}
-          >
-            加料重构
-          </Button>
-          <Button
-            size="sm"
-            variant="outline"
             leftIcon={<RefreshCw className="w-4 h-4" />}
             onClick={() => setRegenerateOpen(true)}
           >
@@ -341,15 +294,6 @@ export function ScriptEditor() {
         )}
       </Card>
 
-      {/* 加料重构（按集触发：规范前置 + 只加血肉不动骨架 + 五层护栏） */}
-      {enrichOpen && (
-        <EnrichPanel
-          episodeId={currentEpisode.id}
-          status={currentEpisode.enrich_status || 'none'}
-          onStatusChange={(s) => updateEpisode(currentEpisode.id, { enrich_status: s })}
-        />
-      )}
-
       {/* 音频播放器 */}
       {audioUrl && (
         <Card className="p-4">
@@ -380,17 +324,6 @@ export function ScriptEditor() {
         modelType="text"
         onGenerate={handleRegenerate}
         isLoading={isRegenerating}
-      />
-
-      {/* 润色配置面板 */}
-      <ConfigPanel
-        open={polishOpen}
-        onOpenChange={setPolishOpen}
-        title="润色剧本"
-        description="AI 将优化当前集的文字表达，不改变剧情和情节，只优化对话和描写"
-        modelType="text"
-        onGenerate={handlePolish}
-        isLoading={isPolishing}
       />
 
       {/* 配音配置面板 */}

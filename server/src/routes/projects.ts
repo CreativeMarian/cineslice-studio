@@ -39,7 +39,7 @@ const createProjectSchema = z.object({
   default_shot_duration: z.number().int().min(5).max(60).optional(),
   language: z.string().optional(),
   mode: z.enum(['auto', 'semi-auto']).optional(),
-  style_preset_id: z.string().optional(),
+  style_description: z.string().optional(),
 });
 
 const updateProjectSchema = z.object({
@@ -54,7 +54,7 @@ const updateProjectSchema = z.object({
   language: z.string().optional(),
   pipeline_step: z.enum(['novel', 'episodes', 'script', 'shots']).optional(),
   mode: z.enum(['auto', 'semi-auto']).optional(),
-  style_preset_id: z.string().optional(),
+  style_description: z.string().optional(),
   model_preferences: z.string().optional(),
 });
 

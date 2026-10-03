@@ -12,7 +12,6 @@
 import type { Database } from '../types';
 import { aiProxy } from './aiProxy';
 import { NovelEpisodeDAO, ScriptCharacterDAO, ScriptSceneDAO, ModelRegistryDAO, UserPreferenceDAO } from '../models';
-import { getPromptSkillForVideoModel, applySkillRules } from './promptSkills';
 import { parseAiJsonOrThrow } from '../utils/aiJsonParser';
 import { now } from '../models/index';
 
@@ -236,10 +235,9 @@ export const episodeEnrichService = {
 
     console.log(`[Enrich] 开始加料重构 episode=${episodeId} 第${episode.episode_number}集`);
 
-    // ── 规范前置：按用户预选视频模型加载官方提示词 skill ──
+    // ── 视频模型记录：极简系统下不再注入模型专属 Skill 规范，仅记录实际使用的视频模型 ──
     const videoModelUsed = UserPreferenceDAO.getByUser(db, userId)?.default_video_model;
-    const promptSkill = getPromptSkillForVideoModel(videoModelUsed);
-    console.log(`[Enrich] 注入官方提示词 skill: ${promptSkill.displayName}（视频模型: ${videoModelUsed || '未设置'}）`);
+    console.log(`[Enrich] 加料重构（视频模型: ${videoModelUsed || '未设置'}）`);
 
     // ── 文本模型解析：优先显式传入，否则取用户第一个文本模型 ──
     let provider = opts?.provider;
@@ -292,10 +290,8 @@ export const episodeEnrichService = {
       console.log(`[Enrich] 携带打回反馈（第${previousRejectCount}次）: ${previousFeedback.slice(0, 100)}`);
     }
 
-    // ── 官方规范前置注入（第一层护栏的"规范"部分）+ 质量硬要求 ──
-    const systemPrompt = applySkillRules(ENRICH_SYSTEM_BASE, promptSkill, 'videoRule')
-      + applySkillRules('', promptSkill, 'shotRule')
-      + ENRICH_QUALITY_REQUIREMENT;
+    // ── 系统提示词：极简系统下不注入模型专属 Skill 规范，仅保留基础护栏与质量要求 ──
+    const systemPrompt = ENRICH_SYSTEM_BASE + ENRICH_QUALITY_REQUIREMENT;
 
     const fullPrompt = `## 原文剧本（必须完整保留其剧情节点与台词）\n\n${originalScript}${context}\n\n## 任务\n按上述规则完成加料重构，输出 JSON。`;
 
@@ -366,8 +362,8 @@ export const episodeEnrichService = {
         })),
         alignment,
         meta: {
-          skillId: promptSkill.id,
-          skillName: promptSkill.displayName,
+          skillId: 'minimal',
+          skillName: '极简提示词',
           textModel: `${provider}/${modelName}`,
           videoModelUsed: videoModelUsed || null,
           retries,

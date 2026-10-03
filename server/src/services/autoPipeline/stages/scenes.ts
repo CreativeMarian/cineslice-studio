@@ -2,12 +2,11 @@
 import type { Database } from '../../../types';
 import { NovelEpisodeDAO, ScriptSceneDAO, ScriptPropDAO } from '../../../models';
 import { aiProxy } from '../../aiProxy';
-import { sceneExtractPrompt } from '../../prompts/sceneExtract';
+import { buildSceneExtractPrompt } from '../../prompts/sceneExtract';
+import { buildSceneConceptPrompt, buildKeyframePrompt } from '../../prompts/keyframe';
 import { parseAiJsonOrThrow } from '../../../utils/aiJsonParser';
 import type { AutoPipelineTask } from '../types';
-import { getFirstModel, getOrCreateScriptAnalysis, getProjectStylePreset, withRetry } from '../helpers';
-import { UserPreferenceDAO } from '../../../models';
-import { getPromptSkillForVideoModel, applySkillRules } from '../../promptSkills';
+import { getFirstModel, getOrCreateScriptAnalysis, getProjectStyleDescription, withRetry } from '../helpers';
 import { runStageGates } from '../../stageSkills';
 import { applyStageRules } from '../../stageSkills';
 import { runNativeGates } from '../../stageSkills/nativeGates';
@@ -26,12 +25,10 @@ export async function stageScenes(db: Database, task: AutoPipelineTask): Promise
   const model = getFirstModel(db, task.userId, 'text');
   if (!model) throw new Error('请先配置文本模型');
 
-  const { systemPrompt, prompt } = sceneExtractPrompt(first.script_content);
+  const prompt = buildSceneExtractPrompt(first.script_content);
 
-  // ── 提示词 Skill：资产提取阶段按用户预选视频模型加载官方规范 ──
-  const promptSkill = getPromptSkillForVideoModel(UserPreferenceDAO.getByUser(db, task.userId)?.default_video_model);
-  if (promptSkill) console.log(`[AutoPipeline] 场景提取加载官方提示词 skill: ${promptSkill.displayName}`);
-  const finalSystem = applyStageRules(applySkillRules(systemPrompt, promptSkill, 'assetRule'), 'scenes');
+  // 极简系统：不注入模型专属 Skill 规范，仅保留阶段通用规则
+  const finalSystem = applyStageRules('', 'scenes');
   const result = await withRetry(
     () => aiProxy.generateText({
       db, userId: task.userId, provider: model.provider, modelName: model.modelName,
@@ -59,9 +56,10 @@ export async function stageScenes(db: Database, task: AutoPipelineTask): Promise
   // 该场景下的所有关键帧都将以此参考图为风格基准，保证环境一致性
   const imageModel = getFirstModel(db, task.userId, 'image');
   if (imageModel && created.length > 0) {
-    // 获取剧本分析结果（用于优化场景参考图提示词）
+    // 获取剧本分析结果（用于场景描述兜底）
     const scriptAnalysis = await getOrCreateScriptAnalysis(db, task.projectId, task.userId, first.id);
-    const stylePreset = getProjectStylePreset(db, task.projectId);
+    // 极简系统：风格来自 project.style_description
+    const styleDescription = getProjectStyleDescription(db, task.projectId);
 
     let sceneImagesGenerated = 0;
     for (const scene of created) {
@@ -74,25 +72,14 @@ export async function stageScenes(db: Database, task: AutoPipelineTask): Promise
           );
         }
 
-        // 构建场景参考图提示词（使用剧本分析优化）
-        const sceneDesc = scene.description || scene.location || '';
+        // 极简场景概念图提示词（buildSceneConceptPrompt：风格 + 场景名/环境描述 + 高清光影）
         const atmosphere = sceneAnalysis?.atmosphere?.join(', ') || scene.atmosphere || '';
         const lighting = sceneAnalysis?.lighting || '';
         const keyProps = sceneAnalysis?.keyProps?.join(', ') || '';
         const emotionalTone = sceneAnalysis?.emotionalTone || '';
-
-        let scenePrompt = `场景概念图，${scene.name}，${sceneDesc}`;
-        if (atmosphere) scenePrompt += `，氛围：${atmosphere}`;
-        if (lighting) scenePrompt += `，光线：${lighting}`;
-        if (keyProps) scenePrompt += `，关键道具：${keyProps}`;
-        if (emotionalTone) scenePrompt += `，情绪基调：${emotionalTone}`;
-        scenePrompt += `，时段：${scene.time_of_day || 'day'}`;
-        scenePrompt += `。${stylePreset.visualStyle}`;
-        scenePrompt += '。空场景，无人物，完整空间展示，透视正确，高细节，8K分辨率，电影级画质';
-        // ── 提示词 Skill：追加官方参考图约束（供后续视频生成锁定场景）──
-        if (promptSkill?.assetRule) {
-          scenePrompt += '。此图将作为视频生成的场景参考图：画面中绝对不能出现任何文字/字母/数字/logo/招牌/水印，光影方向一致，陈设布局清晰完整';
-        }
+        const sceneDesc = [scene.description || scene.location || '', atmosphere, lighting, keyProps, emotionalTone, `时段：${scene.time_of_day || 'day'}`]
+          .filter(Boolean).join('，');
+        const scenePrompt = buildSceneConceptPrompt(scene.name, sceneDesc || '无描述', styleDescription || undefined);
 
         // 负面提示词
         const sceneNegativePrompt = '低质量，模糊，变形，丑陋，水印，文字，卡通，动漫，3d渲染感，塑料质感，过度光滑，AI伪影，CG感，人物，角色，人脸，不自然对称，透视错误，光照不一致，阴影错误';
@@ -145,9 +132,8 @@ export async function stageScenes(db: Database, task: AutoPipelineTask): Promise
 
         for (const propName of propsList) {
           try {
-            // 构建道具概念图提示词
-            let propPrompt = `物品道具概念图，${propName}，电影级写实风格，高细节，8K分辨率，产品摄影，中性背景，均匀光照，清晰展示物品全貌和细节`;
-            propPrompt += `。${stylePreset.visualStyle}`;
+            // 极简道具概念图提示词（buildKeyframePrompt：风格 + 主体描述）
+            const propPrompt = buildKeyframePrompt(`物品道具概念图：${propName}，产品摄影，中性背景，均匀光照，清晰展示物品全貌和细节`, styleDescription || undefined);
 
             const propNegativePrompt = '低质量，模糊，变形，丑陋，水印，文字，卡通，动漫，3d渲染感，塑料质感，过度光滑，AI伪影，CG感，人物，角色，人脸，手，背景杂乱，多物品';
 

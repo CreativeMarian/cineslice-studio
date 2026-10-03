@@ -18,7 +18,6 @@ export * from './renderLog';
 export * from './modelRegistry';
 export * from './userPreference';
 export * from './visualStyle';
-export * from './stylePreset';
 export * from './aiCache';
 export * from './costRecord';
 export * from './subtitle';

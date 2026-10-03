@@ -5,7 +5,6 @@
 import type { VideoAdapter, VideoGenerateParams, VideoGenerateResult } from '../base';
 import { AIError, httpRequest } from '../base';
 import { registerVideoFactory } from '../registry';
-import { enhanceVideoPrompt } from '../../prompts/videoQuality';
 
 export class DoubaoVideoAdapter implements VideoAdapter {
   readonly provider = 'doubao';
@@ -22,19 +21,11 @@ export class DoubaoVideoAdapter implements VideoAdapter {
   async generate(params: VideoGenerateParams): Promise<VideoGenerateResult> {
     const content: Array<Record<string, unknown>> = [];
 
-    // 统一去AI味提示词增强（公共模块）
+    // 直接使用传入提示词（极简系统：一致性靠参考图，不再做增强包装）
     const basePrompt = params.motion || params.prompt || '';
-    const isAction = /打斗|攻击|打|踢|拳|鞭|战斗|追逐|跑|跳|摔|撞|fight|attack|punch|kick|whip|chase|run|jump/i.test(basePrompt);
-    const { prompt: motionText, negativePrompt } = enhanceVideoPrompt(basePrompt, { isActionScene: isAction });
 
-    // 文本提示词
-    // Combine into single text (official API max 1 text)
-let combinedPrompt = motionText || '';
-if (negativePrompt) { combinedPrompt += '\nNegative: ' + negativePrompt; }
-if (combinedPrompt) { content.push({ type: 'text', text: combinedPrompt }); }
-
-    // 负面提示词（Seedance 支持 negative_prompt 字段）
-    // negativePrompt merged into combinedPrompt above
+    // 文本提示词（官方 API 单文本限制）
+    if (basePrompt) { content.push({ type: 'text', text: basePrompt }); }
 
     // 首帧图片（图生视频）
     const isR2V = !!params.firstFrameImageUrl;

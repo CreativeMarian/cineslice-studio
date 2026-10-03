@@ -46,6 +46,7 @@ export function ProjectConfigBar() {
   const [duration, setDuration] = useState(currentProject?.target_duration || '3min');
   const [shotDuration, setShotDuration] = useState(String(currentProject?.default_shot_duration || 5));
   const [language, setLanguage] = useState(currentProject?.language || 'zh');
+  const [styleDescription, setStyleDescription] = useState(currentProject?.style_description || '');
   const [isSaving, setIsSaving] = useState(false);
 
   if (!currentProject) return null;
@@ -60,6 +61,7 @@ export function ProjectConfigBar() {
         target_duration: duration,
         default_shot_duration: Number(shotDuration),
         language,
+        style_description: styleDescription.trim() || undefined,
       });
       if (res.success && res.data) {
         setCurrentProject(res.data);
@@ -108,6 +110,17 @@ export function ProjectConfigBar() {
                 <span className="text-[var(--ink-3)]">语言</span>
                 <span className="font-medium text-[var(--ink-1)]">{langLabel}</span>
               </span>
+              {currentProject.style_description && (
+                <>
+                  <span className="w-px h-4 bg-[var(--border)]" />
+                  <span className="flex items-center gap-1.5 text-[var(--ink-2)] max-w-[260px]">
+                    <span className="text-[var(--ink-3)] flex-shrink-0">风格</span>
+                    <span className="font-medium text-[var(--ink-1)] truncate" title={currentProject.style_description}>
+                      {currentProject.style_description}
+                    </span>
+                  </span>
+                </>
+              )}
             </div>
           </div>
           <Button variant="ghost" size="sm" onClick={() => {
@@ -116,6 +129,7 @@ export function ProjectConfigBar() {
             setDuration(currentProject.target_duration || '3min');
             setShotDuration(String(currentProject.default_shot_duration || 5));
             setLanguage(currentProject.language || 'zh');
+            setStyleDescription(currentProject.style_description || '');
             setIsEditing(true);
           }}>
             <Settings className="w-4 h-4 mr-1.5" />
@@ -170,6 +184,15 @@ export function ProjectConfigBar() {
               ))}
             </Select>
           </div>
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-[var(--ink-3)] mb-1.5">风格描述（可选）</label>
+          <input
+            className="w-full px-3 py-2 bg-[var(--bg)] border border-[var(--border)] rounded-[var(--radius-control)] text-sm text-[var(--ink-1)] focus:outline-none focus:border-[var(--accent)]"
+            placeholder="如：真人短剧，电影级画质"
+            value={styleDescription}
+            onChange={(e) => setStyleDescription(e.target.value)}
+          />
         </div>
         <div className="flex items-center justify-end gap-2">
           <Button variant="ghost" size="sm" onClick={() => setIsEditing(false)}>取消</Button>

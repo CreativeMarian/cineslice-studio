@@ -1,10 +1,12 @@
 // 单镜头卡片：折叠摘要行 + 展开后的关键帧/视频生成面板（自含数据加载与轮询逻辑）
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { Video, Image, RefreshCw, AlertCircle, ChevronDown, ChevronUp, ShieldCheck } from 'lucide-react';
+import { Video, Image, RefreshCw, AlertCircle, ChevronDown, ChevronUp, ShieldCheck, Trash2 } from 'lucide-react';
 import { Card, Badge } from '../ui';
 import { useModelStore } from '../../stores/useModelStore';
+import { useProjectStore } from '../../stores/useProjectStore';
 import { getModelKey } from '../../types/model';
 import { videoService, type ShotVideoInterval, type ShotKeyframe } from '../../services/videoService';
+import { shotService } from '../../services/shotService';
 import apiClient from '../../services/apiClient';
 import { getVideoModelConfig } from '../../config/videoModelConfig';
 import type { Shot } from '../../types';
@@ -69,6 +71,7 @@ function parseShotCharacterNames(shot: Shot): string[] {
 
 export function ShotCard({ shot, index, isExpanded, onToggle, showToast, sceneName, readiness }: ShotCardProps) {
   const { configs, loadConfigs } = useModelStore();
+  const { loadShots } = useProjectStore();
   const [keyframes, setKeyframes] = useState<ShotKeyframe[]>([]);
   const [videos, setVideos] = useState<ShotVideoInterval[]>([]);
   const [isGeneratingKeyframe, setIsGeneratingKeyframe] = useState(false);
@@ -86,9 +89,6 @@ export function ShotCard({ shot, index, isExpanded, onToggle, showToast, sceneNa
   const [elapsedTime, setElapsedTime] = useState(0);
   const [videoProgress, setVideoProgress] = useState<number | null>(null);
   const [isDeletingVideo, setIsDeletingVideo] = useState(false);
-  const [useNextFirstFrame, setUseNextFirstFrame] = useState<boolean>(shot.use_next_first_frame !== 0);
-  const [isGeneratingCandidates, setIsGeneratingCandidates] = useState(false);
-  const [isGeneratingEndFrame, setIsGeneratingEndFrame] = useState(false);
   // 该镜所在剧集的角色列表（角色名 → id，用于关键帧生成时注入角色参考，防止旧图缓存/人物漂移）
   const [episodeChars, setEpisodeChars] = useState<Array<{ id: string; name: string }>>([]);
 
@@ -200,8 +200,6 @@ export function ShotCard({ shot, index, isExpanded, onToggle, showToast, sceneNa
   }, [pollingVideoId, pollingIsLocalComfy, showToast]);
 
   const firstKeyframe = keyframes.find(k => k.frame_type === 'first') || keyframes[0];
-  const candidates = keyframes.filter(k => k.frame_type === 'candidate' && k.image_url);
-  const endFrame = keyframes.find(k => k.frame_type === 'end' && k.image_url);
   const completedVideo = videos.find(v => v.status === 'completed');
   const processingVideo = videos.find(v => v.status === 'processing' || v.status === 'pending' || v.status === 'generating');
   const failedVideo = videos.find(v => v.status === 'failed');
@@ -287,6 +285,22 @@ export function ShotCard({ shot, index, isExpanded, onToggle, showToast, sceneNa
     }
   };
 
+  // 删除当前镜头（连带删除关键帧/视频/音频）
+  const handleDeleteShot = async () => {
+    if (!window.confirm(`确定删除第 ${index + 1} 镜吗？此操作会同时删除该镜的关键帧、视频与音频，且不可恢复。`)) return;
+    try {
+      const res = await shotService.delete(shot.id);
+      if (res.success) {
+        showToast('镜头已删除', 'success');
+        loadShots(shot.episode_id);
+      } else {
+        showToast('删除失败', 'error');
+      }
+    } catch (err: any) {
+      showToast(err?.response?.data?.message || '删除失败', 'error');
+    }
+  };
+
   const handleGenerateVideo = async () => {
     if (!selectedVideoModel) {
       showToast('请选择视频模型', 'error');
@@ -318,203 +332,6 @@ export function ShotCard({ shot, index, isExpanded, onToggle, showToast, sceneNa
       }
     } catch {
       showToast('视频生成失败，请检查模型配置', 'error');
-    } finally {
-      setIsGeneratingVideo(false);
-    }
-  };
-
-  // 切换首尾帧衔接（下镜首帧作尾帧）——保存到镜头，后端视频生成时自动生效
-  const handleToggleUseNextFirstFrame = async (v: boolean) => {
-    setUseNextFirstFrame(v);
-    try {
-      await apiClient.put(`/shots/${shot.id}`, { use_next_first_frame: v ? 1 : 0 });
-      showToast(v ? '首尾帧衔接已开启：视频起止画面硬锁定' : '已关闭首尾帧衔接', 'success');
-    } catch {
-      showToast('首尾帧设置保存失败', 'error');
-    }
-  };
-
-  // 生成九宫格候选关键帧（BigBanana 方案：多视角候选选首帧）
-  const handleGenerateCandidates = async () => {
-    if (!selectedImageModel) {
-      showToast('请选择图像模型', 'error');
-      return;
-    }
-    const [provider, modelName] = selectedImageModel.split(':');
-    if (!provider || !modelName) {
-      showToast('模型格式错误', 'error');
-      return;
-    }
-    setIsGeneratingCandidates(true);
-    try {
-      const res = await apiClient.post<unknown, { success?: boolean; data?: ShotKeyframe[]; message?: string }>(`/shots/${shot.id}/keyframes/candidates`, {
-        provider,
-        modelName,
-        count: 4,
-      });
-      if (res.success && res.data) {
-        setKeyframes(prev => {
-          const newCands = res.data as unknown as ShotKeyframe[];
-          const existingIds = new Set(prev.map(k => k.id));
-          return [...prev, ...newCands.filter(k => !existingIds.has(k.id))];
-        });
-        showToast('已生成 4 个候选视角，点击缩略图选择为首帧', 'success');
-      } else {
-        showToast(res.message || '候选生成失败', 'error');
-      }
-    } catch (err: any) {
-      showToast(err?.response?.data?.message || '候选生成失败', 'error');
-    } finally {
-      setIsGeneratingCandidates(false);
-    }
-  };
-
-  // 选择候选帧升级为首帧
-  const handleSelectCandidate = async (kfId: string) => {
-    try {
-      const res = await apiClient.post<unknown, { success?: boolean; data?: ShotKeyframe; message?: string }>(`/keyframes/${kfId}/select`);
-      if (res.success && res.data) {
-        const kfRes = await videoService.getKeyframes(shot.id);
-        if (kfRes.success) setKeyframes(kfRes.data || []);
-        showToast('已选择该候选帧作为首帧', 'success');
-      } else {
-        showToast(res.message || '选择失败', 'error');
-      }
-    } catch (err: any) {
-      showToast(err?.response?.data?.message || '选择失败', 'error');
-    }
-  };
-
-  // 生成显式尾帧（End Frame，动作/情绪转折镜头推荐）：之后该镜视频首尾帧插值
-  const handleGenerateEndFrame = async () => {
-    if (!selectedImageModel) {
-      showToast('请选择图像模型', 'error');
-      return;
-    }
-    const [provider, modelName] = selectedImageModel.split(':');
-    if (!provider || !modelName) {
-      showToast('模型格式错误', 'error');
-      return;
-    }
-    setIsGeneratingEndFrame(true);
-    try {
-      const res = await apiClient.post<unknown, { success?: boolean; data?: ShotKeyframe; message?: string }>(`/shots/${shot.id}/keyframes/endframe`, {
-        provider,
-        modelName,
-      });
-      if (res.success && res.data) {
-        setKeyframes(prev => {
-          const exists = prev.some(k => k.id === res.data!.id);
-          return exists ? prev : [...prev, res.data as unknown as ShotKeyframe];
-        });
-        showToast('尾帧已生成：该镜视频将做首尾帧插值', 'success');
-      } else {
-        showToast(res.message || '尾帧生成失败', 'error');
-      }
-    } catch (err: any) {
-      showToast(err?.response?.data?.message || '尾帧生成失败', 'error');
-    } finally {
-      setIsGeneratingEndFrame(false);
-    }
-  };
-
-  // 首尾帧出片（推荐入口）：一键补齐首/尾帧（图片模型，带角色+场景参考）→ 自动切本地 flf2v 模型
-  // → 显式提交 endFrameId，起止画面双锁定。小白用户无需理解"首帧/尾帧/模型"概念，点一次即可。
-  const handleGenerateFLF2V = async () => {
-    if (!selectedImageModel) {
-      showToast('请先选择图像模型（用于自动补齐首/尾帧）', 'error');
-      return;
-    }
-    setIsGeneratingVideo(true);
-    try {
-      const [imgProvider, imgModel] = selectedImageModel.split(':');
-      if (!imgProvider || !imgModel) {
-        showToast('图像模型格式错误', 'error');
-        return;
-      }
-      // 镜头角色 id（用于首/尾帧生成时注入角色定妆参考，防止人物漂移）
-      const charIds = parseShotCharacterNames(shot)
-        .map(n => episodeChars.find(c => c.name === n || c.name.includes(n) || n.includes(c.name))?.id)
-        .filter((id): id is string => !!id);
-
-      // 1) 补首帧（frame_type=first）
-      let first = firstKeyframe;
-      if (!first) {
-        const r1 = await apiClient.post<unknown, { success?: boolean; data?: ShotKeyframe[]; message?: string }>(`/shots/${shot.id}/keyframes/generate`, {
-          provider: imgProvider,
-          modelName: imgModel,
-          frameTypes: ['first'],
-          referenceCharacterIds: charIds,
-        });
-        if (r1.success && r1.data && r1.data.length > 0) {
-          first = r1.data[r1.data.length - 1];
-          setKeyframes(prev => {
-            const ids = new Set(prev.map(k => k.id));
-            return [...prev, ...(r1.data as unknown as ShotKeyframe[]).filter(k => !ids.has(k.id))];
-          });
-        }
-      }
-      // 2) 补尾帧（frame_type=last，带角色+场景参考）
-      let last = endFrame || keyframes.find(k => k.frame_type === 'last' && k.image_url) || undefined;
-      if (!last) {
-        const r2 = await apiClient.post<unknown, { success?: boolean; data?: ShotKeyframe[]; message?: string }>(`/shots/${shot.id}/keyframes/generate`, {
-          provider: imgProvider,
-          modelName: imgModel,
-          frameTypes: ['last'],
-          referenceCharacterIds: charIds,
-          referenceSceneId: shot.scene_id || undefined,
-        });
-        if (r2.success && r2.data && r2.data.length > 0) {
-          last = r2.data[r2.data.length - 1];
-          setKeyframes(prev => {
-            const ids = new Set(prev.map(k => k.id));
-            return [...prev, ...(r2.data as unknown as ShotKeyframe[]).filter(k => !ids.has(k.id))];
-          });
-        }
-      }
-      if (!first || !last) {
-        showToast('首/尾帧生成失败，请检查图像模型配置与额度', 'error');
-        return;
-      }
-
-      // 3) 优先切到本地 flf2v 模型（首尾帧一致性最强、免费）；未配置则保持当前选中模型
-      const flf2vKey = 'comfyui:minimax-h3-flf2v.json';
-      const vidModels = configs.video?.filter(m => m.is_active) || [];
-      const hasFlf2v = vidModels.some(m => getModelKey(m.provider, m.model_name) === flf2vKey);
-      const finalModel = hasFlf2v ? flf2vKey : selectedVideoModel;
-      if (!finalModel) {
-        showToast('请先选择视频模型', 'error');
-        return;
-      }
-      if (hasFlf2v && selectedVideoModel !== flf2vKey) setSelectedVideoModel(flf2vKey);
-      const [vProvider, vModel] = finalModel.split(':');
-      const useFlf2v = finalModel === flf2vKey;
-
-      // 4) 提交视频（显式首尾帧：keyframeId + endFrameId）
-      const res = await videoService.generate(shot.id, {
-        provider: vProvider,
-        modelName: vModel,
-        keyframeId: first.id,
-        endFrameId: last.id,
-        motionPrompt: motionPrompt || shot.action_description,
-        duration: useFlf2v ? 5 : videoDuration,
-        ratio: useFlf2v ? '16:9' : videoRatio,
-        resolution: useFlf2v ? '720p' : videoResolution,
-        subtitles: false,
-      });
-      if (res.success && res.data) {
-        setVideos(prev => [...prev, res.data!]);
-        setPollingVideoId(res.data.id);
-        setPollingIsLocalComfy(useFlf2v || vProvider.includes('comfy') || vModel.includes('flf2v'));
-        showToast(
-          useFlf2v
-            ? '首尾帧已锁定，已提交本地 ComfyUI 生成（约 20 分钟，后台自动回写进度）'
-            : '首尾帧已锁定，视频任务已创建，处理中...',
-          'info'
-        );
-      }
-    } catch (err: any) {
-      showToast(err?.response?.data?.message || err?.message || '首尾帧出片失败', 'error');
     } finally {
       setIsGeneratingVideo(false);
     }
@@ -585,12 +402,12 @@ export function ShotCard({ shot, index, isExpanded, onToggle, showToast, sceneNa
           </button>
           <button
             type="button"
-            onClick={(e) => { e.stopPropagation(); handleGenerateFLF2V(); }}
-            disabled={isGeneratingVideo || !!processingVideo}
-            className={`flex items-center gap-1.5 px-2 py-1 rounded-md text-xs font-medium transition-colors ${isGeneratingVideo || processingVideo ? 'opacity-50 cursor-not-allowed' : 'bg-purple-500/10 text-purple-600 dark:text-purple-400 hover:bg-purple-500/20'}`}
-            title="推荐：自动补齐首/尾帧（图片模型）→ 本地 ComfyUI 首尾帧出片，人物/场景/道具一致性最强"
+            onClick={(e) => { e.stopPropagation(); handleDeleteShot(); }}
+            className="flex items-center gap-1.5 px-2 py-1 rounded-md text-xs transition-colors text-[var(--ink-3)] hover:bg-red-500/10 hover:text-red-500"
+            title="删除该镜头（连带关键帧/视频/音频）"
           >
-            <span>⚡ 首尾帧出片</span>
+            <Trash2 className="w-4 h-4" />
+            <span>删除</span>
           </button>
           {isExpanded ? (
             <ChevronUp className="w-4 h-4 text-[var(--ink-3)]" />
@@ -666,62 +483,6 @@ export function ShotCard({ shot, index, isExpanded, onToggle, showToast, sceneNa
                   </div>
                 )}
               </div>
-
-              {/* 九宫格候选 + 显式尾帧 */}
-              <div className="mt-2 flex items-center gap-2 flex-wrap">
-                <button
-                  type="button"
-                  onClick={handleGenerateCandidates}
-                  disabled={isGeneratingCandidates}
-                  className={`flex items-center gap-1 px-2 py-1 rounded-md text-[10px] border transition-colors ${isGeneratingCandidates ? 'opacity-50 cursor-not-allowed' : 'hover:bg-[var(--panel-2)]'}`}
-                  style={{ borderColor: 'var(--border)', color: 'var(--ink-2)' }}
-                >
-                  {isGeneratingCandidates ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Image className="w-3 h-3" />}
-                  {isGeneratingCandidates ? '生成中...' : `候选×4${candidates.length > 0 ? `(${candidates.length})` : ''}`}
-                </button>
-                {endFrame && (
-                  <span className="px-2 py-1 rounded-md text-[10px] bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20">
-                    尾帧✓
-                  </span>
-                )}
-                <button
-                  type="button"
-                  onClick={handleGenerateEndFrame}
-                  disabled={isGeneratingEndFrame}
-                  className={`flex items-center gap-1 px-2 py-1 rounded-md text-[10px] border transition-colors ${isGeneratingEndFrame ? 'opacity-50 cursor-not-allowed' : 'hover:bg-[var(--panel-2)]'}`}
-                  style={{ borderColor: 'var(--border)', color: 'var(--ink-2)' }}
-                >
-                  {isGeneratingEndFrame ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Image className="w-3 h-3" />}
-                  {isGeneratingEndFrame ? '生成中...' : '生成尾帧'}
-                </button>
-                {useNextFirstFrame && (
-                  <span className="px-2 py-1 rounded-md text-[10px] bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20">
-                    自动尾帧
-                  </span>
-                )}
-              </div>
-
-              {/* 候选帧选择行 */}
-              {candidates.length > 0 && (
-                <div className="mt-2">
-                  <p className="text-[10px] text-[var(--ink-3)] mb-1">候选视角（点击选用为首帧）</p>
-                  <div className="flex gap-2 overflow-x-auto pb-1">
-                    {candidates.map(kf => (
-                      <button
-                        key={kf.id}
-                        type="button"
-                        onClick={() => handleSelectCandidate(kf.id)}
-                        className="relative w-24 flex-shrink-0 aspect-video rounded-md overflow-hidden border-2 border-transparent hover:border-[var(--accent)] transition-colors"
-                      >
-                        <img src={kf.image_url ?? ''} alt="候选帧" className="w-full h-full object-cover" />
-                        <span className="absolute bottom-0 inset-x-0 bg-black/50 text-white text-[9px] text-center py-0.5">
-                          {kf.candidate_index ?? '候'}
-                        </span>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
             </div>
 
             {/* 视频区域 */}
@@ -787,8 +548,6 @@ export function ShotCard({ shot, index, isExpanded, onToggle, showToast, sceneNa
                   onSubtitlesChange={setVideoSubtitles}
                   motionPrompt={motionPrompt}
                   onMotionPromptChange={setMotionPrompt}
-                  useNextFirstFrame={useNextFirstFrame}
-                  onUseNextFirstFrameChange={handleToggleUseNextFirstFrame}
                 />
               )}
 
