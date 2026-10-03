@@ -33,7 +33,7 @@ export async function stageScenes(db: Database, task: AutoPipelineTask): Promise
   const result = await withRetry(
     () => aiProxy.generateText({
       db, userId: task.userId, provider: model.provider, modelName: model.modelName,
-      prompt, systemPrompt: finalSystem, responseFormat: 'json', maxTokens: 4096,
+      prompt, systemPrompt: finalSystem, responseFormat: 'json', maxTokens: 16000,
     }),
     { maxAttempts: 3, label: '场景提取AI调用' }
   );
@@ -134,7 +134,7 @@ export async function stageScenes(db: Database, task: AutoPipelineTask): Promise
         const propResult = await withRetry(
           () => aiProxy.generateText({
             db, userId: task.userId, provider: model.provider, modelName: model.modelName,
-            prompt: propPrompt, systemPrompt: applyStageRules('', 'scenes'), responseFormat: 'json', maxTokens: 4096,
+            prompt: propPrompt, systemPrompt: applyStageRules('', 'scenes'), responseFormat: 'json', maxTokens: 8192,
           }),
           { maxAttempts: 3, label: '道具提取AI调用' }
         );

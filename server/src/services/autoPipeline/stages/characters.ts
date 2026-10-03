@@ -32,7 +32,7 @@ export async function stageCharacters(db: Database, task: AutoPipelineTask): Pro
   const result = await withRetry(
     () => aiProxy.generateText({
       db, userId: task.userId, provider: model.provider, modelName: model.modelName,
-      prompt, systemPrompt: finalSystem, responseFormat: 'json', maxTokens: 4096,
+      prompt, systemPrompt: finalSystem, responseFormat: 'json', maxTokens: 16000,
     }),
     { maxAttempts: 3, label: '角色提取AI调用' }
   );

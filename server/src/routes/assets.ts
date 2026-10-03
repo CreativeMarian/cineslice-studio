@@ -90,7 +90,7 @@ router.post('/episodes/:id/characters/extract', validateBody(extractSchema), asy
 
   const result = await aiProxy.generateText({
     db, userId: req.user.id, provider, modelName,
-    prompt, responseFormat: 'json', maxTokens: 4096,
+    prompt, responseFormat: 'json', maxTokens: 16000,
   });
 
   let characters: any[];
@@ -495,7 +495,7 @@ router.post('/episodes/:id/scenes/extract', validateBody(extractSchema), asyncHa
 
   const result = await aiProxy.generateText({
     db, userId: req.user.id, provider, modelName,
-    prompt, responseFormat: 'json', maxTokens: 4096,
+    prompt, responseFormat: 'json', maxTokens: 16000,
   });
 
   let scenes: any[];
