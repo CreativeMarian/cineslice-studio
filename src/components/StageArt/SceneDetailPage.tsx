@@ -103,7 +103,8 @@ export function SceneDetailPage() {
   };
 
   const handleGenerated = (images: Array<{ url: string }>) => {
-    const updated = { ...scene, concept_images: images };
+    // 新图片追加在末尾，选中最新生成的一张
+    const updated = { ...scene, concept_images: images, selected_image_index: Math.max(0, images.length - 1) };
     updateStoreScene(updated);
   };
 

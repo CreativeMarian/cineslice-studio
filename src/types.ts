@@ -241,6 +241,7 @@ export interface Prop extends BaseEntity {
   category: PropCategory;
   description: string;
   concept_images: ConceptImage[];
+  selected_image_index?: number;
   is_clue?: number;
   keywords?: string;
 }

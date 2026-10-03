@@ -148,7 +148,8 @@ export function CharacterDetailPage() {
   /** 核心区域 3：概念图生成回调 */
   const handleConceptGenerated = (images: Array<{ url: string }>) => {
     if (!character) return;
-    patchCharacter({ concept_images: images, selected_image_index: 0 });
+    // 新图片追加在末尾，选中最新生成的一张（而非永远显示第一张旧图）
+    patchCharacter({ concept_images: images, selected_image_index: Math.max(0, images.length - 1) });
   };
 
   /** 核心区域 3：删除概念图 */
@@ -332,6 +333,7 @@ export function CharacterDetailPage() {
               entityId={character.id}
               entityType="character"
               images={character.concept_images ?? []}
+              selectedIndex={character.selected_image_index ?? 0}
               defaultPrompt={defaultImagePrompt()}
               onGenerated={handleConceptGenerated}
               onDeleted={handleConceptDeleted}

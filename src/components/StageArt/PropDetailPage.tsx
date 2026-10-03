@@ -147,11 +147,13 @@ export function PropDetailPage() {
     }
   };
 
-  // 道具概念图接口只返回新生成的图片，需追加到已有列表
+  // 道具概念图接口只返回新生成的图片，需追加到已有列表，并选中最新生成的一张
   const handleGenerated = (images: Array<{ url: string }>) => {
-    setProp((prev) =>
-      prev ? { ...prev, concept_images: [...(prev.concept_images || []), ...images] } : prev
-    );
+    setProp((prev) => {
+      if (!prev) return prev;
+      const allImages = [...(prev.concept_images || []), ...images];
+      return { ...prev, concept_images: allImages, selected_image_index: Math.max(0, allImages.length - 1) };
+    });
   };
 
   const handleDeleted = async (index: number) => {
@@ -278,6 +280,7 @@ export function PropDetailPage() {
               entityId={prop.id}
               entityType="prop"
               images={prop.concept_images || []}
+              selectedIndex={prop.selected_image_index ?? 0}
               defaultPrompt={prompt}
               onGenerated={handleGenerated}
               onDeleted={handleDeleted}
