@@ -29,6 +29,33 @@ function getDb(req: Request): Database {
   return req.app.locals.db as Database;
 }
 
+// shuohao novel-script 结构化剧本 → 纯文本剧本（兼容旧字段 script_content）
+function structuredScriptToText(obj: any): string {
+  if (!obj) return '';
+  if (obj.scriptContent || obj.script_content || obj.content) {
+    return obj.scriptContent || obj.script_content || obj.content;
+  }
+  const scenes = obj.scenes || obj.sceneList || [];
+  if (!Array.isArray(scenes) || scenes.length === 0) return '';
+  const lines: string[] = [];
+  if (obj.episode_title) lines.push(`【${obj.episode_title}】`, '');
+  for (const sc of scenes) {
+    const sceneHeader = [sc.scene_name || sc.sceneName, sc.location ? `（${sc.location}${sc.time_of_day ? '，' + sc.time_of_day : ''}）` : ''].filter(Boolean).join(' ');
+    if (sceneHeader) lines.push(`场景：${sceneHeader}`);
+    const beats = sc.beats || sc.beatList || [];
+    for (const b of beats) {
+      if (!b || !b.content) continue;
+      if (b.type === 'dialogue' && b.character) {
+        lines.push(`${b.character}：${b.content}`);
+      } else {
+        lines.push(b.content);
+      }
+    }
+    lines.push('');
+  }
+  return lines.join('\n').trim();
+}
+
 // ============ 项目 CRUD ============
 
 const createProjectSchema = z.object({
@@ -382,17 +409,19 @@ router.post('/:id/episodes/generate', validateBody(generateEpisodesSchema), asyn
       const seen = new Set<number>();
       let nextNum = 1;
       return allEpisodesData.map((ep: any, idx: number) => {
-        let episodeNum = ep.episodeNumber || idx + 1;
+        let episodeNum = ep.episodeNumber || ep.episode_number || idx + 1;
         while (seen.has(episodeNum)) episodeNum = allEpisodesData.length + nextNum++;
         seen.add(episodeNum);
-        const chapterRangeVal = normalizeChapterRange(ep.chapterRange, episodeNum);
+        const chapterRangeVal = normalizeChapterRange(ep.chapterRange || ep.chapter_range, episodeNum);
+        const scriptText = structuredScriptToText(ep) || ep.scriptContent || ep.script_content || '';
+        const episodeTitle = ep.episode_title || ep.title || ep.episodeTitle || `第${episodeNum}集`;
         return NovelEpisodeDAO.create(db, {
           user_id: req.user.id,
           project_id: req.params.id,
           episode_number: episodeNum,
-          title: ep.title || `第${episodeNum}集`,
+          title: episodeTitle,
           chapter_range: chapterRangeVal,
-          script_content: ep.scriptContent || '',
+          script_content: scriptText,
           text_model_used: `${provider}/${modelName}`,
         });
       });

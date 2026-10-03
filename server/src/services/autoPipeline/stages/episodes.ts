@@ -45,12 +45,44 @@ export async function stageEpisodes(db: Database, task: AutoPipelineTask): Promi
     }
   }
 
+  // shuohao novel-script 结构化剧本 → 纯文本剧本（兼容旧字段 script_content）
+  // 提示词输出：{ episode_title, total_duration_seconds, scenes: [{ scene_name, location, time_of_day, beats: [{type, character?, content}] }] }
+  function structuredScriptToText(obj: any): string {
+    if (!obj) return '';
+    // 如果 AI 直接返回了纯文本字段，优先使用
+    if (obj.scriptContent || obj.script_content || obj.content) {
+      return obj.scriptContent || obj.script_content || obj.content;
+    }
+    const scenes = obj.scenes || obj.sceneList || [];
+    if (!Array.isArray(scenes) || scenes.length === 0) return '';
+    const lines: string[] = [];
+    if (obj.episode_title) lines.push(`【${obj.episode_title}】`, '');
+    for (const sc of scenes) {
+      const sceneHeader = [sc.scene_name || sc.sceneName, sc.location ? `（${sc.location}${sc.time_of_day ? '，' + sc.time_of_day : ''}）` : ''].filter(Boolean).join(' ');
+      if (sceneHeader) lines.push(`场景：${sceneHeader}`);
+      const beats = sc.beats || sc.beatList || [];
+      for (const b of beats) {
+        if (!b || !b.content) continue;
+        if (b.type === 'dialogue' && b.character) {
+          lines.push(`${b.character}：${b.content}`);
+        } else {
+          lines.push(b.content);
+        }
+      }
+      lines.push('');
+    }
+    return lines.join('\n').trim();
+  }
+
+  const scriptText = structuredScriptToText(data) || allContent;
+  const episodeTitle = data.episode_title || data.title || data.episodeTitle || '第1集';
+
   const episode = NovelEpisodeDAO.create(db, {
     user_id: task.userId,
     project_id: task.projectId,
     episode_number: 1,
-    title: data.title || '第1集',
-    script_content: data.scriptContent || allContent,
+    title: episodeTitle,
+    script_content: scriptText,
     chapter_range: '1-1',
     theme: data.theme || undefined,
     characters_json: data.characters ? JSON.stringify(data.characters) : undefined,
