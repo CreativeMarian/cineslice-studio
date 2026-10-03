@@ -2,7 +2,7 @@
 // 数据自含：挂载时加载该镜关键帧与视频列表；生成视频后自动轮询真实进度
 // 使用默认参数（模型取批量工具栏记忆的 moo:last_image_model / moo:last_video_model，缺省回退第一个已配置模型）
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { Video, Image, RefreshCw, Trash2, AlertCircle, Clock, Film } from 'lucide-react';
+import { Video, Image, RefreshCw, Trash2, AlertCircle, Clock, Film, Pencil, Check } from 'lucide-react';
 import { Card, Badge, ImageModal, Spinner } from '../ui';
 import { useModelStore } from '../../stores/useModelStore';
 import { videoService, type ShotVideoInterval, type ShotKeyframe } from '../../services/videoService';
@@ -71,6 +71,11 @@ export function ShotCard({ shot, index, showToast, onDeleted }: ShotCardProps) {
   const [videoProgress, setVideoProgress] = useState<number | null>(null);
   const [elapsedTime, setElapsedTime] = useState(0);
   const [previewOpen, setPreviewOpen] = useState(false);
+  // 提示词编辑状态
+  const [isEditing, setIsEditing] = useState(false);
+  const [editingAction, setEditingAction] = useState('');
+  const [editingDialogue, setEditingDialogue] = useState('');
+  const [isSavingEdit, setIsSavingEdit] = useState(false);
 
   // 挂载时加载模型配置（选择器渲染需要）
   useEffect(() => {
@@ -281,6 +286,45 @@ export function ShotCard({ shot, index, showToast, onDeleted }: ShotCardProps) {
     ? `${characters.length > 0 ? `${characters.join(' / ')}：` : ''}“${shot.dialogue}”`
     : null;
 
+  // 开始编辑提示词
+  const handleStartEdit = () => {
+    setEditingAction(shot.action_description || '');
+    setEditingDialogue(shot.dialogue || '');
+    setIsEditing(true);
+  };
+
+  // 取消编辑
+  const handleCancelEdit = () => {
+    setIsEditing(false);
+    setEditingAction('');
+    setEditingDialogue('');
+  };
+
+  // 保存编辑
+  const handleSaveEdit = async () => {
+    setIsSavingEdit(true);
+    try {
+      const res = await shotService.update(shot.id, {
+        action_description: editingAction.trim(),
+        dialogue: editingDialogue.trim(),
+      });
+      if (res.success) {
+        showToast(`第 ${index + 1} 镜提示词已更新`, 'success');
+        setIsEditing(false);
+        // 触发父组件刷新（通过 onDeleted 类似的回调，但这里我们用一个简单的方式：重新加载页面数据）
+        // 由于 shot 对象是从父组件传入的，我们需要通知父组件更新
+        // 最简单的方式是触发 window 事件或使用 store
+        window.dispatchEvent(new CustomEvent('shot-updated', { detail: { shotId: shot.id } }));
+      } else {
+        showToast(res.error?.message || '保存失败', 'error');
+      }
+    } catch (err: any) {
+      showToast(err?.response?.data?.message || '保存失败', 'error');
+    } finally {
+      setIsSavingEdit(false);
+    }
+  };
+
   return (
     <Card className="overflow-hidden">
       <div className="flex items-stretch gap-4 p-4 flex-wrap lg:flex-nowrap">
@@ -328,9 +372,67 @@ export function ShotCard({ shot, index, showToast, onDeleted }: ShotCardProps) {
             {completedVideo && <Badge variant="success">✓ 视频已完成</Badge>}
             {failedVideo && !processingVideo && <Badge variant="danger">✗ 视频失败</Badge>}
           </div>
-          <p className="text-sm text-[var(--ink-1)] line-clamp-2">{shot.action_description}</p>
-          {dialogueLine && (
-            <p className="text-xs text-[var(--ink-3)] line-clamp-1 mt-1">{dialogueLine}</p>
+          {/* 提示词区域：非编辑态显示文本+编辑按钮，编辑态显示表单 */}
+          {!isEditing ? (
+            <>
+              <div className="flex items-start gap-1.5">
+                <p className="text-sm text-[var(--ink-1)] line-clamp-2 flex-1">{shot.action_description}</p>
+                <button
+                  type="button"
+                  onClick={handleStartEdit}
+                  className="flex-shrink-0 p-1 rounded text-[var(--ink-3)] hover:text-[var(--accent)] hover:bg-[var(--panel-2)] transition-colors"
+                  title="编辑提示词"
+                >
+                  <Pencil className="w-3.5 h-3.5" />
+                </button>
+              </div>
+              {dialogueLine && (
+                <p className="text-xs text-[var(--ink-3)] line-clamp-1 mt-1">{dialogueLine}</p>
+              )}
+            </>
+          ) : (
+            <div className="space-y-2">
+              <div>
+                <label className="text-[10px] text-[var(--ink-3)] mb-0.5 block">动作描述（提示词）</label>
+                <textarea
+                  value={editingAction}
+                  onChange={(e) => setEditingAction(e.target.value)}
+                  rows={3}
+                  className="w-full px-2.5 py-1.5 rounded-lg border border-[var(--border)] bg-[var(--panel-2)] text-sm text-[var(--ink-1)] focus:outline-none focus:border-[var(--accent)] resize-y"
+                  placeholder="输入动作描述..."
+                />
+              </div>
+              <div>
+                <label className="text-[10px] text-[var(--ink-3)] mb-0.5 block">台词（可选）</label>
+                <input
+                  type="text"
+                  value={editingDialogue}
+                  onChange={(e) => setEditingDialogue(e.target.value)}
+                  className="w-full px-2.5 py-1.5 rounded-lg border border-[var(--border)] bg-[var(--panel-2)] text-sm text-[var(--ink-1)] focus:outline-none focus:border-[var(--accent)]"
+                  placeholder="输入台词..."
+                />
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleSaveEdit}
+                  disabled={isSavingEdit}
+                  className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs bg-[var(--accent)] text-white hover:brightness-110 disabled:opacity-50 transition-colors"
+                >
+                  {isSavingEdit ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3" />}
+                  保存
+                </button>
+                <button
+                  type="button"
+                  onClick={handleCancelEdit}
+                  disabled={isSavingEdit}
+                  className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs text-[var(--ink-3)] hover:bg-[var(--panel-2)] disabled:opacity-50 transition-colors"
+                >
+                  取消
+                </button>
+                <span className="text-[10px] text-[var(--ink-3)] ml-auto">保存后重新生成首帧/视频生效</span>
+              </div>
+            </div>
           )}
         </div>
 

@@ -120,6 +120,15 @@ export function StageDirectorPage() {
     return () => { cancelled = true; };
   }, [currentEpisodeId, loadShots]);
 
+  // 监听分镜提示词编辑更新事件，自动刷新分镜列表
+  useEffect(() => {
+    const handleShotUpdated = () => {
+      if (currentEpisodeId) loadShots(currentEpisodeId);
+    };
+    window.addEventListener('shot-updated', handleShotUpdated);
+    return () => window.removeEventListener('shot-updated', handleShotUpdated);
+  }, [currentEpisodeId, loadShots]);
+
   const sortedShots = useMemo(
     () => [...shots].sort((a, b) => a.shot_number - b.shot_number),
     [shots]

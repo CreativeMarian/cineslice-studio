@@ -136,6 +136,7 @@ export async function stageKeyframes(db: Database, task: AutoPipelineTask): Prom
             prompt: effectivePrompt, negativePrompt: finalNegativePrompt, count: 1, size: '2560x1440',
             referenceImages: referenceImages.length > 0 ? referenceImages : undefined,
             saveSubDir: 'keyframes',
+            skipCache: true, // 全自动流水线关键帧生成跳过缓存
           });
           const url = imgResult.images[0]?.url;
           if (!url) return false;

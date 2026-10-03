@@ -499,6 +499,7 @@ export async function generateKeyframesForShot(
         count: 1, size: '2560x1440',
         referenceImages: referenceImages.length > 0 ? referenceImages : undefined,
         saveSubDir: 'keyframes',
+        skipCache: true, // 关键帧生成跳过缓存，确保修改提示词后重新生成得到新图
       });
       console.log('[Keyframe] image generated:', imgResult.images?.length);
 
@@ -549,6 +550,7 @@ export async function regenerateKeyframe(
     count: 1, size: '2560x1440',
     saveSubDir: 'keyframes',
     referenceImages: collectShotReferenceImages(db, shot!),
+    skipCache: true, // 重新生成关键帧跳过缓存
   });
 
   return ShotKeyframeDAO.update(db, keyframe.id, {

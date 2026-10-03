@@ -487,6 +487,7 @@ export async function generateKeyframeCandidates(
     size: '2560x1440',
     saveSubDir: 'keyframes',
     referenceImages: opts.referenceImages && opts.referenceImages.length > 0 ? opts.referenceImages : undefined,
+    skipCache: true, // 九宫格候选图跳过缓存
   });
 
   const created: ShotKeyframe[] = [];
@@ -565,6 +566,7 @@ export async function generateEndFrameForShot(
     size: '2560x1440',
     saveSubDir: 'keyframes',
     referenceImages: opts.referenceImages && opts.referenceImages.length > 0 ? opts.referenceImages : undefined,
+    skipCache: true, // 尾帧生成跳过缓存
   });
 
   // 删除旧显式尾帧，避免堆积
