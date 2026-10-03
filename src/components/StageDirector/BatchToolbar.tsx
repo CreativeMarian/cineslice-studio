@@ -1,13 +1,14 @@
 // 批量操作工具栏（导演台精简版）：批量生成首帧 / 批量生成视频 / 导出投产包（3 个按钮）
 // 模型选择记忆到 localStorage（moo:last_image_model / moo:last_video_model），单镜卡片共用同一存储键
 import { useEffect, useState } from 'react';
-import { Video, Image, Zap, Layers, Package, Rocket } from 'lucide-react';
+import { Video, Image, Zap, Layers, Package, Rocket, Trash2 } from 'lucide-react';
 import { Card, Button } from '../ui';
 import { useProjectStore } from '../../stores/useProjectStore';
 import { useModelStore } from '../../stores/useModelStore';
 import { useUIStore } from '../../stores/useUIStore';
 import { ModelSelector } from '../ModelConfig/ModelSelector';
 import { videoService } from '../../services/videoService';
+import { shotService } from '../../services/shotService';
 import { useStoredModelKey } from './useStoredModelKey';
 import apiClient from '../../services/apiClient';
 
@@ -275,6 +276,27 @@ export function BatchToolbar({ onExportPackage }: BatchToolbarProps) {
     }
   };
 
+  // 一键清空该集所有分镜（含级联的关键帧/视频/音频）
+  const handleDeleteAllShots = async () => {
+    if (!currentEpisodeId) return;
+    if (shots.length === 0) {
+      showToast('当前没有分镜', 'info');
+      return;
+    }
+    if (!window.confirm(`确定清空当前集的全部 ${shots.length} 个分镜吗？\n此操作会同时删除所有首帧、视频与音频，且不可恢复。\n建议先导出投产包备份。`)) return;
+    try {
+      const res = await shotService.deleteAllShots(currentEpisodeId);
+      if (res.success) {
+        showToast(`已清空 ${res.data?.deleted || shots.length} 个分镜`, 'success');
+        loadShots(currentEpisodeId);
+      } else {
+        showToast('清空失败', 'error');
+      }
+    } catch (err: any) {
+      showToast(err?.response?.data?.message || '清空失败', 'error');
+    }
+  };
+
   return (
     <Card className="p-4 mb-4 border-l-4 border-l-[var(--accent)]">
       <div className="flex items-center justify-between flex-wrap gap-3">
@@ -348,9 +370,19 @@ export function BatchToolbar({ onExportPackage }: BatchToolbarProps) {
             variant="outline"
             leftIcon={<Package className="w-4 h-4" />}
             onClick={onExportPackage}
-            disabled={isBatchGeneratingKeyframes || isBatchGeneratingVideos}
+            disabled={isBatchGeneratingKeyframes || isBatchGeneratingVideos || isOneClickGenerating}
           >
             导出投产包
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            leftIcon={<Trash2 className="w-4 h-4" />}
+            onClick={handleDeleteAllShots}
+            disabled={isBatchGeneratingKeyframes || isBatchGeneratingVideos || isOneClickGenerating}
+            className="text-red-500 hover:bg-red-500/10 border-red-500/30"
+          >
+            清空分镜
           </Button>
         </div>
       </div>

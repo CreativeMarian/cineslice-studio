@@ -187,6 +187,19 @@ router.delete('/shots/:id', asyncHandler(async (req: Request, res: Response) => 
   res.json({ success: true, data: { message: '镜头已删除' } });
 }));
 
+// 批量删除该集所有镜头（事务内一次性删除，含级联的关键帧/视频/音频）
+router.delete('/episodes/:id/shots', asyncHandler(async (req: Request, res: Response) => {
+  const db = getDb(req);
+  const episode = NovelEpisodeDAO.getByIdAndUser(db, req.params.id, req.user.id);
+  if (!episode) throw createError(404, 'NOT_FOUND', '剧集不存在');
+  const shots = ShotDAO.listByEpisode(db, episode.id);
+  const count = shots.length;
+  db.transaction(() => {
+    for (const s of shots) ShotDAO.delete(db, s.id);
+  })();
+  res.json({ success: true, data: { message: `已删除 ${count} 个镜头`, deleted: count } });
+}));
+
 // ============ 关键帧 ============
 
 // 生成关键帧

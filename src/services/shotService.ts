@@ -53,4 +53,8 @@ export const shotService = {
   // 删除关键帧（只删首帧图片，不删除镜头）
   deleteKeyframe: (keyframeId: string) =>
     apiClient.delete<unknown, ApiResponse<void>>(`/keyframes/${keyframeId}`),
+
+  // 批量删除该集所有镜头（含级联的关键帧/视频/音频）
+  deleteAllShots: (episodeId: string) =>
+    apiClient.delete<unknown, ApiResponse<{ deleted: number }>>(`/episodes/${episodeId}/shots`),
 };
