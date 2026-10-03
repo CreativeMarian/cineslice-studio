@@ -259,6 +259,23 @@ export function ShotCard({ shot, index, showToast, onDeleted }: ShotCardProps) {
     }
   };
 
+  // 删除首帧（只删关键帧图片，不删除镜头，删除后可重新生成）
+  const handleDeleteKeyframe = async () => {
+    if (!firstKeyframe) return;
+    if (!window.confirm(`确定删除第 ${index + 1} 镜的首帧吗？删除后可重新生成，镜头数据保留。`)) return;
+    try {
+      const res = await shotService.deleteKeyframe(firstKeyframe.id);
+      if (res.success) {
+        setKeyframes(prev => prev.filter(k => k.id !== firstKeyframe.id));
+        showToast('首帧已删除，可重新生成', 'success');
+      } else {
+        showToast('删除失败', 'error');
+      }
+    } catch (err: any) {
+      showToast(err?.response?.data?.message || '删除失败', 'error');
+    }
+  };
+
   const characters = parseShotCharacterNames(shot);
   const dialogueLine = shot.dialogue
     ? `${characters.length > 0 ? `${characters.join(' / ')}：` : ''}“${shot.dialogue}”`
@@ -353,14 +370,26 @@ export function ShotCard({ shot, index, showToast, onDeleted }: ShotCardProps) {
             )}
             <span>{processingVideo || isGeneratingVideo ? '生成中' : '生成视频'}</span>
           </button>
+          {/* 删除首帧（只删图片，不删镜头，仅在有首帧时显示） */}
+          {firstKeyframe && (
+            <button
+              type="button"
+              onClick={handleDeleteKeyframe}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs transition-colors text-[var(--ink-3)] hover:bg-orange-500/10 hover:text-orange-500"
+              title="删除首帧图片（镜头数据保留，可重新生成）"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              <span>删首帧</span>
+            </button>
+          )}
           <button
             type="button"
             onClick={handleDeleteShot}
             className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs transition-colors text-[var(--ink-3)] hover:bg-red-500/10 hover:text-red-500"
-            title="删除该镜头（连带首帧/视频/音频）"
+            title="删除整个镜头（连带首帧/视频/音频，不可恢复）"
           >
             <Trash2 className="w-3.5 h-3.5" />
-            <span>删除</span>
+            <span>删镜头</span>
           </button>
         </div>
 

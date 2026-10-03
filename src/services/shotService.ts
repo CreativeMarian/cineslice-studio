@@ -49,4 +49,8 @@ export const shotService = {
   // 重新生成单张关键帧
   regenerateKeyframe: (keyframeId: string) =>
     apiClient.post<unknown, ApiResponse<Keyframe>>(`/keyframes/${keyframeId}/regenerate`),
+
+  // 删除关键帧（只删首帧图片，不删除镜头）
+  deleteKeyframe: (keyframeId: string) =>
+    apiClient.delete<unknown, ApiResponse<void>>(`/keyframes/${keyframeId}`),
 };
