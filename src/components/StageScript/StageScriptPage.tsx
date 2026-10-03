@@ -16,6 +16,7 @@ import { SectionHeader, EpisodeSelector } from '../common';
 import { useProjectStore } from '../../stores/useProjectStore';
 import { useUIStore } from '../../stores/useUIStore';
 import { projectService } from '../../services/projectService';
+import { shotService } from '../../services/shotService';
 import { useDefaultModels } from '../../hooks/useDefaultModels';
 import { TIME_OF_DAY_LABELS } from '../../utils';
 import type { Episode } from '../../types';
@@ -118,6 +119,7 @@ export function StageScriptPage() {
   const [content, setContent] = useState('');
   const [view, setView] = useState<'flow' | 'book'>('flow');
   const [isRegenerating, setIsRegenerating] = useState(false);
+  const [isGeneratingShots, setIsGeneratingShots] = useState(false);
   const [expandedScenes, setExpandedScenes] = useState<Set<string>>(new Set());
 
   // 台词 inline 编辑状态
@@ -262,9 +264,39 @@ export function StageScriptPage() {
     }
   };
 
-  // 确认并进入导演台
-  const handleConfirm = () => {
-    navigate(`/project/${id}/director`);
+  // 确认并进入导演台：自动生成分镜，成功后跳转
+  const handleConfirm = async () => {
+    if (!currentEpisode) return;
+    const modelKey = getDefaultModel('text');
+    if (!modelKey) {
+      showToast('请先在模型配置中添加文本模型', 'error');
+      return;
+    }
+    const [provider, modelName] = modelKey.split(':');
+    if (!provider || !modelName) {
+      showToast('文本模型配置无效', 'error');
+      return;
+    }
+    setIsGeneratingShots(true);
+    try {
+      const res = await shotService.generate(currentEpisode.id, {
+        textProvider: provider,
+        textModel: modelName,
+        shotDensity: 'normal',
+        includeDialogue: true,
+      });
+      if (res.success && res.data) {
+        showToast(`已生成 ${res.data.length} 个分镜，进入导演台`, 'success');
+        navigate(`/project/${id}/director`);
+      } else {
+        showToast(res.error?.message || '分镜生成失败', 'error');
+      }
+    } catch (err: any) {
+      const errorMsg = err?.response?.data?.message || err?.message || '分镜生成失败';
+      showToast(errorMsg, 'error');
+    } finally {
+      setIsGeneratingShots(false);
+    }
   };
 
   // 角色音色档案展示
@@ -356,10 +388,11 @@ export function StageScriptPage() {
             </Button>
             <Button
               size="md"
-              leftIcon={<Clapperboard className="w-4 h-4" />}
+              leftIcon={isGeneratingShots ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Clapperboard className="w-4 h-4" />}
               onClick={handleConfirm}
+              disabled={isGeneratingShots || isRegenerating}
             >
-              确认并进入导演台
+              {isGeneratingShots ? '生成分镜中...' : '确认并进入导演台'}
             </Button>
           </>
         }
