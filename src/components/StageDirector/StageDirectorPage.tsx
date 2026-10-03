@@ -142,6 +142,43 @@ export function StageDirectorPage() {
           description="段→分镜→首帧→视频，一键导出投产包"
           actions={<EpisodeSelector />}
         />
+
+        {/* 剧本面板：可折叠，显示当前集完整剧本 */}
+        <Card className="mb-4 overflow-hidden">
+          <button
+            type="button"
+            onClick={() => setShowScript(!showScript)}
+            className="w-full flex items-center gap-3 px-5 py-3 hover:bg-[var(--panel-2)]/30 transition-colors"
+          >
+            <BookOpen className="w-4 h-4 text-[var(--accent)] flex-shrink-0" />
+            <span className="text-sm font-medium text-[var(--ink-1)]">剧本原文</span>
+            <span className="text-xs text-[var(--ink-3)]">
+              {currentEpisode?.script_content ? `${currentEpisode.script_content.length} 字` : '无剧本内容'}
+            </span>
+            <span className="ml-auto text-xs text-[var(--ink-3)]">
+              {showScript ? '收起' : '展开'}
+            </span>
+            {showScript ? (
+              <ChevronDown className="w-4 h-4 text-[var(--ink-3)] flex-shrink-0" />
+            ) : (
+              <ChevronRight className="w-4 h-4 text-[var(--ink-3)] flex-shrink-0" />
+            )}
+          </button>
+          {showScript && (
+            <div className="px-5 pb-4">
+              {currentEpisode?.script_content ? (
+                <div className="max-h-96 overflow-y-auto bg-[var(--panel-2)]/50 rounded-lg p-4 text-sm text-[var(--ink-2)] leading-relaxed whitespace-pre-wrap">
+                  {currentEpisode.script_content}
+                </div>
+              ) : (
+                <p className="text-sm text-[var(--ink-3)] py-4 text-center">
+                  当前剧集暂无剧本内容，请先在「剧本」页生成剧本。
+                </p>
+              )}
+            </div>
+          )}
+        </Card>
+
         <Card>
           <EmptyState
             icon={<Film className="w-12 h-12" />}
