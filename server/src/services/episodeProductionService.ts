@@ -1172,10 +1172,23 @@ const PHASE_MAP: Record<string, number> = {
 function normalizeShotValues(shot: any): any {
   if (!shot || typeof shot !== 'object') return shot;
   const out = { ...shot };
-  // shuohao 新输出字段归一化（snake_case → camelCase）：scene_name / props_in_shot / segment_id
-  if (out.scene_name && out.sceneName === undefined) out.sceneName = out.scene_name;
-  if (out.props_in_shot && out.propsInShot === undefined) out.propsInShot = out.props_in_shot;
-  if (out.segment_id !== undefined && out.segmentId === undefined) out.segmentId = out.segment_id;
+  // shuohao 新输出字段归一化（snake_case → camelCase）：全量字段映射
+  const SNAKE_TO_CAMEL: Record<string, string> = {
+    shot_number: 'shotNumber',
+    shot_size: 'shotSize',
+    camera_movement: 'cameraMovement',
+    action_description: 'actionDescription',
+    duration_seconds: 'durationSeconds',
+    characters_in_shot: 'charactersInShot',
+    scene_name: 'sceneName',
+    props_in_shot: 'propsInShot',
+    segment_id: 'segmentId',
+    first_frame_description: 'firstFrameDescription',
+    last_frame_description: 'lastFrameDescription',
+  };
+  for (const [snake, camel] of Object.entries(SNAKE_TO_CAMEL)) {
+    if (out[snake] !== undefined && out[camel] === undefined) out[camel] = out[snake];
+  }
   if (out.segmentId !== undefined && out.segmentId !== null && typeof out.segmentId !== 'number') {
     const n = Number(String(out.segmentId).replace(/[^\d.]/g, ''));
     out.segmentId = Number.isFinite(n) ? n : null;
