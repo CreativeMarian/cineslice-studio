@@ -96,22 +96,38 @@ router.post('/episodes/:id/characters/extract', validateBody(extractSchema), asy
   let characters: any[];
   try {
     const parsed = parseAiJsonOrThrow<unknown>(result.content);
-    // 兼容多种返回格式：直接数组 / {characters:[...]} / {data:[...]} / {result:[...]} / 单对象
+    // 兼容多种返回格式：直接数组 / {characters:[...]} / {data:[...]} / {result:[...]} / 键为角色名的对象
     if (Array.isArray(parsed)) {
       characters = parsed;
     } else if (parsed && typeof parsed === 'object') {
       const obj = parsed as Record<string, unknown>;
-      const arr = obj.characters || obj.data || obj.result || obj.list || obj.roles;
+      const arr = obj.characters || obj.data || obj.result || obj.list || obj.roles || obj.cast;
       if (Array.isArray(arr)) {
         characters = arr;
       } else {
-        characters = [obj];
+        // 键为角色名的对象：{ "林墨": {...}, "苏晚": {...} }
+        const values = Object.values(obj).filter(v => v && typeof v === 'object');
+        if (values.length > 0) {
+          characters = values.map((v: any, i) => {
+            // 如果值对象没有 name，用键名作为 name
+            const key = Object.keys(obj)[i];
+            return { name: key, ...v };
+          });
+        } else {
+          characters = [obj];
+        }
       }
     } else {
       characters = [];
     }
-    // 过滤掉无效角色（没有 name 且没有 description 的）
-    characters = characters.filter((c: any) => c && (c.name || c.characterName || c.description || c.visualDescription));
+    // 过滤掉无效角色：检查所有可能的字段名（英文+中文+shuohao新字段）
+    characters = characters.filter((c: any) => c && (
+      c.name || c.characterName || c.character_name || c.角色名 || c.姓名 ||
+      c.description || c.desc || c.描述 || c.简介 ||
+      c.character_profile || c.characterProfile || c.人物画像 ||
+      c.visual_prompt || c.visualPrompt || c.visual_description || c.visualDescription || c.形象提示词 || c.外貌描述 ||
+      c.voice_prompt || c.voicePrompt || c.音色提示词
+    ));
   } catch (err) {
     throw createError(502, 'AI_CALL_FAILED', (err as Error).message);
   }
@@ -120,15 +136,26 @@ router.post('/episodes/:id/characters/extract', validateBody(extractSchema), asy
   const old = ScriptCharacterDAO.listByEpisode(db, episode.id);
   for (const c of old) ScriptCharacterDAO.delete(db, c.id);
 
-  const created = ScriptCharacterDAO.batchCreate(db, characters.map((c: any) => ({
-    user_id: req.user.id,
-    episode_id: episode.id,
-    name: c.name || c.characterName || c.角色名 || c.姓名 || '未命名',
-    gender: c.gender || c.sex || c.性别 || 'other',
-    role_type: c.roleType || c.role || c.角色类型 || c.类型 || 'supporting',
-    description: c.description || c.desc || c.描述 || c.简介 || c.characterDescription || '',
-    visual_description: c.visualDescription || c.visual || c.appearance || c.外貌描述 || c.形象描述 || c.visualDesc || '',
-  })));
+  const created = ScriptCharacterDAO.batchCreate(db, characters.map((c: any) => {
+    const characterProfile = c.character_profile || c.characterProfile || c.人物画像 || c.description || c.desc || c.描述 || c.简介 || c.characterDescription || '';
+    const visualPrompt = c.visual_prompt || c.visualPrompt || c.形象提示词 || c.visual_description || c.visualDescription || c.visual || c.appearance || c.外貌描述 || c.形象描述 || c.visualDesc || '';
+    const voicePrompt = c.voice_prompt || c.voicePrompt || c.音色提示词 || c.voice_description || c.voiceDescription || '';
+    return {
+      user_id: req.user.id,
+      episode_id: episode.id,
+      name: c.name || c.characterName || c.character_name || c.角色名 || c.姓名 || '未命名',
+      gender: c.gender || c.sex || c.性别 || 'other',
+      role_type: c.roleType || c.role || c.role_type || c.角色类型 || c.类型 || 'supporting',
+      // 兼容旧字段：description 用 character_profile 填充
+      description: characterProfile,
+      // 兼容旧字段：visual_description 用 visual_prompt 填充
+      visual_description: visualPrompt,
+      // shuohao 新字段
+      character_profile: characterProfile || null,
+      visual_prompt: visualPrompt || null,
+      voice_prompt: voicePrompt || null,
+    };
+  }));
 
   res.json({ success: true, data: created });
 }));
@@ -478,12 +505,32 @@ router.post('/episodes/:id/scenes/extract', validateBody(extractSchema), asyncHa
       scenes = parsed;
     } else if (parsed && typeof parsed === 'object') {
       const obj = parsed as Record<string, unknown>;
-      const arr = obj.scenes || obj.data || obj.result || obj.list || obj.locations;
-      scenes = Array.isArray(arr) ? arr : [obj];
+      const arr = obj.scenes || obj.data || obj.result || obj.list || obj.locations || obj.environments;
+      if (Array.isArray(arr)) {
+        scenes = arr;
+      } else {
+        // 键为场景名的对象：{ "客厅": {...}, "街道": {...} }
+        const values = Object.values(obj).filter(v => v && typeof v === 'object');
+        if (values.length > 0) {
+          scenes = values.map((v: any, i) => {
+            const key = Object.keys(obj)[i];
+            return { name: key, ...v };
+          });
+        } else {
+          scenes = [obj];
+        }
+      }
     } else {
       scenes = [];
     }
-    scenes = scenes.filter((s: any) => s && (s.name || s.sceneName || s.description || s.location));
+    // 过滤：检查所有可能的字段名（英文+中文+shuohao新字段）
+    scenes = scenes.filter((s: any) => s && (
+      s.name || s.sceneName || s.scene_name || s.场景名 || s.名称 ||
+      s.description || s.desc || s.描述 || s.简介 ||
+      s.location || s.place || s.地点 || s.位置 ||
+      s.visual_prompt || s.visualPrompt || s.形象提示词 || s.场景提示词 ||
+      s.consistency_anchor || s.consistencyAnchor || s.一致性锚点
+    ));
   } catch (err) {
     throw createError(502, 'AI_CALL_FAILED', (err as Error).message);
   }
@@ -491,15 +538,25 @@ router.post('/episodes/:id/scenes/extract', validateBody(extractSchema), asyncHa
   const old = ScriptSceneDAO.listByEpisode(db, episode.id);
   for (const s of old) ScriptSceneDAO.delete(db, s.id);
 
-  const created = ScriptSceneDAO.batchCreate(db, scenes.map((s: any) => ({
-    user_id: req.user.id,
-    episode_id: episode.id,
-    name: s.name || s.sceneName || s.场景名 || s.名称 || '未命名场景',
-    location: s.location || s.place || s.地点 || s.位置 || '',
-    time_of_day: s.timeOfDay || s.time || s.时段 || s.时间 || 'day',
-    atmosphere: s.atmosphere || s.mood || s.氛围 || s.气氛 || '',
-    description: s.description || s.desc || s.描述 || s.简介 || '',
-  })));
+  const created = ScriptSceneDAO.batchCreate(db, scenes.map((s: any) => {
+    const visualPrompt = s.visual_prompt || s.visualPrompt || s.形象提示词 || s.场景提示词 || s.visual_description || s.visualDescription || '';
+    const desc = s.description || s.desc || s.描述 || s.简介 || '';
+    return {
+      user_id: req.user.id,
+      episode_id: episode.id,
+      name: s.name || s.sceneName || s.scene_name || s.场景名 || s.名称 || '未命名场景',
+      location: s.location || s.place || s.地点 || s.位置 || '',
+      time_of_day: s.time_of_day || s.timeOfDay || s.time || s.时段 || s.时间 || 'day',
+      atmosphere: s.atmosphere || s.mood || s.氛围 || s.气氛 || '',
+      // 兼容旧字段：description 保留
+      description: desc,
+      // shuohao 新字段
+      visual_prompt: visualPrompt || null,
+      consistency_anchor: (s.consistency_anchor || s.consistencyAnchor || s.一致性锚点 || '') || null,
+      lighting_variants: (s.lighting_variants || s.lightingVariants || s.光照变体 || '') || null,
+      scale_reference: (s.scale_reference || s.scaleReference || s.尺度参照 || '') || null,
+    };
+  }));
 
   res.json({ success: true, data: created });
 }));
@@ -664,11 +721,24 @@ ${scriptForExtract}
     } else if (parsed && typeof parsed === 'object') {
       const obj = parsed as Record<string, unknown>;
       const arr = obj.props || obj.data || obj.result || obj.list || obj.items;
-      props = Array.isArray(arr) ? arr : [obj];
+      if (Array.isArray(arr)) {
+        props = arr;
+      } else {
+        // 键为道具名的对象
+        const values = Object.values(obj).filter(v => v && typeof v === 'object');
+        if (values.length > 0) {
+          props = values.map((v: any, i) => {
+            const key = Object.keys(obj)[i];
+            return { name: key, ...v };
+          });
+        } else {
+          props = [obj];
+        }
+      }
     } else {
       props = [];
     }
-    props = props.filter((p: any) => p && (p.name || p.propName || p.description));
+    props = props.filter((p: any) => p && (p.name || p.propName || p.prop_name || p.道具名 || p.名称 || p.description || p.desc || p.描述));
   } catch (err) {
     throw createError(502, 'AI_CALL_FAILED', (err as Error).message);
   }
