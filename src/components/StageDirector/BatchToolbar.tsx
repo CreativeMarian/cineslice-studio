@@ -1,7 +1,7 @@
 // 批量操作工具栏（导演台精简版）：批量生成首帧 / 批量生成视频 / 导出投产包（3 个按钮）
 // 模型选择记忆到 localStorage（moo:last_image_model / moo:last_video_model），单镜卡片共用同一存储键
 import { useEffect, useState } from 'react';
-import { Video, Image, Zap, Layers, Package } from 'lucide-react';
+import { Video, Image, Zap, Layers, Package, Rocket } from 'lucide-react';
 import { Card, Button } from '../ui';
 import { useProjectStore } from '../../stores/useProjectStore';
 import { useModelStore } from '../../stores/useModelStore';
@@ -65,6 +65,8 @@ export function BatchToolbar({ onExportPackage }: BatchToolbarProps) {
   const { configs, loadConfigs } = useModelStore();
   const [isBatchGeneratingKeyframes, setIsBatchGeneratingKeyframes] = useState(false);
   const [isBatchGeneratingVideos, setIsBatchGeneratingVideos] = useState(false);
+  const [isOneClickGenerating, setIsOneClickGenerating] = useState(false);
+  const [oneClickStage, setOneClickStage] = useState<'keyframes' | 'videos' | null>(null);
   const [batchProgress, setBatchProgress] = useState<{ current: number; total: number } | null>(null);
   // 批量生成使用的模型（记忆用户上次选择，单镜卡片共用）
   const [batchImageModel, setBatchImageModel] = useStoredModelKey('moo:last_image_model');
@@ -185,6 +187,94 @@ export function BatchToolbar({ onExportPackage }: BatchToolbarProps) {
     }
   };
 
+  // 一键生成：自动完成首帧 → 视频全流程
+  const handleOneClickGenerate = async () => {
+    if (!currentEpisodeId) return;
+    const imgModels = configs.image?.filter(m => m.is_active) || [];
+    const vidModels = configs.video?.filter(m => m.is_active) || [];
+    if (imgModels.length === 0) {
+      showToast('请先配置图像模型', 'error');
+      return;
+    }
+    if (vidModels.length === 0) {
+      showToast('请先配置视频模型', 'error');
+      return;
+    }
+    if (!batchImageModel) {
+      showToast('请选择首帧模型', 'error');
+      return;
+    }
+    if (!batchVideoModel) {
+      showToast('请选择视频模型', 'error');
+      return;
+    }
+
+    setIsOneClickGenerating(true);
+    try {
+      // ═══ 阶段1：批量生成首帧 ═══
+      setOneClickStage('keyframes');
+      const [imgProvider, imgModelName] = batchImageModel.split(':');
+      const existingFirstFrameIds = await fetchShotsWithFirstFrame(shots);
+      const pendingShots = shots.filter(s => !existingFirstFrameIds.has(s.id));
+      const skippedCount = existingFirstFrameIds.size;
+
+      if (pendingShots.length > 0) {
+        setBatchProgress({ current: 0, total: pendingShots.length });
+        showToast(`一键生成：开始生成 ${pendingShots.length} 个首帧（跳过 ${skippedCount} 个已存在）`, 'info');
+        const kfRes = await videoService.batchGenerateKeyframesStream(currentEpisodeId, {
+          provider: imgProvider,
+          modelName: imgModelName,
+          shotIds: pendingShots.map(s => s.id),
+        }, (p) => {
+          setBatchProgress({ current: Math.min(p.index, pendingShots.length), total: pendingShots.length });
+        });
+        if (!kfRes.success) {
+          throw new Error('首帧批量生成失败');
+        }
+        showToast(`首帧生成完成：成功 ${kfRes.data?.success || 0} 个，失败 ${kfRes.data?.failed || 0} 个`, 'success');
+        await loadShots(currentEpisodeId);
+      } else {
+        showToast(`全部 ${shots.length} 个镜头已有首帧，跳过首帧阶段`, 'info');
+      }
+
+      // ═══ 阶段2：批量生成视频 ═══
+      setOneClickStage('videos');
+      const [vidProvider, vidModelName] = batchVideoModel.split(':');
+      const episode = episodes.find(e => e.id === currentEpisodeId);
+      const shotDuration = await resolveProjectShotDuration(currentProject, episode?.project_id);
+      setBatchProgress({ current: 0, total: shots.length });
+      showToast('一键生成：开始创建视频任务', 'info');
+      const vidRes = await videoService.batchGenerateVideosStream(currentEpisodeId, {
+        provider: vidProvider,
+        modelName: vidModelName,
+        duration: shotDuration,
+        ratio: '16:9',
+        resolution: '1080p',
+      }, (p) => {
+        setBatchProgress({ current: Math.min(p.index, shots.length), total: shots.length });
+      });
+      if (vidRes.success && vidRes.data) {
+        const skipped = vidRes.data.skippedShots || [];
+        if (skipped.length > 0) {
+          showToast(`视频任务创建完成：成功 ${vidRes.data.created} 个，跳过 ${vidRes.data.skipped} 个`, 'warning');
+        } else {
+          showToast(`一键生成完成！已创建 ${vidRes.data.created} 个视频任务，请在各镜头查看进度`, 'success');
+        }
+      } else {
+        throw new Error('视频批量生成失败');
+      }
+      await loadShots(currentEpisodeId);
+    } catch (err: any) {
+      const errorMsg = err?.message || '一键生成失败';
+      showToast(errorMsg, 'error');
+      console.error('[OneClickGenerate] 失败:', err);
+    } finally {
+      setIsOneClickGenerating(false);
+      setOneClickStage(null);
+      setBatchProgress(null);
+    }
+  };
+
   return (
     <Card className="p-4 mb-4 border-l-4 border-l-[var(--accent)]">
       <div className="flex items-center justify-between flex-wrap gap-3">
@@ -194,6 +284,22 @@ export function BatchToolbar({ onExportPackage }: BatchToolbarProps) {
           <span className="text-xs text-[var(--ink-3)]">选择模型后一键生成全部镜头首帧/视频</span>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
+          {/* 一键生成：首帧 → 视频 全流程 */}
+          <Button
+            size="sm"
+            leftIcon={<Rocket className="w-4 h-4" />}
+            onClick={handleOneClickGenerate}
+            isLoading={isOneClickGenerating}
+            disabled={isBatchGeneratingKeyframes || isBatchGeneratingVideos}
+            className="bg-gradient-to-r from-[var(--accent)] to-[var(--accent-2)] text-[var(--on-accent)] hover:brightness-110 shadow-[0_2px_8px_rgba(249,115,22,0.3)]"
+          >
+            {isOneClickGenerating
+              ? oneClickStage === 'keyframes'
+                ? '生成首帧中...'
+                : '创建视频任务中...'
+              : '一键生成'}
+          </Button>
+          <div className="w-px h-6 bg-[var(--border)] mx-1" />
           {/* 批量首帧模型选择 */}
           <div className="flex items-center gap-1.5">
             <Image className="w-3.5 h-3.5 text-[var(--ink-3)]" />
@@ -251,7 +357,13 @@ export function BatchToolbar({ onExportPackage }: BatchToolbarProps) {
       {batchProgress && (
         <div className="mt-3">
           <div className="flex items-center justify-between text-xs text-[var(--ink-3)] mb-1">
-            <span>批量处理中（实时进度）...</span>
+            <span>
+              {isOneClickGenerating && oneClickStage
+                ? oneClickStage === 'keyframes'
+                  ? '一键生成 · 阶段1/2：生成首帧中'
+                  : '一键生成 · 阶段2/2：创建视频任务中'
+                : '批量处理中（实时进度）...'}
+            </span>
             <span>{batchProgress.current}/{batchProgress.total} 镜</span>
           </div>
           <div className="w-full h-1.5 bg-[var(--panel-3)] rounded-full overflow-hidden">
