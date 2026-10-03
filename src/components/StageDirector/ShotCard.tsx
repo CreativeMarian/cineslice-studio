@@ -193,6 +193,7 @@ export function ShotCard({ shot, index, showToast, onDeleted }: ShotCardProps) {
         provider: model.provider,
         modelName: model.modelName,
         frameTypes: ['first'],
+        referenceSceneId: shot.scene_id || undefined,
         // 角色参考缺省由后端按 characters_in_shot 自动收集（防旧图缓存与角色漂移）
       });
       if (res.success && res.data) {

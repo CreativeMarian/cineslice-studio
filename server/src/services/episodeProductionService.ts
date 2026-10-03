@@ -434,10 +434,11 @@ export async function generateKeyframesForShot(
     }
   }
 
-  // 获取参考场景
+  // 获取参考场景：优先传入的 referenceSceneId，缺省自动用 shot.scene_id
   let scene: any = null;
-  if (referenceSceneId) {
-    scene = ScriptSceneDAO.getById(db, referenceSceneId);
+  const effectiveSceneId = referenceSceneId || shot.scene_id;
+  if (effectiveSceneId) {
+    scene = ScriptSceneDAO.getById(db, effectiveSceneId);
     // 收集场景参考图（DAO层已解析concept_images为数组）
     if (scene?.concept_images && Array.isArray(scene.concept_images)) {
       const sceneImages = scene.concept_images;
@@ -446,6 +447,26 @@ export async function generateKeyframesForShot(
         if (sceneImgUrl) referenceImages.push(sceneImgUrl);
       }
     }
+  }
+
+  // 场景锚点描述：房间布局/家具位置/灯光氛围，确保同场景镜头画面一致
+  const sceneDescBlock = scene
+    ? `\n【场景锚点 — 必须严格保持与场景参考图一致】\n场景：${scene.name}\n环境：${scene.visual_prompt || scene.description || scene.location || ''}\n以上场景的空间布局、家具位置、灯光来源、墙面颜色、地板材质必须与场景参考图完全一致，绝对不能更换场景或改变房间布局。`
+    : '';
+
+  // 上下文衔接：获取前一镜的动作描述，确保镜头间画面连贯
+  let prevShotContext = '';
+  try {
+    const allShots = ShotDAO.listByEpisode(db, shot.episode_id);
+    const currentIdx = allShots.findIndex(s => s.id === shot.id);
+    if (currentIdx > 0) {
+      const prevShot = allShots[currentIdx - 1];
+      if (prevShot?.action_description) {
+        prevShotContext = `\n【上下文衔接 — 上一镜画面】\n上一镜：${prevShot.action_description.substring(0, 200)}\n本镜必须与上一镜在同一个场景中，角色位置、朝向、状态必须与上一镜结束时连贯衔接。`;
+      }
+    }
+  } catch (ctxErr) {
+    console.warn('[Keyframe] 上下文衔接获取失败:', (ctxErr as Error).message);
   }
 
   const types = frameTypes || ['first', 'last'];
@@ -464,13 +485,15 @@ export async function generateKeyframesForShot(
       if (frameType === 'first' && segStart) frameSpecificDescription = segStart[1].trim();
       else if (frameType === 'last' && segEnd) frameSpecificDescription = segEnd[1].trim();
       else if (frameType === 'middle' && segProc) frameSpecificDescription = segProc[1].trim();
-      // 关键帧提示词：风格 + 角色视觉描述（双重保障一致性）+ 帧画面描述
+      // 关键帧提示词：风格 + 场景锚点 + 上下文衔接 + 角色视觉描述 + 帧画面描述
       const subject = frameSpecificDescription || shot.action_description || '';
       // 注入角色视觉描述：服装/面部/年龄/发型，与参考图形成双重约束，防止角色漂移
       const characterDescBlock = characterVisualDescriptions.length > 0
         ? `\n【出场角色形象 — 必须严格保持与参考图一致】\n${characterVisualDescriptions.join('\n')}\n以上角色的面容、发型、发色、服装、体型、年龄感必须与参考图完全一致，绝对不能更换人物形象。`
         : '';
-      const finalPrompt = buildKeyframePrompt(subject + characterDescBlock, styleDescription || undefined);
+      // 组合完整提示词：场景锚点 + 上下文衔接 + 动作描述 + 角色描述
+      const fullSubject = subject + sceneDescBlock + prevShotContext + characterDescBlock;
+      const finalPrompt = buildKeyframePrompt(fullSubject, styleDescription || undefined);
       const finalNegativePrompt: string | undefined = undefined;
 
       console.log('[Keyframe] prompt generated:', finalPrompt.substring(0, 100));
