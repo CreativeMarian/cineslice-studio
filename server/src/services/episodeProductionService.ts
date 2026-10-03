@@ -412,6 +412,7 @@ export async function generateKeyframesForShot(
 
   // 获取参考角色（显式传入优先；缺省自动按镜头 characters_in_shot 收集——前端/批量入口无需感知，防旧图缓存与角色漂移）
   const referenceImages: string[] = [];
+  const characterVisualDescriptions: string[] = []; // 角色视觉描述（服装/面部/年龄），用于提示词双重保障一致性
   const charRefs: string[] = (referenceCharacterIds && referenceCharacterIds.length > 0)
     ? referenceCharacterIds
     : parseShotCharacterIds(shot);
@@ -422,7 +423,14 @@ export async function generateKeyframesForShot(
         const epChars = ScriptCharacterDAO.listByEpisode(db, shot.episode_id);
         c = epChars.find((x: any) => x.name === ref) || null;
       }
-      if (c && c.reference_image_url) referenceImages.push(c.reference_image_url);
+      if (c) {
+        if (c.reference_image_url) referenceImages.push(c.reference_image_url);
+        // 收集角色视觉描述：name + visual_prompt（服装/面部/年龄/发型），拼入提示词确保一致性
+        const visualDesc = c.visual_prompt || c.visual_description || c.description || '';
+        if (visualDesc) {
+          characterVisualDescriptions.push(`${c.name}：${visualDesc}`);
+        }
+      }
     }
   }
 
@@ -456,9 +464,13 @@ export async function generateKeyframesForShot(
       if (frameType === 'first' && segStart) frameSpecificDescription = segStart[1].trim();
       else if (frameType === 'last' && segEnd) frameSpecificDescription = segEnd[1].trim();
       else if (frameType === 'middle' && segProc) frameSpecificDescription = segProc[1].trim();
-      // 极简关键帧提示词：风格描述 + 帧画面描述（一致性靠参考图）
+      // 关键帧提示词：风格 + 角色视觉描述（双重保障一致性）+ 帧画面描述
       const subject = frameSpecificDescription || shot.action_description || '';
-      const finalPrompt = buildKeyframePrompt(subject, styleDescription || undefined);
+      // 注入角色视觉描述：服装/面部/年龄/发型，与参考图形成双重约束，防止角色漂移
+      const characterDescBlock = characterVisualDescriptions.length > 0
+        ? `\n【出场角色形象 — 必须严格保持与参考图一致】\n${characterVisualDescriptions.join('\n')}\n以上角色的面容、发型、发色、服装、体型、年龄感必须与参考图完全一致，绝对不能更换人物形象。`
+        : '';
+      const finalPrompt = buildKeyframePrompt(subject + characterDescBlock, styleDescription || undefined);
       const finalNegativePrompt: string | undefined = undefined;
 
       console.log('[Keyframe] prompt generated:', finalPrompt.substring(0, 100));

@@ -74,6 +74,19 @@ export async function stageKeyframes(db: Database, task: AutoPipelineTask): Prom
         }
       }
 
+      // 收集角色视觉描述（服装/面部/年龄/发型），与参考图形成双重约束，防止角色漂移
+      const characterVisualDescriptions: string[] = [];
+      for (const cid of characterIds) {
+        const c = allCharacters.find((x: any) => x.id === cid);
+        if (c) {
+          const visualDesc = c.visual_prompt || c.visual_description || c.description || '';
+          if (visualDesc) characterVisualDescriptions.push(`${c.name}：${visualDesc}`);
+        }
+      }
+      const characterDescBlock = characterVisualDescriptions.length > 0
+        ? `\n【出场角色形象 — 必须严格保持与参考图一致】\n${characterVisualDescriptions.join('\n')}\n以上角色的面容、发型、发色、服装、体型、年龄感必须与参考图完全一致，绝对不能更换人物形象。`
+        : '';
+
       // 获取场景信息（场景参考图已由 collectShotReferenceImages 统一收集）
 
       // 收集一致性参考图：角色定妆照 + 场景概念图 + 道具图
@@ -81,14 +94,14 @@ export async function stageKeyframes(db: Database, task: AutoPipelineTask): Prom
       const referenceImages = collectShotReferenceImages(db, shot);
 
       // ═══════════════════════════════════════════════════════════
-      // 极简关键帧提示词（v3.0）：首帧/尾帧画面描述 + 风格前缀
+      // 关键帧提示词（v3.1）：首帧/尾帧画面描述 + 角色视觉描述（双重保障一致性）+ 风格前缀
       // 画面描述优先取 frameSpecificDescription 字段，回退到动作弧【起始状态】/【结束状态】分段
-      // 一致性主要靠 collectShotReferenceImages 注入的参考图，不再做导演级/AI深度优化
+      // 一致性靠参考图 + 角色视觉描述文字双重约束
       // ═══════════════════════════════════════════════════════════
       const firstDesc = shot.first_frame_description || extractFrameDesc(shot.action_description, 'first') || shot.action_description || '';
       const lastDesc = shot.last_frame_description || extractFrameDesc(shot.action_description, 'last') || shot.action_description || '';
-      const finalFirstPrompt = buildKeyframePrompt(firstDesc, styleDescription || undefined);
-      const finalLastPrompt = buildKeyframePrompt(lastDesc, styleDescription || undefined);
+      const finalFirstPrompt = buildKeyframePrompt(firstDesc + characterDescBlock, styleDescription || undefined);
+      const finalLastPrompt = buildKeyframePrompt(lastDesc + characterDescBlock, styleDescription || undefined);
       const finalNegativePrompt: string | undefined = undefined;
 
       console.log(`[AutoPipeline] keyframe shot=${shot.shot_number} 提示词生成完成`);

@@ -451,8 +451,28 @@ export async function generateKeyframeCandidates(
 ): Promise<ShotKeyframe[]> {
   const count = Math.min(Math.max(opts.count || 4, 1), 9);
 
-  // 极简提示词：风格兜底 + 镜头动作描述（候选帧一致性主要靠参考图）
-  const prompt = buildKeyframePrompt(shot.action_description || '');
+  // 收集出场角色视觉描述（服装/面部/年龄/发型），与参考图形成双重约束，防止角色漂移
+  const charIds = parseShotCharacterIds(shot);
+  const characterVisualDescriptions: string[] = [];
+  if (charIds.length > 0) {
+    for (const ref of charIds) {
+      let c = ScriptCharacterDAO.getById(db, ref);
+      if (!c) {
+        const epChars = ScriptCharacterDAO.listByEpisode(db, shot.episode_id);
+        c = epChars.find((x: any) => x.name === ref) || null;
+      }
+      if (c) {
+        const visualDesc = c.visual_prompt || c.visual_description || c.description || '';
+        if (visualDesc) characterVisualDescriptions.push(`${c.name}：${visualDesc}`);
+      }
+    }
+  }
+  const characterDescBlock = characterVisualDescriptions.length > 0
+    ? `\n【出场角色形象 — 必须严格保持与参考图一致】\n${characterVisualDescriptions.join('\n')}\n以上角色的面容、发型、发色、服装、体型、年龄感必须与参考图完全一致，绝对不能更换人物形象。`
+    : '';
+
+  // 提示词：风格 + 角色视觉描述（双重保障一致性）+ 镜头动作描述
+  const prompt = buildKeyframePrompt((shot.action_description || '') + characterDescBlock);
   const negativePrompt = undefined;
 
   const episode = NovelEpisodeDAO.getById(db, shot.episode_id);
