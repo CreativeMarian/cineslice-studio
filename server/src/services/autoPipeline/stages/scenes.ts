@@ -41,6 +41,13 @@ export async function stageScenes(db: Database, task: AutoPipelineTask): Promise
   const scenes = parseAiJsonOrThrow<any[]>(result.content);
   const list = Array.isArray(scenes) ? scenes : [scenes];
 
+  // lighting_variants / scale_reference 可能是数组或对象，需序列化为字符串
+  const toStr = (v: any) => {
+    if (v == null) return '';
+    if (typeof v === 'string') return v;
+    try { return JSON.stringify(v); } catch { return String(v); }
+  };
+
   const created = ScriptSceneDAO.batchCreate(db, list.map((s: any) => ({
     user_id: task.userId,
     episode_id: first.id,
@@ -51,8 +58,8 @@ export async function stageScenes(db: Database, task: AutoPipelineTask): Promise
     // shuohao 场景美术字段：视觉提示词 / 一致性锚点 / 光照变体 / 尺度参照（DAO 同时回填旧字段 description，兼容既有消费方）
     visual_prompt: s.visual_prompt || s.visualPrompt || '',
     consistency_anchor: s.consistency_anchor || s.consistencyAnchor || '',
-    lighting_variants: s.lighting_variants || s.lightingVariants || '',
-    scale_reference: s.scale_reference || s.scaleReference || '',
+    lighting_variants: toStr(s.lighting_variants || s.lightingVariants),
+    scale_reference: toStr(s.scale_reference || s.scaleReference),
     description: s.description || '',
   })));
 

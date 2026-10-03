@@ -535,28 +535,29 @@ router.post('/episodes/:id/scenes/extract', validateBody(extractSchema), asyncHa
     throw createError(502, 'AI_CALL_FAILED', (err as Error).message);
   }
 
+  // 数组/对象值安全序列化为字符串，避免 SQLite "Too many parameter values" 错误
+  const toStr = (v: any): string | undefined => {
+    if (v == null) return undefined;
+    if (typeof v === 'string') return v || undefined;
+    try { return JSON.stringify(v); } catch { return String(v); }
+  };
+
   const old = ScriptSceneDAO.listByEpisode(db, episode.id);
   for (const s of old) ScriptSceneDAO.delete(db, s.id);
 
-  const created = ScriptSceneDAO.batchCreate(db, scenes.map((s: any) => {
-    const visualPrompt = s.visual_prompt || s.visualPrompt || s.形象提示词 || s.场景提示词 || s.visual_description || s.visualDescription || '';
-    const desc = s.description || s.desc || s.描述 || s.简介 || '';
-    return {
-      user_id: req.user.id,
-      episode_id: episode.id,
-      name: s.name || s.sceneName || s.scene_name || s.场景名 || s.名称 || '未命名场景',
-      location: s.location || s.place || s.地点 || s.位置 || '',
-      time_of_day: s.time_of_day || s.timeOfDay || s.time || s.时段 || s.时间 || 'day',
-      atmosphere: s.atmosphere || s.mood || s.氛围 || s.气氛 || '',
-      // 兼容旧字段：description 保留
-      description: desc,
-      // shuohao 新字段
-      visual_prompt: visualPrompt || null,
-      consistency_anchor: (s.consistency_anchor || s.consistencyAnchor || s.一致性锚点 || '') || null,
-      lighting_variants: (s.lighting_variants || s.lightingVariants || s.光照变体 || '') || null,
-      scale_reference: (s.scale_reference || s.scaleReference || s.尺度参照 || '') || null,
-    };
-  }));
+  const created = ScriptSceneDAO.batchCreate(db, scenes.map((s: any) => ({
+    user_id: req.user.id,
+    episode_id: episode.id,
+    name: String(s.name || s.sceneName || s.scene_name || s.场景名 || s.名称 || '未命名场景'),
+    location: String(s.location || s.place || s.地点 || s.位置 || ''),
+    time_of_day: String(s.time_of_day || s.timeOfDay || s.time || s.时段 || s.时间 || 'day'),
+    atmosphere: String(s.atmosphere || s.mood || s.氛围 || s.气氛 || ''),
+    description: String(s.description || s.desc || s.描述 || s.简介 || ''),
+    visual_prompt: toStr(s.visual_prompt || s.visualPrompt || s.形象提示词 || s.场景提示词 || s.visual_description || s.visualDescription),
+    consistency_anchor: toStr(s.consistency_anchor || s.consistencyAnchor || s.一致性锚点),
+    lighting_variants: toStr(s.lighting_variants || s.lightingVariants || s.光照变体),
+    scale_reference: toStr(s.scale_reference || s.scaleReference || s.尺度参照),
+  })));
 
   res.json({ success: true, data: created });
 }));
