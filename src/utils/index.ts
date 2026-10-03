@@ -1,5 +1,7 @@
 // 通用工具函数
 
+import type { ProjectProgressData } from '../services/pipelineService';
+
 export function cn(...classes: Array<unknown>): string {
   return classes.filter((c) => typeof c === 'string' && c.length > 0).join(' ');
 }
@@ -129,3 +131,46 @@ export const TIME_OF_DAY_LABELS: Record<string, string> = {
   dawn: '黎明',
   dusk: '黄昏',
 };
+
+// ============================================================
+// 五段管线（shuohao-skills 对齐）路由与完成度工具
+// 五段：大纲 → 角色 → 美术 → 剧本 → 导演台
+// ============================================================
+
+export const PIPELINE_STAGE_GROUPS = [
+  { key: 'outline', label: '项目大纲', path: '', stages: ['novel', 'episodes'] },
+  { key: 'characters', label: '角色设定', path: 'characters', stages: ['characters'] },
+  { key: 'art', label: '美术设定', path: 'art', stages: ['scenes'] },
+  { key: 'script', label: '剧本', path: 'script', stages: ['script'] },
+  { key: 'director', label: '导演台', path: 'director', stages: ['shots', 'keyframes', 'video', 'audio', 'export'] },
+] as const;
+
+export type PipelineStageKey = typeof PIPELINE_STAGE_GROUPS[number]['key'];
+
+/** 从 pathname 解析当前所在的五段管线段（非项目页返回 null） */
+export function getPipelineStageFromPath(pathname: string): PipelineStageKey | null {
+  const m = pathname.match(/^\/project\/[^/]+(?:\/(.*))?$/);
+  if (!m) return null;
+  const rest = (m[1] || '').replace(/\/+$/, '');
+  if (rest === '') return 'outline';
+  if (rest === 'characters' || rest.startsWith('character/')) return 'characters';
+  if (rest === 'art' || rest.startsWith('art/')) return 'art';
+  if (rest === 'script') return 'script';
+  if (rest === 'director') return 'director';
+  return null;
+}
+
+/** 当前管线段索引（0-4），非项目页返回 -1 */
+export function getPipelineStageIndex(pathname: string): number {
+  const s = getPipelineStageFromPath(pathname);
+  if (!s) return -1;
+  return PIPELINE_STAGE_GROUPS.findIndex((g) => g.key === s);
+}
+
+/** 某个管线段是否全部完成（基于后端真实完成度） */
+export function isPipelineStageDone(stageKey: string, progress: ProjectProgressData | null): boolean {
+  if (!progress) return false;
+  const group = PIPELINE_STAGE_GROUPS.find((g) => g.key === stageKey);
+  if (!group) return false;
+  return group.stages.every((s) => progress.stages[s]?.done === true);
+}

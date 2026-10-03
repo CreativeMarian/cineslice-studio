@@ -3,7 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Plus, Film, MoreVertical, Pencil, Trash2, FolderOpen, Search, Clock, Sun, Moon, HelpCircle, Radio,
   BookOpen, Wand2, ChevronRight, Zap, Settings, Archive, ArchiveRestore,
-  AlertTriangle, Sparkles, Server, RefreshCw, Activity, Boxes, GitBranch,
+  AlertTriangle, Server, RefreshCw, Activity, Boxes, GitBranch,
 } from 'lucide-react';
 import { Button, Card, EmptyState, Modal, Input, Badge } from './ui';
 import { projectService } from '../services/projectService';
@@ -115,7 +115,7 @@ export function Dashboard() {
         setNewDesc('');
         setNewMode('semi-auto');
         setNewStyleDescription('');
-        navigate(`/projects/${res.data.id}`);
+        navigate(`/project/${res.data.id}`);
       }
     } catch {
       showToast('创建失败，请重试', 'error');
@@ -219,16 +219,12 @@ export function Dashboard() {
 
   const navItems = [
     { label: '仪表盘', active: true },
-    { label: '自由创作', onClick: () => navigate('/create') },
     { label: '模型库', onClick: () => navigate('/models') },
-    { label: '成本统计', onClick: () => navigate('/costs') },
-    { label: '查看流程', onClick: () => navigate('/mindmap') },
   ];
 
   const quickActions = [
     { label: '新建项目', desc: '从灵感开始创作', icon: Plus, onClick: () => setCreateModalOpen(true) },
     { label: '上传小说', desc: '从小说改编剧本', icon: BookOpen, onClick: handleStartFromNovel },
-    { label: '自由创作', desc: '文生图/文生视频', icon: Sparkles, onClick: () => navigate('/create') },
     { label: '配置模型', desc: '接入 AI 服务', icon: Settings, onClick: () => navigate('/models') },
   ];
 
@@ -443,7 +439,7 @@ export function Dashboard() {
                   return (
                     <div
                       key={project.id}
-                      onClick={isArchived ? undefined : () => navigate(`/projects/${project.id}`)}
+                      onClick={isArchived ? undefined : () => navigate(`/project/${project.id}`)}
                       className={`group glass-hover rounded-[var(--radius-control)] border border-[var(--border)] bg-[var(--card-bg)]/40 px-4 py-3 flex items-center gap-4 backdrop-blur transition-all duration-200 hover:border-[var(--border-hover)] hover:bg-[var(--card-bg)]/70 marquee-border ${
                         isArchived ? 'opacity-80' : 'cursor-pointer'
                       } ${menuOpenId === project.id ? 'z-40' : ''}`}

@@ -1,5 +1,5 @@
 import { lazy, Suspense } from 'react';
-import { BrowserRouter, Routes, Route, Navigate, Outlet } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Outlet } from 'react-router-dom';
 import { AuthProvider } from './contexts/AuthContext';
 import { ThemeProvider } from './contexts/ThemeContext';
 import { Toast, Spinner } from './components/ui';
@@ -14,16 +14,18 @@ import { NotFound } from './components/NotFound';
 import { LandingPage } from './components/LandingPage/LandingPage';
 
 // 路由懒加载
-const Onboarding = lazy(() => import('./components/Onboarding/Onboarding').then(m => ({ default: m.Onboarding })));
 const SettingsPage = lazy(() => import('./components/SettingsPage').then(m => ({ default: m.SettingsPage })));
 const ModelConfigPage = lazy(() => import('./components/ModelConfig/ModelConfigPage').then(m => ({ default: m.ModelConfigPage })));
-const StageScript = lazy(() => import('./components/StageScript/StageScript').then(m => ({ default: m.StageScript })));
-const StageAssets = lazy(() => import('./components/StageAssets/StageAssets').then(m => ({ default: m.StageAssets })));
-const StageDirector = lazy(() => import('./components/StageDirector/StageDirector').then(m => ({ default: m.StageDirector })));
-const StageExport = lazy(() => import('./components/StageExport/StageExport').then(m => ({ default: m.StageExport })));
-const MindMapPage = lazy(() => import('./components/MindMap/MindMapPage').then(m => ({ default: m.MindMapPage })));
-const CostAnalyticsPage = lazy(() => import('./components/CostAnalytics/CostAnalyticsPage').then(m => ({ default: m.CostAnalyticsPage })));
-const CreateStudio = lazy(() => import('./components/CreateStudio/CreateStudio').then(m => ({ default: m.default })));
+
+// 五段管线占位页
+const StageOutline = lazy(() => import('./components/StageOutline/StageOutline').then(m => ({ default: m.StageOutline })));
+const StageCharacters = lazy(() => import('./components/StageCharacters/StageCharacters').then(m => ({ default: m.StageCharacters })));
+const CharacterDetailPage = lazy(() => import('./components/StageCharacters/CharacterDetailPage').then(m => ({ default: m.CharacterDetailPage })));
+const StageArt = lazy(() => import('./components/StageArt/StageArt').then(m => ({ default: m.StageArt })));
+const SceneDetailPage = lazy(() => import('./components/StageArt/SceneDetailPage').then(m => ({ default: m.SceneDetailPage })));
+const PropDetailPage = lazy(() => import('./components/StageArt/PropDetailPage').then(m => ({ default: m.PropDetailPage })));
+const StageScriptPage = lazy(() => import('./components/StageScript/StageScriptPage').then(m => ({ default: m.StageScriptPage })));
+const StageDirectorPage = lazy(() => import('./components/StageDirector/StageDirectorPage').then(m => ({ default: m.StageDirectorPage })));
 
 function LazyRoute({ children }: { children: React.ReactNode }) {
   return <Suspense fallback={<div className="flex items-center justify-center h-screen"><Spinner size="lg" /></div>}>{children}</Suspense>;
@@ -50,20 +52,19 @@ export default function App() {
               }
             >
               <Route path="/" element={<Dashboard />} />
-              <Route path="/onboarding" element={<LazyRoute><Onboarding /></LazyRoute>} />
               <Route path="/models" element={<LazyRoute><ModelConfigPage /></LazyRoute>} />
-              <Route path="/create" element={<LazyRoute><CreateStudio /></LazyRoute>} />
-              <Route path="/mindmap" element={<LazyRoute><MindMapPage /></LazyRoute>} />
               <Route path="/settings" element={<LazyRoute><SettingsPage /></LazyRoute>} />
-              <Route path="/costs" element={<LazyRoute><CostAnalyticsPage /></LazyRoute>} />
 
-              {/* 项目工作台 */}
-              <Route path="/projects/:projectId" element={<ProjectLayout />}>
-                <Route index element={<Navigate to="script" replace />} />
-                <Route path="script" element={<LazyRoute><StageScript /></LazyRoute>} />
-                <Route path="assets" element={<LazyRoute><StageAssets /></LazyRoute>} />
-                <Route path="director" element={<LazyRoute><StageDirector /></LazyRoute>} />
-                <Route path="export" element={<LazyRoute><StageExport /></LazyRoute>} />
+              {/* 项目工作台 · 五段管线 */}
+              <Route path="/project/:id" element={<ProjectLayout />}>
+                <Route index element={<LazyRoute><StageOutline /></LazyRoute>} />
+                <Route path="characters" element={<LazyRoute><StageCharacters /></LazyRoute>} />
+                <Route path="character/:characterId" element={<LazyRoute><CharacterDetailPage /></LazyRoute>} />
+                <Route path="art" element={<LazyRoute><StageArt /></LazyRoute>} />
+                <Route path="art/scene/:sceneId" element={<LazyRoute><SceneDetailPage /></LazyRoute>} />
+                <Route path="art/prop/:propId" element={<LazyRoute><PropDetailPage /></LazyRoute>} />
+                <Route path="script" element={<LazyRoute><StageScriptPage /></LazyRoute>} />
+                <Route path="director" element={<LazyRoute><StageDirectorPage /></LazyRoute>} />
               </Route>
             </Route>
 

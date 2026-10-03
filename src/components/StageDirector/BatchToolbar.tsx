@@ -1,15 +1,20 @@
-// 批量生成工具栏：模型选择 + 一键批量生成首帧/视频 + 批量删除（自含批量逻辑与进度状态）
+// 批量操作工具栏（导演台精简版）：批量生成首帧 / 批量生成视频 / 导出投产包（3 个按钮）
+// 模型选择记忆到 localStorage（moo:last_image_model / moo:last_video_model），单镜卡片共用同一存储键
 import { useEffect, useState } from 'react';
-import { Video, Image, Zap, Layers, Trash2, Package } from 'lucide-react';
-import { Card, Button, Modal } from '../ui';
+import { Video, Image, Zap, Layers, Package } from 'lucide-react';
+import { Card, Button } from '../ui';
 import { useProjectStore } from '../../stores/useProjectStore';
 import { useModelStore } from '../../stores/useModelStore';
 import { useUIStore } from '../../stores/useUIStore';
 import { ModelSelector } from '../ModelConfig/ModelSelector';
 import { videoService } from '../../services/videoService';
-import { shotService } from '../../services/shotService';
 import { useStoredModelKey } from './useStoredModelKey';
 import apiClient from '../../services/apiClient';
+
+interface BatchToolbarProps {
+  /** 导出投产包：打开父级导出弹窗 */
+  onExportPackage: () => void;
+}
 
 // 解析项目配置的单镜时长（用户在项目配置栏可设 5-60 秒；与后端 shots.ts 的 project?.default_shot_duration || 5 同款读取）
 async function resolveProjectShotDuration(
@@ -54,69 +59,16 @@ async function fetchShotsWithFirstFrame(shots: { id: string }[]): Promise<Set<st
   return existing;
 }
 
-export function BatchToolbar() {
+export function BatchToolbar({ onExportPackage }: BatchToolbarProps) {
   const { shots, currentEpisodeId, loadShots, currentProject, episodes } = useProjectStore();
   const { showToast } = useUIStore();
   const { configs, loadConfigs } = useModelStore();
   const [isBatchGeneratingKeyframes, setIsBatchGeneratingKeyframes] = useState(false);
   const [isBatchGeneratingVideos, setIsBatchGeneratingVideos] = useState(false);
   const [batchProgress, setBatchProgress] = useState<{ current: number; total: number } | null>(null);
-  // 批量生成使用的模型（记忆用户上次选择）
+  // 批量生成使用的模型（记忆用户上次选择，单镜卡片共用）
   const [batchImageModel, setBatchImageModel] = useStoredModelKey('moo:last_image_model');
   const [batchVideoModel, setBatchVideoModel] = useStoredModelKey('moo:last_video_model');
-
-  // 批量删除
-  const [isBatchDeleting, setIsBatchDeleting] = useState(false);
-  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
-
-  // 导出投产包（接口由另一子任务实现；未实现时降级提示）
-  const [isExporting, setIsExporting] = useState(false);
-
-  const handleBatchDelete = async () => {
-    if (!currentEpisodeId) return;
-    setShowDeleteConfirm(false);
-    setIsBatchDeleting(true);
-    try {
-      let success = 0;
-      let failed = 0;
-      for (const shot of shots) {
-        try {
-          const res = await shotService.delete(shot.id);
-          if (res.success) success += 1;
-          else failed += 1;
-        } catch {
-          failed += 1;
-        }
-      }
-      if (failed > 0) {
-        showToast(`批量删除：成功${success}个，失败${failed}个`, 'warning');
-      } else {
-        showToast(`已删除 ${success} 个镜头`, 'success');
-      }
-      loadShots(currentEpisodeId);
-    } finally {
-      setIsBatchDeleting(false);
-    }
-  };
-
-  // 导出投产包：GET 接口直接返回 ZIP 文件下载
-  const handleExportPackage = () => {
-    if (!currentProject?.id || !currentEpisodeId) {
-      showToast('请先选择项目与剧集', 'warning');
-      return;
-    }
-    setIsExporting(true);
-    try {
-      const BASE_URL = (import.meta.env.VITE_API_BASE_URL || '/api').replace(/\/$/, '');
-      const exportUrl = `${BASE_URL}/projects/${currentProject.id}/episodes/${currentEpisodeId}/export`;
-      window.open(exportUrl, '_blank');
-      showToast('正在生成投产包，浏览器将自动下载', 'success');
-    } catch {
-      showToast('导出失败', 'error');
-    } finally {
-      setTimeout(() => setIsExporting(false), 2000);
-    }
-  };
 
   // 加载模型配置
   useEffect(() => {
@@ -219,7 +171,7 @@ export function BatchToolbar() {
         const skippedShots = res.data.skippedShots || [];
         if (skippedShots.length > 0) {
           const reasons = skippedShots.map((s: any) => `镜头${s.shotId?.slice(-6) || ''}: ${s.reason}`).join('; ');
-          showToast(`批量视频：成功${res.data.created}个，跳过${res.data.skipped}个（${reasons}）`, 'warning', { duration: 8000 });
+          showToast(`批量视频：成功${res.data.created}个，跳过${res.data.skipped}个（${reasons}）`, 'warning');
         } else {
           showToast(`批量视频任务已创建：${res.data.created}个成功`, 'success');
         }
@@ -238,14 +190,14 @@ export function BatchToolbar() {
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div className="flex items-center gap-2">
           <Zap className="w-4 h-4 text-[var(--accent)]" />
-          <span className="text-sm font-medium text-[var(--ink-1)]">一键批量生成</span>
-          <span className="text-xs text-[var(--ink-3)]">选择模型后一键生成全部镜头</span>
+          <span className="text-sm font-medium text-[var(--ink-1)]">批量操作</span>
+          <span className="text-xs text-[var(--ink-3)]">选择模型后一键生成全部镜头首帧/视频</span>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           {/* 批量首帧模型选择 */}
           <div className="flex items-center gap-1.5">
             <Image className="w-3.5 h-3.5 text-[var(--ink-3)]" />
-            <div className="w-72">
+            <div className="w-44">
               <ModelSelector
                 modelType="image"
                 value={batchImageModel}
@@ -262,12 +214,12 @@ export function BatchToolbar() {
             isLoading={isBatchGeneratingKeyframes}
             disabled={isBatchGeneratingVideos || !batchImageModel}
           >
-            一键生成全部首帧
+            批量生成首帧
           </Button>
           {/* 批量视频模型选择 */}
           <div className="flex items-center gap-1.5">
             <Video className="w-3.5 h-3.5 text-[var(--ink-3)]" />
-            <div className="w-72">
+            <div className="w-44">
               <ModelSelector
                 modelType="video"
                 value={batchVideoModel}
@@ -283,23 +235,13 @@ export function BatchToolbar() {
             isLoading={isBatchGeneratingVideos}
             disabled={isBatchGeneratingKeyframes || !batchVideoModel}
           >
-            一键生成全部视频
-          </Button>
-          <Button
-            size="sm"
-            variant="outline"
-            leftIcon={<Trash2 className="w-4 h-4" />}
-            onClick={() => setShowDeleteConfirm(true)}
-            disabled={isBatchGeneratingKeyframes || isBatchGeneratingVideos || shots.length === 0}
-          >
-            批量删除
+            批量生成视频
           </Button>
           <Button
             size="sm"
             variant="outline"
             leftIcon={<Package className="w-4 h-4" />}
-            onClick={handleExportPackage}
-            isLoading={isExporting}
+            onClick={onExportPackage}
             disabled={isBatchGeneratingKeyframes || isBatchGeneratingVideos}
           >
             导出投产包
@@ -320,27 +262,6 @@ export function BatchToolbar() {
           </div>
         </div>
       )}
-
-      {/* 批量删除确认 Modal */}
-      <Modal
-        open={showDeleteConfirm}
-        onOpenChange={setShowDeleteConfirm}
-        title="批量删除镜头"
-      >
-        <div className="space-y-4">
-          <p className="text-sm text-[var(--ink-2)]">
-            确定要删除当前剧集的全部 {shots.length} 个镜头吗？此操作会同时删除关联的首帧、视频与音频，且不可恢复。
-          </p>
-          <div className="flex items-center justify-end gap-2">
-            <Button variant="ghost" size="sm" onClick={() => setShowDeleteConfirm(false)}>
-              取消
-            </Button>
-            <Button size="sm" variant="danger" onClick={handleBatchDelete} isLoading={isBatchDeleting}>
-              确认删除
-            </Button>
-          </div>
-        </div>
-      </Modal>
     </Card>
   );
 }

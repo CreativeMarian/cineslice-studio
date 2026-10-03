@@ -5,9 +5,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import {
-  Search, FolderOpen, Wand2, Sun, Moon, BookOpen, Coins,
+  Search, FolderOpen, Wand2, Sun, Moon,
   Keyboard, ArrowRight, LayoutDashboard, Cpu, SlidersHorizontal,
-  FileText, Users, Clapperboard, Send, KeyboardIcon, Plus,
+  FileText, Users, Clapperboard, ClipboardList, Palette, KeyboardIcon, Plus,
 } from 'lucide-react';
 import { useCommandPaletteStore } from '../../stores/useCommandPaletteStore';
 import { useUIStore } from '../../stores/useUIStore';
@@ -31,10 +31,11 @@ function isTypingTarget(target: EventTarget | null): boolean {
 }
 
 const STAGE_PATHS = [
-  { path: 'script', label: '剧本工作台', icon: <FileText className="w-4 h-4" />, keywords: 'script 剧本 小说 编辑' },
-  { path: 'assets', label: '资产工坊', icon: <Users className="w-4 h-4" />, keywords: 'assets 资产 角色 场景 道具' },
-  { path: 'director', label: '导演工作台', icon: <Clapperboard className="w-4 h-4" />, keywords: 'director 导演 分镜 视频' },
-  { path: 'export', label: '成片出口', icon: <Send className="w-4 h-4" />, keywords: 'export 导出 成片 下载' },
+  { path: '', label: '项目大纲', icon: <ClipboardList className="w-4 h-4" />, keywords: 'outline 大纲 小说 上传 分集' },
+  { path: 'characters', label: '角色设定', icon: <Users className="w-4 h-4" />, keywords: 'characters 角色 形象 定妆 提取' },
+  { path: 'art', label: '美术设定', icon: <Palette className="w-4 h-4" />, keywords: 'art 美术 场景 道具 概念图' },
+  { path: 'script', label: '剧本', icon: <FileText className="w-4 h-4" />, keywords: 'script 剧本 场次 台词 台词本' },
+  { path: 'director', label: '导演台', icon: <Clapperboard className="w-4 h-4" />, keywords: 'director 导演 分镜 视频 导出 投产包' },
 ];
 
 export function CommandPalette() {
@@ -50,7 +51,7 @@ export function CommandPalette() {
   const listRef = useRef<HTMLDivElement>(null);
 
   // 当前是否处于项目内（用于展示阶段导航）
-  const projectMatch = location.pathname.match(/^\/projects\/([^/]+)/);
+  const projectMatch = location.pathname.match(/^\/project\/([^/]+)/);
   const currentProjectId = projectMatch ? projectMatch[1] : null;
 
   // 打开时拉取项目列表并聚焦
@@ -86,17 +87,17 @@ export function CommandPalette() {
   const commands = useMemo<CommandItem[]>(() => {
     const items: CommandItem[] = [];
 
-    // 项目内：阶段导航
+    // 项目内：五段管线导航
     if (currentProjectId) {
       for (const stage of STAGE_PATHS) {
         items.push({
-          id: `stage-${stage.path}`,
+          id: `stage-${stage.path || 'outline'}`,
           label: stage.label,
           hint: '阶段导航',
           icon: stage.icon,
           keywords: stage.keywords,
           group: '阶段导航',
-          action: () => navigate(`/projects/${currentProjectId}/${stage.path}`),
+          action: () => navigate(`/project/${currentProjectId}${stage.path ? `/${stage.path}` : ''}`),
         });
       }
     }
@@ -110,7 +111,7 @@ export function CommandPalette() {
         icon: <FolderOpen className="w-4 h-4" />,
         keywords: 'project 项目',
         group: '项目',
-        action: () => navigate(`/projects/${p.id}`),
+        action: () => navigate(`/project/${p.id}`),
       });
     }
 
@@ -141,22 +142,6 @@ export function CommandPalette() {
         keywords: 'model config 模型 配置 api',
         group: '操作',
         action: () => navigate('/models'),
-      },
-      {
-        id: 'action-mindmap',
-        label: '制作流程图',
-        icon: <BookOpen className="w-4 h-4" />,
-        keywords: 'mindmap flow 流程 图',
-        group: '操作',
-        action: () => navigate('/mindmap'),
-      },
-      {
-        id: 'action-costs',
-        label: '成本统计',
-        icon: <Coins className="w-4 h-4" />,
-        keywords: 'cost money 成本 费用 统计 token',
-        group: '操作',
-        action: () => navigate('/costs'),
       },
       {
         id: 'action-settings',
