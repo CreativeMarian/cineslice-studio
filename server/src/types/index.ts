@@ -84,6 +84,11 @@ export interface Project {
   pipeline_status: string | null;
   style_description: string | null;
   model_preferences: string | null;
+  // shuohao 五段管线：大纲阶段产物（JSON 文本，NULL=未生成）
+  adaptation_note?: string;      // 改编说明
+  hook_list?: string;            // 爽点表 JSON
+  episode_synopsis?: string;     // 分集梗概 JSON
+  asset_list?: string;           // 资产清单 JSON（含叙事道具表）
   created_at: string;
   updated_at: string;
 }
@@ -127,6 +132,7 @@ export interface NovelEpisode {
   enrich_status: 'none' | 'pending' | 'approved' | 'rejected' | 'manual';
   enrich_feedback: string | null;
   enrich_reject_count: number;
+  structured_script?: string;    // 结构化剧本 JSON（场次 + 节拍流）
   created_at: string;
   updated_at: string;
 }
@@ -171,6 +177,11 @@ export interface ScriptCharacter {
   anchor_standardized?: string;    // 标准化锚点（100字内，自动生成）
   expression_images?: string;      // P1-4: 九宫格表情图 JSON
   expression_status?: string;      // P1-4: 表情图生成状态
+  // shuohao 角色三件套：画像/形象/音色 + 细节图
+  character_profile?: string;      // 人物画像（性格/背景/动机/弧光）
+  visual_prompt?: string;          // 形象提示词（发型/发色/服装/体型/标志特征，用于出图）
+  voice_prompt?: string;           // 音色提示词（年龄/音色/语速/情绪，用于TTS）
+  detail_images?: string;          // 细节图 JSON 数组（手部特写/服装细节/标志性物品等）
   created_at: string;
   updated_at: string;
 }
@@ -289,6 +300,11 @@ export interface ScriptScene {
   concept_images: string | null;
   selected_image_index: number;
   weather?: string;
+  // shuohao 场景美术字段（出图 / 跨镜头一致性）
+  visual_prompt?: string;          // 场景形象提示词（布局/家具/灯光/氛围，用于出图）
+  lighting_variants?: string;      // 光照变体 JSON {"day":"...","dusk":"...","night":"..."}
+  scale_reference?: string;        // 尺度参照描述
+  consistency_anchor?: string;     // 一致性锚点描述（最核心的不变特征）
   created_at: string;
   updated_at: string;
 }
@@ -307,6 +323,8 @@ export interface ScriptProp {
   concept_images: string | null;
   is_clue: number;      // 线索标记：跨镜头保持视觉连贯（ArcReel clue tracking）
   keywords: string;     // 关键词（逗号分隔），用于镜头匹配道具
+  visual_prompt?: string;   // 道具形象提示词（用于出图）
+  is_narrative?: number;    // 1=叙事道具（推动剧情），0=普通道具
   created_at: string;
 }
 
@@ -355,6 +373,8 @@ export interface Shot {
   last_frame_description: string | null;  // 尾帧画面描述（动作弧结束状态，用于尾帧关键帧生成）
   video_prompt: string | null;  // 提示词重构成品：分镜生成后按视频模型 Skill 官方公式重构，视频生成直接消费
   video_skill: string | null;   // 重构该成品时使用的提示词 Skill id（换模型时据此失效重跑重构）
+  segment_id?: number;          // 所属段编号（每段≤15秒）
+  frame_timestamps?: string;    // 分镜图时间戳 JSON
   created_at: string;
   updated_at: string;
 }

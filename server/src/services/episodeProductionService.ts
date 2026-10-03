@@ -9,6 +9,7 @@ import {
   ShotVideoIntervalDAO,
   ScriptCharacterDAO,
   ScriptSceneDAO,
+  ScriptPropDAO,
   ProjectDAO,
 } from '../models';
 import { createError } from '../middleware/errorHandler';
@@ -274,7 +275,7 @@ export async function generateShotsForEpisode(
   // 已有角色资产（定妆信息）→ 注入分镜 prompt，保证分镜描述贴合定妆角色
   const existingCharacters = ScriptCharacterDAO.listByEpisode(db, episode.id)
     .filter(c => c.name)
-    .map(c => ({ name: c.name, appearance: c.visual_description || c.description || c.name }));
+    .map(c => ({ name: c.name, appearance: c.visual_prompt || c.visual_description || c.description || c.name }));
 
   // 剧集元数据 fallback：如果资产阶段还没提取角色，用剧集生成时输出的清单
   let characters = existingCharacters.length > 0 ? existingCharacters : undefined;
@@ -288,13 +289,28 @@ export async function generateShotsForEpisode(
     } catch { /* 解析失败忽略 */ }
   }
 
-  // 极简分镜提示词：场景内容 + 出场角色
+  // 极简分镜提示词：场景内容 + 出场角色 + 场景表 + 道具表（分镜只做输出、不引入新场景/新道具）
   const charactersStr = characters && characters.length > 0
     ? characters.map(c => `${c.name}: ${c.appearance}`).join('\n')
     : '未指定';
+
+  // 场景表（visual_prompt 优先）
+  const existingScenes = ScriptSceneDAO.listByEpisode(db, episode.id);
+  const scenesStr = existingScenes.length > 0
+    ? existingScenes.map(s => `${s.name}: ${s.visual_prompt || s.description || s.location || ''}`).join('\n')
+    : '未提供场景表';
+
+  // 道具表（visual_prompt + keywords，用于 props_in_shot 匹配）
+  const existingProps = ScriptPropDAO.listByEpisode(db, episode.id);
+  const propsStr = existingProps.length > 0
+    ? existingProps.map(p => `${p.name}: ${p.visual_prompt || p.description || ''}（关键词：${p.keywords || '无'}）`).join('\n')
+    : '未提供道具表';
+
   const prompt = buildShotGenerationPrompt(
     episode.script_content,
-    charactersStr
+    charactersStr,
+    scenesStr,
+    propsStr
   );
 
   const result = await aiProxy.generateText({
@@ -362,6 +378,7 @@ export async function generateShotsForEpisode(
       pace: s.pace || 'normal',
       phase: s.phase ?? null,
       phase_name: s.phaseName || null,
+      segment_id: s.segmentId ?? null,
     })));
   })();
 }
@@ -532,6 +549,13 @@ export async function regenerateKeyframe(
 
 // ============ 视频生成 ============
 
+/** 镜头运动英文枚举 → 中文标签（buildVideoPrompt 的 cameraMovement 段，生成自然中文提示词） */
+const CAMERA_MOVEMENT_LABEL: Record<string, string> = {
+  static: '固定', push_in: '缓慢推近', pull_out: '缓慢拉远', pan: '水平摇移', tilt: '垂直摇移',
+  truck: '横向移动', crane: '升降运镜', handheld: '手持跟拍', zoom: '变焦', dolly: '推拉运镜',
+  steadicam: '稳定器跟拍', long: '固定', full: '固定',
+};
+
 /** 极简视频提示词构建：风格描述 + 动作 + 角色定妆 + 场景（一致性主要靠参考图） */
 function buildMinimalVideoPrompt(db: Database, shot: any, styleDescription: string | null): string {
   const characters: Array<{ name: string; appearance: string }> = [];
@@ -543,8 +567,8 @@ function buildMinimalVideoPrompt(db: Database, shot: any, styleDescription: stri
         const epChars = ScriptCharacterDAO.listByEpisode(db, shot.episode_id);
         c = epChars.find((x: any) => x.name === ref) || null;
       }
-      if (c && (c.visual_description || c.description)) {
-        const appearance = (c.visual_description || c.description || '').slice(0, 120);
+      if (c && (c.visual_prompt || c.visual_description || c.description)) {
+        const appearance = (c.visual_prompt || c.visual_description || c.description || '').slice(0, 120);
         characters.push({ name: c.name, appearance });
       }
     }
@@ -557,7 +581,7 @@ function buildMinimalVideoPrompt(db: Database, shot: any, styleDescription: stri
     if (shot.scene_id) {
       const sc = ScriptSceneDAO.getById(db, shot.scene_id);
       if (sc) {
-        const environment = (sc.description || sc.atmosphere || '').slice(0, 150);
+        const environment = (sc.visual_prompt || sc.description || sc.atmosphere || '').slice(0, 150);
         scene = { name: sc.name, environment };
       }
     }
@@ -570,6 +594,9 @@ function buildMinimalVideoPrompt(db: Database, shot: any, styleDescription: stri
     action: shot.action_description || '',
     characters: characters.length > 0 ? characters : undefined,
     scene,
+    // shuohao novel-storyboard：注入镜头情绪基调与运镜（英文枚举转中文标签）
+    mood: shot.mood || undefined,
+    cameraMovement: shot.camera_movement ? (CAMERA_MOVEMENT_LABEL[shot.camera_movement] || shot.camera_movement) : undefined,
   };
   return buildVideoPrompt(input);
 }
@@ -1145,6 +1172,14 @@ const PHASE_MAP: Record<string, number> = {
 function normalizeShotValues(shot: any): any {
   if (!shot || typeof shot !== 'object') return shot;
   const out = { ...shot };
+  // shuohao 新输出字段归一化（snake_case → camelCase）：scene_name / props_in_shot / segment_id
+  if (out.scene_name && out.sceneName === undefined) out.sceneName = out.scene_name;
+  if (out.props_in_shot && out.propsInShot === undefined) out.propsInShot = out.props_in_shot;
+  if (out.segment_id !== undefined && out.segmentId === undefined) out.segmentId = out.segment_id;
+  if (out.segmentId !== undefined && out.segmentId !== null && typeof out.segmentId !== 'number') {
+    const n = Number(String(out.segmentId).replace(/[^\d.]/g, ''));
+    out.segmentId = Number.isFinite(n) ? n : null;
+  }
   // 景别
   if (out.shotSize && SHOT_SIZE_MAP[String(out.shotSize).trim()]) out.shotSize = SHOT_SIZE_MAP[String(out.shotSize).trim()];
   else if (out.shotSize && !/^(extreme_wide|long|full|medium|medium_closeup|closeup|extreme_closeup)$/.test(String(out.shotSize))) {

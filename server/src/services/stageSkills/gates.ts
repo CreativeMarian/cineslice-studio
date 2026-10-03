@@ -6,7 +6,7 @@
 // 检查结果只读、不阻断流水线；stageProgress 记录 summary 供前端展示。
 
 import type { Database } from '../../types';
-import { ShotDAO, ScriptCharacterDAO, ScriptSceneDAO } from '../../models';
+import { ShotDAO, ScriptCharacterDAO, ScriptSceneDAO, ScriptPropDAO } from '../../models';
 import { parseCharactersInShot } from '../../models/shot';
 
 export interface GateIssue {
@@ -17,7 +17,7 @@ export interface GateIssue {
 }
 
 export interface GateResult {
-  stage: 'shots' | 'characters' | 'scenes';
+  stage: 'shots' | 'characters' | 'scenes' | 'props' | 'script' | 'outline';
   passed: boolean;
   issues: GateIssue[];
   summary: string;
@@ -47,6 +47,8 @@ function dialogueSeconds(dialogue: string): number {
 export function runShotGates(db: Database, episodeId: string): GateResult {
   const issues: GateIssue[] = [];
   const shots = ShotDAO.listByEpisode(db, episodeId);
+  const chars = ScriptCharacterDAO.listByEpisode(db, episodeId);
+  const scenes = ScriptSceneDAO.listByEpisode(db, episodeId);
 
   if (shots.length === 0) {
     return { stage: 'shots', passed: false, issues: [{ rule: 'shots', message: '无镜头数据', severity: 'error' }], summary: 'shots: 无镜头数据' };
@@ -115,6 +117,56 @@ export function runShotGates(db: Database, episodeId: string): GateResult {
     }
   }
 
+  // 6. 分镜角色必须在角色表中（shuohao 核心原则：分镜只做输出不做新决定）
+  const charNames = new Set(chars.map((c: any) => (c.name || '').trim()));
+  for (const s of shots) {
+    const shotChars = parseCharactersInShot(s.characters_in_shot);
+    for (const cn of shotChars) {
+      if (cn && !charNames.has(cn)) {
+        // 模糊匹配：角色名包含关系也算通过
+        const fuzzyMatch = Array.from(charNames).some(existing =>
+          existing && (existing.includes(cn) || cn.includes(existing))
+        );
+        if (!fuzzyMatch) {
+          issues.push({
+            rule: 'novel-storyboard 角色引用',
+            message: `第 ${s.shot_number} 镜出现角色「${cn}」不在角色表中（分镜引入了新角色，违反"只做输出不做新决定"原则）`,
+            severity: 'error',
+          });
+        }
+      }
+    }
+  }
+
+  // 7. 分镜场景必须在场景表中（shuohao 核心原则）
+  const sceneIds = new Set(scenes.map((sc: any) => sc.id));
+  for (const s of shots) {
+    if (s.scene_id && !sceneIds.has(s.scene_id)) {
+      issues.push({
+        rule: 'novel-storyboard 场景引用',
+        message: `第 ${s.shot_number} 镜关联的场景 ID（${s.scene_id}）不在场景表中`,
+        severity: 'warn',
+      });
+    }
+  }
+
+  // 8. 段编号合理性（shuohao segment：每段≤15秒）
+  const segmentMap = new Map<number, number>();
+  for (const s of shots) {
+    const segId = s.segment_id || 1;
+    const dur = s.duration_seconds || FIXED_SHOT_SECONDS;
+    segmentMap.set(segId, (segmentMap.get(segId) || 0) + dur);
+  }
+  for (const [segId, totalDur] of segmentMap) {
+    if (totalDur > 15) {
+      issues.push({
+        rule: 'novel-storyboard 段时长',
+        message: `第 ${segId} 段总时长 ${totalDur.toFixed(1)}s 超过 15s 上限（一次视频生成建议≤15s）`,
+        severity: 'warn',
+      });
+    }
+  }
+
   const errors = issues.filter((i) => i.severity === 'error');
   return {
     stage: 'shots',
@@ -137,13 +189,57 @@ export function runCharacterGates(db: Database, episodeId: string): GateResult {
 
   // 1. 视觉描述完整（novel-characters：出图提示词必须能交代长相）
   for (const c of chars) {
-    const desc = (c.visual_description || c.description || '').trim();
+    // 优先检查 visual_prompt（shuohao 形象提示词），回退到 visual_description/description
+    const desc = (c.visual_prompt || c.visual_description || c.description || '').trim();
     if (cjkLen(desc) < MIN_DESC_LEN) {
       issues.push({
         rule: 'novel-characters 视觉描述',
         message: `角色「${c.name}」视觉描述过短（${cjkLen(desc)} 字），出图会缺长相细节`,
         severity: 'warn',
       });
+    }
+  }
+
+  // 1b. 音色提示词（shuohao voice_prompt：TTS 配音需要）
+  for (const c of chars) {
+    const voice = (c.voice_prompt || '').trim();
+    if (!voice && c.role_type !== 'extra') {
+      issues.push({
+        rule: 'novel-characters 音色提示词',
+        message: `角色「${c.name}」缺少音色提示词（voice_prompt），TTS 配音将使用默认音色`,
+        severity: 'warn',
+      });
+    }
+  }
+
+  // 1c. 主角锚点图（shuohao character-refs：主角必须有概念图作为一致性锚点）
+  for (const c of chars) {
+    if (c.role_type === 'protagonist') {
+      const hasConcept = c.reference_image_url ||
+        (Array.isArray(c.concept_images) && c.concept_images.length > 0) ||
+        (typeof c.concept_images === 'string' && c.concept_images.length > 2);
+      if (!hasConcept) {
+        issues.push({
+          rule: 'novel-characters 主角锚点图',
+          message: `主角「${c.name}」尚未生成概念图（锚点图），角色一致性无法保证`,
+          severity: 'error',
+        });
+      }
+    }
+  }
+
+  // 1d. 主角四视图（shuohao character-refs：主角建议有四视图）
+  for (const c of chars) {
+    if (c.role_type === 'protagonist') {
+      const hasFourView = Array.isArray(c.four_view_images) && c.four_view_images.length > 0 ||
+        (typeof c.four_view_images === 'string' && c.four_view_images.length > 2);
+      if (!hasFourView) {
+        issues.push({
+          rule: 'novel-characters 主角四视图',
+          message: `主角「${c.name}」尚未生成四视图，多角度一致性可能不足`,
+          severity: 'warn',
+        });
+      }
     }
   }
 
@@ -215,11 +311,37 @@ export function runSceneGates(db: Database, episodeId: string): GateResult {
 
   // 2. 场景描述完整（novel-art：锚点要可画可认可核对）
   for (const s of scenes) {
-    const desc = (s.description || '').trim();
+    // 优先检查 visual_prompt（shuohao 场景形象提示词），回退到 description
+    const desc = (s.visual_prompt || s.description || '').trim();
     if (cjkLen(desc) < MIN_DESC_LEN) {
       issues.push({
         rule: 'novel-art 场景描述',
         message: `场景「${s.name}」描述过短（${cjkLen(desc)} 字），缺一致性锚点`,
+        severity: 'warn',
+      });
+    }
+  }
+
+  // 2b. 一致性锚点（shuohao novel-art：每个场景应有最核心的不变特征）
+  for (const s of scenes) {
+    const anchor = (s.consistency_anchor || '').trim();
+    if (!anchor) {
+      issues.push({
+        rule: 'novel-art 一致性锚点',
+        message: `场景「${s.name}」缺少一致性锚点（consistency_anchor），跨镜头可能漂移`,
+        severity: 'warn',
+      });
+    }
+  }
+
+  // 2c. 场景概念图（shuohao novel-art：场景应有概念图作为参考）
+  for (const s of scenes) {
+    const hasConcept = Array.isArray(s.concept_images) && s.concept_images.length > 0 ||
+      (typeof s.concept_images === 'string' && s.concept_images.length > 2);
+    if (!hasConcept) {
+      issues.push({
+        rule: 'novel-art 场景概念图',
+        message: `场景「${s.name}」尚未生成概念图，环境一致性无法保证`,
         severity: 'warn',
       });
     }
@@ -251,8 +373,61 @@ export function runSceneGates(db: Database, episodeId: string): GateResult {
 }
 
 /** 统一入口：某阶段生成后调用，返回检查结果（只读，不阻断） */
-export function runStageGates(db: Database, stage: 'shots' | 'characters' | 'scenes', episodeId: string): GateResult {
+export function runStageGates(db: Database, stage: 'shots' | 'characters' | 'scenes' | 'props', episodeId: string): GateResult {
   if (stage === 'shots') return runShotGates(db, episodeId);
   if (stage === 'characters') return runCharacterGates(db, episodeId);
+  if (stage === 'scenes') return runSceneGates(db, episodeId);
+  if (stage === 'props') return runPropGates(db, episodeId);
   return runSceneGates(db, episodeId);
+}
+
+// ═══════════════════════════════════════════════════════════
+// props 门（novel-art 叙事道具）
+// ═══════════════════════════════════════════════════════════
+export function runPropGates(db: Database, episodeId: string): GateResult {
+  const issues: GateIssue[] = [];
+  const props = ScriptPropDAO.listByEpisode(db, episodeId);
+
+  if (props.length === 0) {
+    return { stage: 'props', passed: true, issues: [], summary: 'props: 无道具数据（跳过）' };
+  }
+
+  // 1. 叙事道具应有 visual_prompt
+  for (const p of props) {
+    const isNarrative = p.is_narrative === 1 || p.is_clue === 1;
+    if (isNarrative) {
+      const vp = (p.visual_prompt || '').trim();
+      if (cjkLen(vp) < 10) {
+        issues.push({
+          rule: 'novel-art 道具形象提示词',
+          message: `叙事道具「${p.name}」缺少形象提示词（visual_prompt），出图会缺细节`,
+          severity: 'warn',
+        });
+      }
+    }
+  }
+
+  // 2. 叙事道具应有概念图
+  for (const p of props) {
+    const isNarrative = p.is_narrative === 1 || p.is_clue === 1;
+    if (isNarrative) {
+      const hasConcept = Array.isArray(p.concept_images) && p.concept_images.length > 0 ||
+        (typeof p.concept_images === 'string' && p.concept_images.length > 2);
+      if (!hasConcept) {
+        issues.push({
+          rule: 'novel-art 道具概念图',
+          message: `叙事道具「${p.name}」尚未生成概念图`,
+          severity: 'warn',
+        });
+      }
+    }
+  }
+
+  const errors = issues.filter((i) => i.severity === 'error');
+  return {
+    stage: 'props',
+    passed: errors.length === 0,
+    issues,
+    summary: `props 质量门：${props.length} 道具，${errors.length} 错误 / ${issues.length - errors.length} 警告`,
+  };
 }

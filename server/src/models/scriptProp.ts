@@ -15,12 +15,12 @@ function parseConceptImages(result: any): void {
 }
 
 export const ScriptPropDAO = {
-  create(db: Database, data: { user_id: string; episode_id: string; name: string; category?: string; description?: string; is_clue?: number; keywords?: string; concept_images?: string }): ScriptProp {
+  create(db: Database, data: { user_id: string; episode_id: string; name: string; category?: string; description?: string; is_clue?: number; keywords?: string; concept_images?: string; visual_prompt?: string; is_narrative?: number }): ScriptProp {
     const id = generateId('prop');
     db.prepare(`
-      INSERT INTO script_props (id, user_id, episode_id, name, category, description, is_clue, keywords, concept_images, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(id, data.user_id, data.episode_id, data.name, data.category || 'other', data.description || '', data.is_clue || 0, data.keywords || '', data.concept_images || null, now());
+      INSERT INTO script_props (id, user_id, episode_id, name, category, description, is_clue, keywords, concept_images, visual_prompt, is_narrative, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(id, data.user_id, data.episode_id, data.name, data.category || 'other', data.description || '', data.is_clue || 0, data.keywords || '', data.concept_images || null, data.visual_prompt || null, data.is_narrative || 0, now());
     return this.getById(db, id)!;
   },
 

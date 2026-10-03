@@ -6,6 +6,7 @@ import fs from 'fs';
 import * as path from 'path';
 import {
   NovelEpisodeDAO,
+  ProjectDAO,
   ShotDAO,
   ShotKeyframeDAO,
   ShotVideoIntervalDAO,
@@ -33,6 +34,7 @@ import {
   calculateAllShotsReadiness,
 } from '../services/shotConsistencyService';
 import { dubVideo } from '../services/dubbingService';
+import { exportEpisodeProductionPack } from '../services/exportProductionService';
 import { episodeEnrichService } from '../services/episodeEnrichService';
 import { consistencyCheckService } from '../services/consistencyCheckService';
 import type { Database } from '../types';
@@ -115,6 +117,22 @@ router.delete('/episodes/:id', asyncHandler(async (req: Request, res: Response) 
   if (!episode) throw createError(404, 'NOT_FOUND', '剧集不存在');
   NovelEpisodeDAO.delete(db, req.params.id);
   res.json({ success: true, data: { message: '剧集已删除' } });
+}));
+
+// ============ 分镜投产包导出（novel-storyboard export） ============
+
+// 一键导出 H3 / Seedance 投产包 ZIP（manifest.json + script.md + characters/ + scenes/ + segments/）
+router.get('/projects/:projectId/episodes/:episodeId/export', asyncHandler(async (req: Request, res: Response) => {
+  const db = getDb(req);
+  const project = ProjectDAO.getByIdAndUser(db, req.params.projectId, req.user.id);
+  if (!project) throw createError(404, 'NOT_FOUND', '项目不存在');
+  const episode = NovelEpisodeDAO.getByIdAndUser(db, req.params.episodeId, req.user.id);
+  if (!episode || episode.project_id !== project.id) throw createError(404, 'NOT_FOUND', '剧集不存在');
+
+  const epLabel = String(episode.episode_number).padStart(2, '0');
+  const zipPath = path.resolve(process.cwd(), 'outputs', `production-pack-${epLabel}.zip`);
+  const result = await exportEpisodeProductionPack(db, project.id, episode.id, zipPath);
+  res.download(result.zipPath, path.basename(result.zipPath));
 }));
 
 // ============ 分镜 ============

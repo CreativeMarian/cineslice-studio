@@ -3,7 +3,7 @@ import type { Database } from '../../../types';
 import { NovelEpisodeDAO, ScriptCharacterDAO, CharacterOutfitDAO } from '../../../models';
 import { aiProxy } from '../../aiProxy';
 import { buildCharacterExtractPrompt } from '../../prompts/characterExtract';
-import { buildCharacterConceptPrompt } from '../../prompts/keyframe';
+import { buildCharacterConceptPrompt, buildCharacterFourViewPrompt, CHARACTER_CONCEPT_NEGATIVE } from '../../prompts/keyframe';
 import { parseAiJsonOrThrow } from '../../../utils/aiJsonParser';
 import type { AutoPipelineTask } from '../types';
 import { getFirstModel, getOrCreateScriptAnalysis, getProjectStyleDescription, withRetry } from '../helpers';
@@ -46,6 +46,10 @@ export async function stageCharacters(db: Database, task: AutoPipelineTask): Pro
     name: c.name || '未知角色',
     gender: c.gender || 'other',
     role_type: c.roleType || c.role_type || 'supporting',
+    // shuohao 角色三件套：画像 / 形象提示词 / 音色提示词（DAO 同时回填旧字段 description / visual_description，兼容既有消费方）
+    character_profile: c.character_profile || c.characterProfile || '',
+    visual_prompt: c.visual_prompt || c.visualPrompt || '',
+    voice_prompt: c.voice_prompt || c.voicePrompt || '',
     description: c.description || '',
     visual_description: c.visualDescription || c.visual_description || '',
   })));
@@ -63,6 +67,7 @@ export async function stageCharacters(db: Database, task: AutoPipelineTask): Pro
     const styleDescription = getProjectStyleDescription(db, task.projectId);
 
     let characterImagesGenerated = 0;
+    let characterFourViewsGenerated = 0;
     for (const character of created) {
       try {
         // 从剧本分析中找到匹配的角色信息（补充性格/视觉特征）
@@ -74,12 +79,14 @@ export async function stageCharacters(db: Database, task: AutoPipelineTask): Pro
         }
 
         // 极简角色概念图提示词（buildCharacterConceptPrompt：风格 + 角色名/外貌 + 纯白背景全身）
-        const visualDesc = [character.visual_description || character.description || '', charAnalysis?.personality || '', charAnalysis?.visualTraits || '']
-          .filter(Boolean).join('，');
+        // shuohao 标准：visual_prompt（形象提示词）优先，空时降级旧字段（visual_description / description）+ 剧本分析兜底
+        const visualDesc = character.visual_prompt
+          || [character.visual_description || character.description || '', charAnalysis?.personality || '', charAnalysis?.visualTraits || '']
+            .filter(Boolean).join('，');
         const characterPrompt = buildCharacterConceptPrompt(character.name, visualDesc || '无描述', styleDescription || undefined);
 
-        // 负面提示词
-        const charNegativePrompt = '低质量，模糊，变形，多余手指，丑陋，水印，文字，卡通，动漫，3d渲染感，塑料皮肤，蜡像质感，恐怖谷，过度光滑，AI伪影，CG感，不自然对称，背景杂乱，多人，侧脸，背影';
+        // 负面提示词（shuohao character-refs 标准，替换原硬编码）
+        const charNegativePrompt = CHARACTER_CONCEPT_NEGATIVE;
 
         const imgResult = await aiProxy.generateImage({
           db, userId: task.userId, projectId: task.projectId,
@@ -90,11 +97,60 @@ export async function stageCharacters(db: Database, task: AutoPipelineTask): Pro
         });
 
         if (imgResult.images.length > 0 && imgResult.images[0].url) {
+          const conceptUrl = imgResult.images[0].url;
+          // 概念图 URL 同时写入 concept_images（JSON 数组，collectShotReferenceImages 优先读取）与 reference_image_url（旧字段保留，兼容历史消费方）
+          const conceptImages = JSON.stringify([{
+            url: conceptUrl,
+            model: imageModel.modelName,
+            prompt: characterPrompt,
+          }]);
           ScriptCharacterDAO.update(db, character.id, {
-            reference_image_url: imgResult.images[0].url,
+            reference_image_url: conceptUrl,
+            concept_images: conceptImages,
+            selected_image_index: 0,
           });
           characterImagesGenerated++;
           console.log(`[AutoPipeline] 角色概念图生成成功: ${character.name}`);
+
+          // ── P0 角色四视图：以概念锚点图为参考图生成 大头照/正面/侧面/背面 ──
+          // 四视图强化角色一致性（collectShotReferenceImages 已支持 four_view_images 参考注入）
+          // 图像模型不支持参考图时逐张降级跳过，不影响概念图主流程
+          let fourViewsGenerated = 0;
+          try {
+            const viewTypes = ['closeup', 'front', 'side', 'back'] as const;
+            const fourViewImages: Array<{ url: string; model: string; prompt: string; view_type: string }> = [];
+            for (const viewType of viewTypes) {
+              try {
+                const fourViewPrompt = buildCharacterFourViewPrompt(character.name, visualDesc || '无描述', viewType, styleDescription || undefined);
+                const fvResult = await aiProxy.generateImage({
+                  db, userId: task.userId, projectId: task.projectId,
+                  provider: imageModel.provider, modelName: imageModel.modelName,
+                  prompt: fourViewPrompt, negativePrompt: charNegativePrompt,
+                  count: 1, size: '1440x2560',
+                  referenceImages: [conceptUrl], // 锚点图作为参考，保证服装/发型/发色/面容一致
+                  saveSubDir: 'character_refs',
+                });
+                if (fvResult.images.length > 0 && fvResult.images[0].url) {
+                  fourViewImages.push({ url: fvResult.images[0].url, model: imageModel.modelName, prompt: fourViewPrompt, view_type: viewType });
+                }
+              } catch (fvErr: any) {
+                // 单视图失败不影响其他视图（如模型不支持参考图，逐张跳过）
+                console.warn(`[AutoPipeline] 角色四视图 ${viewType} 生成失败 for ${character.name}:`, fvErr.message);
+              }
+            }
+            if (fourViewImages.length > 0) {
+              ScriptCharacterDAO.update(db, character.id, { four_view_images: JSON.stringify(fourViewImages) });
+              fourViewsGenerated = fourViewImages.length;
+              console.log(`[AutoPipeline] 角色四视图生成成功: ${character.name}（${fourViewImages.length}张）`);
+            }
+          } catch (fourErr: any) {
+            // 图像模型不支持参考图或整体失败 → 跳过四视图
+            console.warn(`[AutoPipeline] 角色四视图生成失败 for ${character.name}:`, fourErr.message);
+          }
+
+          if (fourViewsGenerated > 0) {
+            characterFourViewsGenerated++;
+          }
         }
       } catch (err: any) {
         console.error(`[AutoPipeline] 角色概念图生成失败 for character=${character.name}:`, err.message);
@@ -104,6 +160,9 @@ export async function stageCharacters(db: Database, task: AutoPipelineTask): Pro
 
     if (characterImagesGenerated > 0) {
       task.stageProgress['characters'] = `提取 ${created.length} 个角色，生成 ${characterImagesGenerated} 张角色概念图`;
+    }
+    if (characterFourViewsGenerated > 0) {
+      task.stageProgress['characters'] = `${task.stageProgress['characters'] || `提取 ${created.length} 个角色`}，生成 ${characterFourViewsGenerated} 组角色四视图`;
     }
 
     // P0 造型调度：AI 分析每个角色在剧本中的服装变化，自动创建多套造型

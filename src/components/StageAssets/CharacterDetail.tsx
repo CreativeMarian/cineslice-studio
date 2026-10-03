@@ -3,7 +3,6 @@ import {
   User,
   Sparkles,
   Image as ImageIcon,
-  Download,
   LayoutGrid,
   Edit3,
   Trash2,
@@ -205,6 +204,32 @@ export function CharacterDetail({ character, onClose, onUpdate, onDelete }: Char
     }
   };
 
+  // 删除角色四视图（后端接口未实现时降级提示，与导出投产包按钮同一预留模式）
+  const handleDeleteFourView = async () => {
+    if (!character?.id) return;
+    try {
+      const res = await characterService.deleteFourView(character.id);
+      if (res.success) {
+        // 刷新角色数据
+        const updated = await characterService.list(character.episode_id);
+        if (updated.success && updated.data) {
+          const fresh = updated.data.find(c => c.id === character.id);
+          if (fresh) {
+            onUpdate(fresh);
+          }
+        }
+        showToast('四视图已删除', 'success');
+      }
+    } catch (err: any) {
+      const status = err?.response?.status;
+      if (status === 404 || status === 501) {
+        showToast('四视图删除功能开发中', 'info');
+      } else {
+        showToast(err?.response?.data?.message || '删除四视图失败', 'error');
+      }
+    }
+  };
+
   return (
     <>
       <Modal
@@ -243,13 +268,6 @@ export function CharacterDetail({ character, onClose, onUpdate, onDelete }: Char
               ) : (
                 <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-[var(--panel-2)] to-[var(--panel-3)]">
                   <User className="w-20 h-20 text-[var(--ink-3)]" />
-                </div>
-              )}
-              {(character.concept_images ?? [])[selectedImageIndex]?.url && (
-                <div className="absolute top-3 right-3 flex gap-2">
-                  <button className="w-8 h-8 rounded-lg bg-black/50 backdrop-blur-sm flex items-center justify-center text-white hover:bg-black/70 transition-colors">
-                    <Download className="w-4 h-4" />
-                  </button>
                 </div>
               )}
             </div>
@@ -303,15 +321,29 @@ export function CharacterDetail({ character, onClose, onUpdate, onDelete }: Char
                 <p className="text-xs font-medium text-[var(--ink-2)] flex items-center gap-1">
                   <LayoutGrid className="w-3 h-3" /> 角色四视图（面部特写+三视图）
                 </p>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  leftIcon={<Sparkles className="w-3 h-3" />}
-                  onClick={() => setFourViewConfigOpen(true)}
-                  isLoading={isGeneratingFourView}
-                >
-                  生成四视图
-                </Button>
+                <div className="flex items-center gap-2">
+                  {(character.four_view_images ?? []).length > 0 && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="text-[var(--color-danger)] border-[var(--color-danger)]/30 hover:bg-[var(--color-danger)]/10"
+                      leftIcon={<Trash2 className="w-3 h-3" />}
+                      onClick={handleDeleteFourView}
+                      disabled={isGeneratingFourView}
+                    >
+                      删除四视图
+                    </Button>
+                  )}
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    leftIcon={<Sparkles className="w-3 h-3" />}
+                    onClick={() => setFourViewConfigOpen(true)}
+                    isLoading={isGeneratingFourView}
+                  >
+                    生成四视图
+                  </Button>
+                </div>
               </div>
               {(character.four_view_images ?? []).length > 0 ? (
                 <div className="aspect-video rounded-lg overflow-hidden border border-[var(--border)] bg-[var(--panel-2)]">

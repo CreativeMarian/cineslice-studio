@@ -1,7 +1,7 @@
 // 阶段6：分镜生成
 // v2.0 - 场景关联（scene_id 落库）+ 角色资产上下文注入 + 修复 shot_type 列不存在 bug + 道具落库
 import type { Database } from '../../../types';
-import { NovelEpisodeDAO, ShotDAO, ScriptCharacterDAO, ProjectDAO } from '../../../models';
+import { NovelEpisodeDAO, ShotDAO, ScriptCharacterDAO, ScriptSceneDAO, ScriptPropDAO, ProjectDAO } from '../../../models';
 import { aiProxy } from '../../aiProxy';
 import { buildShotGenerationPrompt } from '../../prompts/shotGeneration';
 import { parseShotListArray } from '../../../utils/aiJsonParser';
@@ -102,13 +102,25 @@ export async function stageShots(db: Database, task: AutoPipelineTask): Promise<
   // 已有角色资产（定妆信息）→ 注入分镜 prompt，保证分镜描述贴合定妆角色
   const existingCharacters = ScriptCharacterDAO.listByEpisode(db, first.id)
     .filter(c => c.name)
-    .map(c => ({ name: c.name, appearance: c.visual_description || c.description || c.name }));
+    .map(c => ({ name: c.name, appearance: c.visual_prompt || c.visual_description || c.description || c.name }));
 
-  // 极简分镜提示词：场景内容 + 出场角色
+  // 场景表（visual_prompt 优先）→ 注入分镜 prompt，分镜只做输出、不引入新场景
+  const existingScenes = ScriptSceneDAO.listByEpisode(db, first.id);
+  const scenesStr = existingScenes.length > 0
+    ? existingScenes.map(s => `${s.name}: ${s.visual_prompt || s.description || s.location || ''}`).join('\n')
+    : '未提供场景表';
+
+  // 道具表（visual_prompt + keywords）→ 注入分镜 prompt，用于 props_in_shot 匹配
+  const existingProps = ScriptPropDAO.listByEpisode(db, first.id);
+  const propsStr = existingProps.length > 0
+    ? existingProps.map(p => `${p.name}: ${p.visual_prompt || p.description || ''}（关键词：${p.keywords || '无'}）`).join('\n')
+    : '未提供道具表';
+
+  // 极简分镜提示词：场景内容 + 出场角色 + 场景表 + 道具表
   const charactersStr = existingCharacters.length > 0
     ? existingCharacters.map(c => `${c.name}: ${c.appearance}`).join('\n')
     : '未指定';
-  const prompt = buildShotGenerationPrompt(first.script_content, charactersStr);
+  const prompt = buildShotGenerationPrompt(first.script_content, charactersStr, scenesStr, propsStr);
 
   // 极简系统：不注入模型专属 Skill 规范，仅保留阶段通用规则
   const finalSystemPrompt = applyStageRules('', 'shots')
@@ -188,6 +200,7 @@ export async function stageShots(db: Database, task: AutoPipelineTask): Promise<
       character_outfits: s.characterOutfits ? JSON.stringify(s.characterOutfits) : null,
       phase: s.phase ?? null,
       phase_name: s.phaseName || null,
+      segment_id: s.segmentId ?? null,
     })));
   })();
 
@@ -255,6 +268,14 @@ const _PHASE_MAP: Record<string, number> = { '一': 1, '1': 1, '开场引入': 1
 function normalizeShotValueSafe(shot: any): any {
   if (!shot || typeof shot !== 'object') return shot;
   const out = { ...shot };
+  // shuohao 新输出字段归一化（snake_case → camelCase）：scene_name / props_in_shot / segment_id
+  if (out.scene_name && out.sceneName === undefined) out.sceneName = out.scene_name;
+  if (out.props_in_shot && out.propsInShot === undefined) out.propsInShot = out.props_in_shot;
+  if (out.segment_id !== undefined && out.segmentId === undefined) out.segmentId = out.segment_id;
+  if (out.segmentId !== undefined && out.segmentId !== null && typeof out.segmentId !== 'number') {
+    const n = Number(String(out.segmentId).replace(/[^\d.]/g, ''));
+    out.segmentId = Number.isFinite(n) ? n : null;
+  }
   if (out.shotSize && _SHOT_SIZE_MAP[String(out.shotSize).trim()]) out.shotSize = _SHOT_SIZE_MAP[String(out.shotSize).trim()];
   if (out.cameraMovement && _CAMERA_MAP[String(out.cameraMovement).trim()]) out.cameraMovement = _CAMERA_MAP[String(out.cameraMovement).trim()];
   if (out.pace && _PACE_MAP[String(out.pace).trim()]) out.pace = _PACE_MAP[String(out.pace).trim()];
@@ -359,6 +380,7 @@ async function fixLongDialogueShots(db: Database, task: AutoPipelineTask, episod
             character_outfits: shot.character_outfits ?? undefined,
             phase: shot.phase ?? null,
             phase_name: shot.phase_name || null,
+            segment_id: (shot as any).segment_id ?? undefined,
           });
           n++;
         }

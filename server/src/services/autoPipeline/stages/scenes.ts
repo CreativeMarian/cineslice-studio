@@ -3,7 +3,8 @@ import type { Database } from '../../../types';
 import { NovelEpisodeDAO, ScriptSceneDAO, ScriptPropDAO } from '../../../models';
 import { aiProxy } from '../../aiProxy';
 import { buildSceneExtractPrompt } from '../../prompts/sceneExtract';
-import { buildSceneConceptPrompt, buildKeyframePrompt } from '../../prompts/keyframe';
+import { buildPropExtractPrompt } from '../../prompts/propExtract';
+import { buildSceneConceptPrompt, buildPropConceptPrompt, SCENE_CONCEPT_NEGATIVE, PROP_CONCEPT_NEGATIVE } from '../../prompts/keyframe';
 import { parseAiJsonOrThrow } from '../../../utils/aiJsonParser';
 import type { AutoPipelineTask } from '../types';
 import { getFirstModel, getOrCreateScriptAnalysis, getProjectStyleDescription, withRetry } from '../helpers';
@@ -47,6 +48,11 @@ export async function stageScenes(db: Database, task: AutoPipelineTask): Promise
     location: s.location || '',
     time_of_day: s.timeOfDay || s.time_of_day || 'day',
     atmosphere: s.atmosphere || '',
+    // shuohao 场景美术字段：视觉提示词 / 一致性锚点 / 光照变体 / 尺度参照（DAO 同时回填旧字段 description，兼容既有消费方）
+    visual_prompt: s.visual_prompt || s.visualPrompt || '',
+    consistency_anchor: s.consistency_anchor || s.consistencyAnchor || '',
+    lighting_variants: s.lighting_variants || s.lightingVariants || '',
+    scale_reference: s.scale_reference || s.scaleReference || '',
     description: s.description || '',
   })));
 
@@ -73,16 +79,18 @@ export async function stageScenes(db: Database, task: AutoPipelineTask): Promise
         }
 
         // 极简场景概念图提示词（buildSceneConceptPrompt：风格 + 场景名/环境描述 + 高清光影）
+        // shuohao 标准：visual_prompt（场景形象提示词）优先，空时降级旧字段（description / location）+ 剧本分析兜底
         const atmosphere = sceneAnalysis?.atmosphere?.join(', ') || scene.atmosphere || '';
         const lighting = sceneAnalysis?.lighting || '';
         const keyProps = sceneAnalysis?.keyProps?.join(', ') || '';
         const emotionalTone = sceneAnalysis?.emotionalTone || '';
-        const sceneDesc = [scene.description || scene.location || '', atmosphere, lighting, keyProps, emotionalTone, `时段：${scene.time_of_day || 'day'}`]
-          .filter(Boolean).join('，');
+        const sceneDesc = scene.visual_prompt
+          || [scene.description || scene.location || '', atmosphere, lighting, keyProps, emotionalTone, `时段：${scene.time_of_day || 'day'}`]
+            .filter(Boolean).join('，');
         const scenePrompt = buildSceneConceptPrompt(scene.name, sceneDesc || '无描述', styleDescription || undefined);
 
-        // 负面提示词
-        const sceneNegativePrompt = '低质量，模糊，变形，丑陋，水印，文字，卡通，动漫，3d渲染感，塑料质感，过度光滑，AI伪影，CG感，人物，角色，人脸，不自然对称，透视错误，光照不一致，阴影错误';
+        // 负面提示词（shuohao novel-art 标准，替换原硬编码）
+        const sceneNegativePrompt = SCENE_CONCEPT_NEGATIVE;
 
         const imgResult = await aiProxy.generateImage({
           db, userId: task.userId, projectId: task.projectId,
@@ -114,72 +122,99 @@ export async function stageScenes(db: Database, task: AutoPipelineTask): Promise
       task.stageProgress['scenes'] = `提取 ${created.length} 个场景，生成 ${sceneImagesGenerated} 张场景参考图`;
     }
 
-    // 物品/道具资产：从剧本分析中提取关键道具并生成概念图
-    // 道具概念图可用于关键帧生成的参考，保证物品一致性
-    if (scriptAnalysis?.sceneAnalysis && imageModel) {
-      // 从所有场景中提取关键道具并去重
+    // ═══════════════════════════════════════════════════════════
+    // 道具提取（shuohao novel-art）：叙事道具 → script_props
+    // 只提取"叙事道具"（推动剧情/揭示人物/承载伏笔），带 visual_prompt / is_narrative=1 / keywords
+    // ═══════════════════════════════════════════════════════════
+    let extractedProps: any[] = [];
+    const existingProps = ScriptPropDAO.listByEpisode(db, first.id);
+    if (existingProps.length === 0) {
+      try {
+        const propPrompt = buildPropExtractPrompt(first.script_content);
+        const propResult = await withRetry(
+          () => aiProxy.generateText({
+            db, userId: task.userId, provider: model.provider, modelName: model.modelName,
+            prompt: propPrompt, systemPrompt: applyStageRules('', 'scenes'), responseFormat: 'json', maxTokens: 4096,
+          }),
+          { maxAttempts: 3, label: '道具提取AI调用' }
+        );
+        const propData = parseAiJsonOrThrow<any[]>(propResult.content);
+        const propList = Array.isArray(propData) ? propData : [propData];
+        for (const p of propList) {
+          if (!p || !p.name) continue;
+          ScriptPropDAO.create(db, {
+            user_id: task.userId,
+            episode_id: first.id,
+            name: String(p.name).trim(),
+            category: p.category || 'other',
+            description: p.description || '',
+            visual_prompt: p.visual_prompt || '',
+            is_narrative: p.is_narrative === undefined ? 1 : (Number(p.is_narrative) || 0),
+            keywords: p.keywords || '',
+          });
+        }
+        extractedProps = ScriptPropDAO.listByEpisode(db, first.id);
+        console.log(`[AutoPipeline] 叙事道具提取完成: ${extractedProps.length} 个`);
+      } catch (propErr: any) {
+        console.error('[AutoPipeline] 叙事道具提取失败:', propErr.message);
+      }
+    } else {
+      extractedProps = existingProps;
+    }
+
+    // 道具提取为空/失败 → 回退剧本分析 keyProps（旧行为兜底，仅补名称，概念图由下方统一生成）
+    if (extractedProps.length === 0 && scriptAnalysis?.sceneAnalysis) {
       const allProps = new Set<string>();
       for (const s of scriptAnalysis.sceneAnalysis) {
-        if (s.keyProps && Array.isArray(s.keyProps)) {
-          s.keyProps.forEach(p => allProps.add(p));
+        if (s.keyProps && Array.isArray(s.keyProps)) s.keyProps.forEach(p => allProps.add(p));
+      }
+      for (const propName of Array.from(allProps).slice(0, 10)) {  // 最多10个
+        ScriptPropDAO.create(db, {
+          user_id: task.userId,
+          episode_id: first.id,
+          name: propName,
+          description: 'AI 自动提取的关键道具（回退）',
+          is_narrative: 1,
+          keywords: '',
+        });
+      }
+      extractedProps = ScriptPropDAO.listByEpisode(db, first.id);
+      if (extractedProps.length > 0) {
+        console.log(`[AutoPipeline] 道具回退提取完成（剧本分析 keyProps）: ${extractedProps.length} 个`);
+      }
+    }
+
+    // 道具概念图（buildPropConceptPrompt + PROP_CONCEPT_NEGATIVE）：每个无概念图的叙事道具生成一张
+    if (extractedProps.length > 0) {
+      let propImagesGenerated = 0;
+      for (const prop of extractedProps) {
+        if (prop.concept_images && prop.concept_images.length > 0) continue; // 幂等：已有概念图跳过
+        try {
+          const propPrompt = buildPropConceptPrompt(prop.name, prop.visual_prompt || prop.description || '无描述', styleDescription || undefined);
+          const imgResult = await aiProxy.generateImage({
+            db, userId: task.userId, projectId: task.projectId,
+            provider: imageModel.provider, modelName: imageModel.modelName,
+            prompt: propPrompt, negativePrompt: PROP_CONCEPT_NEGATIVE,
+            count: 1, size: '2048x2048',  // 方形适合物品展示，满足豆包最低3686400像素要求
+            saveSubDir: 'prop_refs',
+          });
+
+          if (imgResult.images.length > 0 && imgResult.images[0].url) {
+            ScriptPropDAO.update(db, prop.id, {
+              concept_images: JSON.stringify([{ url: imgResult.images[0].url, model: imageModel.modelName, prompt: propPrompt }]),
+            });
+            propImagesGenerated++;
+            console.log(`[AutoPipeline] 道具概念图生成成功: ${prop.name}`);
+          }
+        } catch (err: any) {
+          console.error(`[AutoPipeline] 道具概念图生成失败 for prop=${prop.name}:`, err.message);
+          // 单道具概念图失败不影响整体流程
         }
       }
 
-      if (allProps.size > 0) {
-        const propsList = Array.from(allProps).slice(0, 10);  // 最多生成10个道具
-        let propImagesGenerated = 0;
-        const propAssets: Array<{ name: string; url: string }> = [];
-
-        for (const propName of propsList) {
-          try {
-            // 极简道具概念图提示词（buildKeyframePrompt：风格 + 主体描述）
-            const propPrompt = buildKeyframePrompt(`物品道具概念图：${propName}，产品摄影，中性背景，均匀光照，清晰展示物品全貌和细节`, styleDescription || undefined);
-
-            const propNegativePrompt = '低质量，模糊，变形，丑陋，水印，文字，卡通，动漫，3d渲染感，塑料质感，过度光滑，AI伪影，CG感，人物，角色，人脸，手，背景杂乱，多物品';
-
-            const imgResult = await aiProxy.generateImage({
-              db, userId: task.userId, projectId: task.projectId,
-              provider: imageModel.provider, modelName: imageModel.modelName,
-              prompt: propPrompt, negativePrompt: propNegativePrompt,
-              count: 1, size: '2048x2048',  // 方形适合物品展示，满足豆包最低3686400像素要求
-              saveSubDir: 'prop_refs',
-            });
-
-            if (imgResult.images.length > 0 && imgResult.images[0].url) {
-              propAssets.push({ name: propName, url: imgResult.images[0].url });
-              propImagesGenerated++;
-              console.log(`[AutoPipeline] 道具概念图生成成功: ${propName}`);
-            }
-          } catch (err: any) {
-            console.error(`[AutoPipeline] 道具概念图生成失败 for prop=${propName}:`, err.message);
-            // 单道具概念图失败不影响整体流程
-          }
-        }
-
-        if (propImagesGenerated > 0) {
-          // 将道具资产存入 script_props 表（关键帧生成时 collectShotReferenceImages 从这里取道具参考图）
-          try {
-            for (const pa of propAssets) {
-              // 避免重复创建同名道具
-              const existing = ScriptPropDAO.listByEpisode(db, first.id).find(p => p.name === pa.name);
-              if (!existing) {
-                ScriptPropDAO.create(db, {
-                  user_id: task.userId,
-                  episode_id: first.id,
-                  name: pa.name,
-                  description: 'AI 自动提取的关键道具',
-                  concept_images: JSON.stringify([{ url: pa.url, model: imageModel.modelName, prompt: '' }]),
-                });
-              }
-            }
-            console.log(`[AutoPipeline] 道具资产已存入 script_props 表: ${propAssets.length} 个`);
-          } catch (propErr) {
-            console.error('[AutoPipeline] 保存道具资产到 script_props 失败:', (propErr as Error).message);
-          }
-
-          const prevProgress = task.stageProgress['scenes'] || `提取 ${created.length} 个场景`;
-          task.stageProgress['scenes'] = `${prevProgress}，生成 ${propImagesGenerated} 张道具概念图`;
-        }
+      if (extractedProps.length > 0) {
+        const prevProgress = task.stageProgress['scenes'] || `提取 ${created.length} 个场景`;
+        task.stageProgress['scenes'] = `${prevProgress}，提取 ${extractedProps.length} 个叙事道具${propImagesGenerated > 0 ? `，生成 ${propImagesGenerated} 张道具概念图` : ''}`;
       }
     }
   }

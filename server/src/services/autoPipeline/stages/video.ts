@@ -29,6 +29,13 @@ import { parseCharactersInShot } from '../../../models/shot';
 import { projectMemoryService } from '../../projectMemoryService';
 import { visualMemoryService } from '../../visualMemoryService';
 
+/** 镜头运动英文枚举 → 中文标签（buildVideoPrompt 的 cameraMovement 段，生成自然中文提示词） */
+const CAMERA_MOVEMENT_LABEL: Record<string, string> = {
+  static: '固定', push_in: '缓慢推近', pull_out: '缓慢拉远', pan: '水平摇移', tilt: '垂直摇移',
+  truck: '横向移动', crane: '升降运镜', handheld: '手持跟拍', zoom: '变焦', dolly: '推拉运镜',
+  steadicam: '稳定器跟拍', long: '固定', full: '固定',
+};
+
 
 export async function stageVideo(db: Database, task: AutoPipelineTask): Promise<void> {
   const episodes = NovelEpisodeDAO.listByProject(db, task.projectId);
@@ -167,6 +174,9 @@ export async function stageVideo(db: Database, task: AutoPipelineTask): Promise<
       const promptInput: VideoPromptInput = {
         styleDescription: styleDescription || undefined,
         action: shot.action_description || '',
+        // shuohao novel-storyboard：注入镜头情绪基调与运镜（英文枚举转中文标签），总字数由 buildVideoPrompt 严格控制在300字内
+        mood: shot.mood || undefined,
+        cameraMovement: shot.camera_movement ? (CAMERA_MOVEMENT_LABEL[shot.camera_movement] || shot.camera_movement) : undefined,
       };
       // 镜头角色定妆信息（buildVideoPrompt 的 characters 段）
       try {
@@ -178,8 +188,8 @@ export async function stageVideo(db: Database, task: AutoPipelineTask): Promise<
             const epChars = ScriptCharacterDAO.listByEpisode(db, shot.episode_id);
             c = epChars.find((x: any) => x.name === ref) || null;
           }
-          if (c && (c.visual_description || c.description)) {
-            characters.push({ name: c.name, appearance: (c.visual_description || c.description || '').slice(0, 120) });
+          if (c && (c.visual_prompt || c.visual_description || c.description)) {
+            characters.push({ name: c.name, appearance: (c.visual_prompt || c.visual_description || c.description || '').slice(0, 120) });
           }
         }
         if (characters.length > 0) promptInput.characters = characters;
@@ -191,7 +201,7 @@ export async function stageVideo(db: Database, task: AutoPipelineTask): Promise<
         if (shot.scene_id) {
           const sc = ScriptSceneDAO.getById(db, shot.scene_id);
           if (sc) {
-            promptInput.scene = { name: sc.name, environment: (sc.description || sc.atmosphere || '').slice(0, 150) };
+            promptInput.scene = { name: sc.name, environment: (sc.visual_prompt || sc.description || sc.atmosphere || '').slice(0, 150) };
           }
         }
       } catch (sceneErr) {

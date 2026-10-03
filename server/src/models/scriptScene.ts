@@ -16,16 +16,16 @@ function parseScene(row: any): ScriptScene {
 }
 
 export const ScriptSceneDAO = {
-  create(db: Database, data: { user_id: string; episode_id: string; name: string; location?: string; time_of_day?: string; atmosphere?: string; description?: string }): ScriptScene {
+  create(db: Database, data: { user_id: string; episode_id: string; name: string; location?: string; time_of_day?: string; atmosphere?: string; description?: string; visual_prompt?: string; lighting_variants?: string; scale_reference?: string; consistency_anchor?: string }): ScriptScene {
     const id = generateId('scene');
     db.prepare(`
-      INSERT INTO script_scenes (id, user_id, episode_id, name, location, time_of_day, atmosphere, description, selected_image_index, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)
-    `).run(id, data.user_id, data.episode_id, data.name, data.location || '', data.time_of_day || 'day', data.atmosphere || '', data.description || '', now(), now());
+      INSERT INTO script_scenes (id, user_id, episode_id, name, location, time_of_day, atmosphere, description, visual_prompt, lighting_variants, scale_reference, consistency_anchor, selected_image_index, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)
+    `).run(id, data.user_id, data.episode_id, data.name, data.location || '', data.time_of_day || 'day', data.atmosphere || '', data.description || '', data.visual_prompt || null, data.lighting_variants || null, data.scale_reference || null, data.consistency_anchor || null, now(), now());
     return this.getById(db, id)!;
   },
 
-  batchCreate(db: Database, scenes: Array<{ user_id: string; episode_id: string; name: string; location?: string; time_of_day?: string; atmosphere?: string; description?: string }>): ScriptScene[] {
+  batchCreate(db: Database, scenes: Array<{ user_id: string; episode_id: string; name: string; location?: string; time_of_day?: string; atmosphere?: string; description?: string; visual_prompt?: string; lighting_variants?: string; scale_reference?: string; consistency_anchor?: string }>): ScriptScene[] {
     const results: ScriptScene[] = [];
     const transaction = db.transaction(() => {
       for (const s of scenes) {

@@ -40,6 +40,10 @@ export const characterService = {
   deleteImage: (id: string, index: number) =>
     apiClient.delete<unknown, ApiResponse<{ message: string; remaining: number }>>(`/characters/${id}/images/${index}`),
 
+  // 删除角色四视图（接口由后端子任务实现；未实现时返回 404，前端降级提示）
+  deleteFourView: (id: string) =>
+    apiClient.delete<unknown, ApiResponse<{ message: string }>>(`/characters/${id}/four-view-images`, { silent: true }),
+
   delete: (id: string) =>
     apiClient.delete<unknown, ApiResponse<void>>(`/characters/${id}`),
 };

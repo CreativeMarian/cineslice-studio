@@ -264,6 +264,16 @@ router.post('/characters/:id/generate-four-view', validateBody(generateImageSche
   res.json({ success: true, data: updatedCharacter });
 }));
 
+// 删除角色四视图（清空 four_view_images 字段）
+router.delete('/characters/:id/four-view-images', asyncHandler(async (req: Request, res: Response) => {
+  const db = getDb(req);
+  const character = ScriptCharacterDAO.getByIdAndUser(db, req.params.id, req.user.id);
+  if (!character) throw createError(404, 'NOT_FOUND', '角色不存在');
+
+  const updatedCharacter = ScriptCharacterDAO.update(db, character.id, { four_view_images: JSON.stringify([]) });
+  res.json({ success: true, data: updatedCharacter });
+}));
+
 // P1-4: 生成角色九宫格表情图
 router.post('/characters/:id/generate-expressions', validateBody(generateImageSchema), asyncHandler(async (req: Request, res: Response) => {
   const db = getDb(req);

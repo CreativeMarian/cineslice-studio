@@ -1,6 +1,6 @@
 // 批量生成工具栏：模型选择 + 一键批量生成首帧/视频 + 批量删除（自含批量逻辑与进度状态）
 import { useEffect, useState } from 'react';
-import { Video, Image, Zap, Layers, Trash2 } from 'lucide-react';
+import { Video, Image, Zap, Layers, Trash2, Package } from 'lucide-react';
 import { Card, Button, Modal } from '../ui';
 import { useProjectStore } from '../../stores/useProjectStore';
 import { useModelStore } from '../../stores/useModelStore';
@@ -69,6 +69,9 @@ export function BatchToolbar() {
   const [isBatchDeleting, setIsBatchDeleting] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
+  // 导出投产包（接口由另一子任务实现；未实现时降级提示）
+  const [isExporting, setIsExporting] = useState(false);
+
   const handleBatchDelete = async () => {
     if (!currentEpisodeId) return;
     setShowDeleteConfirm(false);
@@ -93,6 +96,25 @@ export function BatchToolbar() {
       loadShots(currentEpisodeId);
     } finally {
       setIsBatchDeleting(false);
+    }
+  };
+
+  // 导出投产包：GET 接口直接返回 ZIP 文件下载
+  const handleExportPackage = () => {
+    if (!currentProject?.id || !currentEpisodeId) {
+      showToast('请先选择项目与剧集', 'warning');
+      return;
+    }
+    setIsExporting(true);
+    try {
+      const BASE_URL = (import.meta.env.VITE_API_BASE_URL || '/api').replace(/\/$/, '');
+      const exportUrl = `${BASE_URL}/projects/${currentProject.id}/episodes/${currentEpisodeId}/export`;
+      window.open(exportUrl, '_blank');
+      showToast('正在生成投产包，浏览器将自动下载', 'success');
+    } catch {
+      showToast('导出失败', 'error');
+    } finally {
+      setTimeout(() => setIsExporting(false), 2000);
     }
   };
 
@@ -271,6 +293,16 @@ export function BatchToolbar() {
             disabled={isBatchGeneratingKeyframes || isBatchGeneratingVideos || shots.length === 0}
           >
             批量删除
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            leftIcon={<Package className="w-4 h-4" />}
+            onClick={handleExportPackage}
+            isLoading={isExporting}
+            disabled={isBatchGeneratingKeyframes || isBatchGeneratingVideos}
+          >
+            导出投产包
           </Button>
         </div>
       </div>
