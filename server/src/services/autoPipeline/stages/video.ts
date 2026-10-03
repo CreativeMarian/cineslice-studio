@@ -209,7 +209,11 @@ export async function stageVideo(db: Database, task: AutoPipelineTask): Promise<
       // AI 深度优化（让 AI 关联剧本上下文，深度分析后生成优化提示词）
       // 这是核心优化：不是模板化，而是真正的 AI 理解和分析
       // ═══════════════════════════════════════════════════════════
-      let finalPrompt = directorResult.prompt;
+      // 【全局风格锚点】放在最开头，确保所有镜头统一风格
+      const globalStyleAnchor = stylePreset.visualStyle
+        ? `【全局风格】${stylePreset.visualStyle}。`
+        : '【全局风格】真人短剧，电影级画质，统一暖色调，浅景深，cinematic lighting，高细节，真实人物皮肤质感。';
+      let finalPrompt = globalStyleAnchor + directorResult.prompt;
       let finalNegativePrompt = directorResult.negativePrompt;
 
       try {
@@ -243,12 +247,12 @@ export async function stageVideo(db: Database, task: AutoPipelineTask): Promise<
       }
 
       // 注入项目风格预设（统一画风：关键帧/单镜/批量/自动流水线四路一致）
+      // 注意：全局风格锚点已在开头注入，此处只补充色调和镜头语言（如果有）
       const styleSuffix = [
-        stylePreset.visualStyle ? `【统一风格】${stylePreset.visualStyle}` : '',
         stylePreset.colorPalette ? `【色调】${stylePreset.colorPalette}` : '',
         stylePreset.cameraLanguage ? `【镜头语言】${stylePreset.cameraLanguage}` : '',
       ].filter(Boolean).join('\n');
-      if (styleSuffix && !finalPrompt.includes('【统一风格】')) {
+      if (styleSuffix) {
         finalPrompt = finalPrompt + '\n\n' + styleSuffix;
       }
 

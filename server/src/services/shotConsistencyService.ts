@@ -205,12 +205,17 @@ export function collectShotReferenceImages(db: Database, shot: Shot): string[] {
 
     if (img) {
       refs.push(img);
-      if (refs.length >= 2) break;
+      // 角色四视图也加入参考（如果有），增强角色一致性
+      const fourViews = parseConceptImages(char.four_view_images);
+      if (fourViews.length > 0 && refs.length < 4) {
+        refs.push(fourViews[0]);
+      }
+      if (refs.length >= 3) break;
     }
   }
 
   // 2. 场景参考图
-  if (refs.length < 4 && shot.scene_id) {
+  if (refs.length < 6 && shot.scene_id) {
     const scene = ScriptSceneDAO.getById(db, shot.scene_id);
     if (scene) {
       const sceneImgs = parseConceptImages(scene.concept_images);
@@ -223,7 +228,7 @@ export function collectShotReferenceImages(db: Database, shot: Shot): string[] {
 
   // 3. 道具参考图（线索道具优先，保证跨镜视觉连贯）
   // props_in_shot 同样可能存道具 id 或名称
-  if (refs.length < 4) {
+  if (refs.length < 6) {
     const propIds = parseShotPropIds(shot);
     if (propIds.length > 0) {
       const props = ScriptPropDAO.getByIds(db, propIds).filter(Boolean);

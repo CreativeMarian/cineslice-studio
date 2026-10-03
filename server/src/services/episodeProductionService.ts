@@ -42,9 +42,9 @@ import type { PromptSkill } from './promptSkills/types';
 import { episodeEnrichService } from './episodeEnrichService';
 
 const DEFAULT_STYLE_OBJ = {
-  visualStyle: '电影级写实风格，cinematic lighting，高细节，8k分辨率，统一色调',
-  colorPalette: '',
-  cameraLanguage: '',
+  visualStyle: '真人短剧，电影级画质，2.35:1宽画幅，统一暖色调，浅景深，cinematic lighting，高细节，8k分辨率，真实人物皮肤质感，自然光影，统一视觉风格',
+  colorPalette: '暖色调，统一色彩风格',
+  cameraLanguage: '电影级镜头语言，稳定运镜',
 };
 
 /**
@@ -951,25 +951,28 @@ export async function generateVideoForShot(
       }
     }
     // 合并导演提示词和优化提示词，注入角色视觉描述确保人物一致性
-    let finalPrompt = optimized.prompt;
+    // 【全局风格锚点】放在最开头，确保所有镜头统一风格
+    let finalPrompt = `【全局风格】${stylePresetObj.visualStyle}。${optimized.prompt}`;
+
+    // 角色视觉一致性：精简描述，只保留关键特征，避免冗余
     if (Object.keys(characterDetails).length > 0) {
       const charDescText = Object.entries(characterDetails)
-        .map(([name, desc]) => `${name}: ${desc}`)
+        .map(([name, desc]) => `${name}: ${String(desc).slice(0, 80)}`)
         .join('；');
-      finalPrompt += `。【角色视觉一致性】${charDescText}。严格保持角色外观、服装、发型、发色与角色设定一致。画面中只出现以上列出的角色，不得出现名单之外的其他人物，前后镜头角色身份必须一致。画面中只出现以上列出的角色，不得出现名单之外的其他人物`;
+      finalPrompt += `。【角色】${charDescText}。保持角色外观一致。`;
     }
     if (directorPromptResult?.negativePrompt) {
       finalPrompt += `。【避免】${directorPromptResult.negativePrompt}`;
     }
 
-    // 场景锚：注入场景概念图的文字描述（名称+关键环境细节），强化背景一致性
+    // 场景锚：精简描述，只保留关键环境细节
     if (shot.scene_id) {
       try {
         const sc = ScriptSceneDAO.getById(db, shot.scene_id);
         if (sc && sc.description) {
-          const sceneText = (sc.name + '。' + sc.description).replace(/\s+/g, ' ').slice(0, 180);
-          if (!finalPrompt.includes('【场景环境】')) {
-            finalPrompt += '【场景环境】' + sceneText + '。严格保持此场景的布局、家具、灯光与环境细节，前后镜头场景必须一致。';
+          const sceneText = (sc.name + '。' + sc.description).replace(/\s+/g, ' ').slice(0, 120);
+          if (!finalPrompt.includes('【场景】')) {
+            finalPrompt += `【场景】${sceneText}。保持场景一致。`;
           }
         }
       } catch (err) {
