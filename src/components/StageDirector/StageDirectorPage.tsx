@@ -3,7 +3,7 @@
 // 分镜按段分组：优先 segment_id（后端段概念，与导出服务一致），其次 phase（剧情阶段），最后按累计 ≤15 秒兜底
 import { useParams, useNavigate } from 'react-router-dom';
 import { useState, useEffect, useMemo } from 'react';
-import { Clapperboard, Film, ChevronDown, ChevronRight, ArrowRight } from 'lucide-react';
+import { Clapperboard, Film, ChevronDown, ChevronRight, ArrowRight, BookOpen } from 'lucide-react';
 import { Card, EmptyState, Badge } from '../ui';
 import { SectionHeader } from '../common/SectionHeader';
 import { EpisodeSelector } from '../common/EpisodeSelector';
@@ -100,6 +100,7 @@ export function StageDirectorPage() {
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [loadingShots, setLoadingShots] = useState(false);
   const [showExportModal, setShowExportModal] = useState(false);
+  const [showScript, setShowScript] = useState(false);
 
   // 切换/初始化剧集
   useEffect(() => {
@@ -178,6 +179,42 @@ export function StageDirectorPage() {
 
       {/* 批量操作栏：批量生成首帧 / 批量生成视频 / 导出投产包 */}
       <BatchToolbar onExportPackage={() => setShowExportModal(true)} />
+
+      {/* 剧本面板：可折叠，显示当前集完整剧本，方便对照分镜 */}
+      <Card className="mb-4 overflow-hidden">
+        <button
+          type="button"
+          onClick={() => setShowScript(!showScript)}
+          className="w-full flex items-center gap-3 px-5 py-3 hover:bg-[var(--panel-2)]/30 transition-colors"
+        >
+          <BookOpen className="w-4 h-4 text-[var(--accent)] flex-shrink-0" />
+          <span className="text-sm font-medium text-[var(--ink-1)]">剧本原文</span>
+          <span className="text-xs text-[var(--ink-3)]">
+            {currentEpisode?.script_content ? `${currentEpisode.script_content.length} 字` : '无剧本内容'}
+          </span>
+          <span className="ml-auto text-xs text-[var(--ink-3)]">
+            {showScript ? '收起' : '展开'}
+          </span>
+          {showScript ? (
+            <ChevronDown className="w-4 h-4 text-[var(--ink-3)] flex-shrink-0" />
+          ) : (
+            <ChevronRight className="w-4 h-4 text-[var(--ink-3)] flex-shrink-0" />
+          )}
+        </button>
+        {showScript && (
+          <div className="px-5 pb-4">
+            {currentEpisode?.script_content ? (
+              <div className="max-h-96 overflow-y-auto bg-[var(--panel-2)]/50 rounded-lg p-4 text-sm text-[var(--ink-2)] leading-relaxed whitespace-pre-wrap">
+                {currentEpisode.script_content}
+              </div>
+            ) : (
+              <p className="text-sm text-[var(--ink-3)] py-4 text-center">
+                当前剧集暂无剧本内容，请先在「剧本」页生成剧本。
+              </p>
+            )}
+          </div>
+        )}
+      </Card>
 
       {/* 段列表 */}
       <div className="space-y-4">
