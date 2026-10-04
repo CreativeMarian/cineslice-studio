@@ -135,48 +135,177 @@ export function buildWardrobeBlock(character: ScriptCharacter, sceneId?: string)
   return `【服装】${outfit.name}：${outfit.description || ''}${color}`;
 }
 
+// ============ 空间布局 / 灯光体系 → 自然语言描述（全环节注入） ============
+
+/** 由 x/y 坐标推导画面位置文字描述（x: 0=左 1=右；y: 0=前景 1=背景） */
+function derivePositionFromXY(x?: number | null, y?: number | null): string {
+  const xv = x ?? 0.5;
+  const yv = y ?? 0.5;
+  const xPos = xv < 0.33 ? '左' : xv > 0.67 ? '右' : '';
+  const yPos = yv < 0.33 ? '前景' : yv > 0.67 ? '背景' : '中景';
+  if (!xPos && yPos === '中景') return '画面中央';
+  if (!xPos) return yPos;                 // 前景 / 背景
+  if (yPos === '中景') return `${xPos}侧`; // 左侧 / 右侧
+  return `${xPos}${yPos}`;                // 左前景 / 右前景 / 左背景 / 右背景
+}
+
+/**
+ * 将空间布局 JSON 转为自然语言描述（用于提示词）
+ * 每个道具：{name}在画面{位置}；位置优先取 layout.position（如"左前方"），为空时由 x/y 坐标推导
+ * @param layout 空间布局数组（SpatialLayoutItem[]）
+ * @returns 描述文本（如"桌子在画面左前方，椅子在画面右侧"）；空数组返回空串
+ */
+export function formatSpatialLayoutForPrompt(layout: SpatialLayoutItem[]): string {
+  if (!Array.isArray(layout) || layout.length === 0) return '';
+  return layout
+    .map(i => {
+      const pos = i.position && i.position.trim() ? i.position.trim() : derivePositionFromXY(i.x, i.y);
+      return `${i.name}在画面${pos}`;
+    })
+    .join('，');
+}
+
+/** 单个光源 → 描述片段（跳过空字段；label 传空串时只输出内容） */
+function formatLightSource(label: string, s?: { position?: string; color?: string; intensity?: string } | null): string {
+  if (!s) return '';
+  const parts = [
+    s.position && s.position.trim() ? `从${s.position.trim()}照射` : '',
+    s.color && s.color.trim() ? s.color.trim() : '',
+    s.intensity && s.intensity.trim() ? s.intensity.trim() : '',
+  ].filter(Boolean);
+  return parts.length > 0 ? `${label}${parts.join('，')}` : '';
+}
+
+/**
+ * 将灯光配置 JSON 转为自然语言描述（完整版：主光/补光/轮廓光/环境光）
+ * @param lighting 灯光配置（LightingConfig）
+ * @returns 描述文本（如"主光从左前方照射，暖黄色，适中，补光从正面照射，冷蓝色"）；空配置返回空串
+ */
+export function formatLightingForPrompt(lighting: LightingConfig | null | undefined): string {
+  if (!lighting) return '';
+  const parts = [
+    formatLightSource('主光', lighting.key_light),
+    formatLightSource('补光', lighting.fill_light),
+    formatLightSource('轮廓光', lighting.rim_light),
+    lighting.ambient && lighting.ambient.trim() ? `环境光${lighting.ambient.trim()}` : '',
+  ].filter(Boolean);
+  return parts.join('，');
+}
+
+/**
+ * 灯光摘要（视频提示词用：压缩但不丢失核心——主光方向+颜色，环境光可选）
+ * @param lighting 灯光配置（LightingConfig）
+ * @returns 一句话描述（如"主光从左前方照射，暖黄色"）；无主光但有其他光时回退完整描述；空配置返回空串
+ */
+export function formatLightingSummaryForPrompt(lighting: LightingConfig | null | undefined): string {
+  if (!lighting) return '';
+  if (lighting.key_light) {
+    const kl = lighting.key_light;
+    const pos = kl.position && kl.position.trim() ? `从${kl.position.trim()}照射` : '正面照明';
+    const color = kl.color && kl.color.trim() ? kl.color.trim() : '';
+    const core = `主光${pos}${color ? `，${color}` : ''}`;
+    return lighting.ambient && lighting.ambient.trim() ? `${core}，${lighting.ambient.trim()}` : core;
+  }
+  return formatLightingForPrompt(lighting);
+}
+
+/**
+ * 场景概念图专用：空间布局 + 灯光体系提示词块（逐项列出）
+ * 格式：
+ * 【空间布局】
+ * - 桌子：画面左前方
+ * - 椅子：画面右侧
+ * 【灯光体系】
+ * - 主光：从左前方照射，暖黄色，适中
+ * - 补光：从正面照射，冷蓝色
+ * - 环境光：暗调，高对比度
+ * @param scene 场景实体（spatial_layout/lighting 为 JSON 字符串；旧数据缺省时返回空串）
+ * @returns 提示词块文本；无空间布局且无灯光时返回空串
+ */
+export function buildSceneSpatialLightingBlock(scene: ScriptScene): string {
+  if (!scene) return '';
+  const lines: string[] = [];
+  const layout = parseSpatialLayout(scene);
+  if (layout.length > 0) {
+    lines.push('【空间布局】');
+    for (const i of layout) {
+      const pos = i.position && i.position.trim() ? i.position.trim() : derivePositionFromXY(i.x, i.y);
+      lines.push(`- ${i.name}：${pos}`);
+    }
+  }
+  const lighting = parseLighting(scene);
+  if (lighting) {
+    lines.push('【灯光体系】');
+    if (lighting.key_light) lines.push(`- 主光：${formatLightSource('', lighting.key_light) || '正面照明'}`);
+    if (lighting.fill_light) lines.push(`- 补光：${formatLightSource('', lighting.fill_light) || '正面照明'}`);
+    if (lighting.rim_light) lines.push(`- 轮廓光：${formatLightSource('', lighting.rim_light) || '正面照明'}`);
+    if (lighting.ambient && lighting.ambient.trim()) lines.push(`- 环境光：${lighting.ambient.trim()}`);
+  }
+  return lines.join('\n');
+}
+
+/**
+ * 场景表条目（分镜生成等场景列表用）：含空间布局与灯光的简要信息
+ * 格式：{name}: {desc}；空间：桌子在画面左前方，椅子在画面右侧；灯光：主光从左前方照射，暖黄色
+ * @param scene 场景实体（旧数据缺省空间/灯光时仅输出描述）
+ * @returns 场景表条目文本；场景为空或无名时返回空串
+ */
+export function buildSceneTableEntryForPrompt(scene: ScriptScene): string {
+  if (!scene || !scene.name) return '';
+  const desc = scene.visual_prompt || scene.description || scene.location || '';
+  const layout = formatSpatialLayoutForPrompt(parseSpatialLayout(scene));
+  const lighting = formatLightingSummaryForPrompt(parseLighting(scene));
+  const parts = [
+    desc,
+    layout ? `空间：${layout}` : '',
+    lighting ? `灯光：${lighting}` : '',
+  ].filter(Boolean);
+  return `${scene.name}: ${parts.join('；')}`;
+}
+
 // ============ 场景块（含空间坐标 + 灯光体系） ============
 
 /**
- * 构建场景块：场景描述 + 空间布局（坐标）+ 灯光体系
- * 格式：空间布局：{name}在画面{position}(x={x},y={y})，...
- *       灯光：主光{position}，{color}，{intensity}
+ * 构建场景块：场景锚点（场景描述 + 空间布局 + 灯光体系）
+ * full（默认，关键帧/预览用）：
+ * 【场景锚点 — 必须与场景参考图一致】
+ * 场景：{name}：{desc}
+ * 空间：{formatSpatialLayoutForPrompt}
+ * 灯光：{formatLightingForPrompt}
+ * 要求：道具位置、灯光方向、色调必须与场景参考图完全一致
+ * compact（视频用，单行，压缩但不丢失主光方向/颜色）：
+ * 【场景】{name}：{desc}；空间：…；灯光：…
+ * 向后兼容：场景无 spatial_layout/lighting 时回退为【场景】{name}：{desc}
  * @param scene 场景实体（visual_prompt/description/location 取描述；spatial_layout/lighting 为 JSON 字符串）
- * @returns 场景块文本（多行）；场景为空或无名时返回空串
+ * @param compact 是否压缩为单行（视频提示词用，默认 false）
+ * @returns 场景块文本（多行/单行）；场景为空或无名时返回空串
  * @sideEffects 无（纯函数）
  */
-function buildSceneBlock(scene: ScriptScene): string {
+function buildSceneBlock(scene: ScriptScene, compact = false): string {
   if (!scene || !scene.name) return '';
   const desc = scene.visual_prompt || scene.description || scene.location || '';
-  const lines = [`【场景】${scene.name}：${desc}`];
-
   const layout = parseSpatialLayout(scene);
-  if (layout.length > 0) {
-    const layoutDesc = layout
-      .map(i => `${i.name}在画面${i.position || '中'}(x=${i.x},y=${i.y})`)
-      .join('，');
-    lines.push(`空间布局：${layoutDesc}`);
-  }
-
   const lighting = parseLighting(scene);
-  if (lighting) {
-    const parts: string[] = [];
-    if (lighting.key_light) {
-      const kl = lighting.key_light;
-      parts.push(`主光${kl.position || '前方'}，${kl.color || '白色'}，${kl.intensity || '适中'}`);
-    }
-    if (lighting.fill_light) {
-      const fl = lighting.fill_light;
-      parts.push(`补光${fl.position || ''}，${fl.color || ''}，${fl.intensity || ''}`);
-    }
-    if (lighting.rim_light) {
-      const rl = lighting.rim_light;
-      parts.push(`轮廓光${rl.position || ''}，${rl.color || ''}`);
-    }
-    if (lighting.ambient) parts.push(`环境光${lighting.ambient}`);
-    if (parts.length > 0) lines.push(`灯光：${parts.join('，')}`);
+  const layoutText = formatSpatialLayoutForPrompt(layout);
+
+  if (compact) {
+    // 视频提示词：单行场景块（保留主光方向/颜色 + 空间布局）
+    const parts = [
+      desc,
+      layoutText ? `空间：${layoutText}` : '',
+      lighting ? `灯光：${formatLightingSummaryForPrompt(lighting)}` : '',
+    ].filter(Boolean);
+    return `【场景】${scene.name}：${parts.join('；')}`;
   }
 
+  if (layout.length === 0 && !lighting) {
+    return `【场景】${scene.name}：${desc}`;
+  }
+
+  const lines = ['【场景锚点 — 必须与场景参考图一致】', `场景：${scene.name}：${desc}`];
+  if (layoutText) lines.push(`空间：${layoutText}`);
+  if (lighting) lines.push(`灯光：${formatLightingForPrompt(lighting)}`);
+  lines.push('要求：道具位置、灯光方向、色调必须与场景参考图完全一致');
   return lines.join('\n');
 }
 
@@ -237,7 +366,7 @@ export function buildSeriesProhibitionBlock(): string {
  * 构建项目风格描述
  * visual_style 优先（映射为风格描述），为空回退 style_description，再为空返回空串
  */
-function buildProjectStyleBlock(project: Project | null): string {
+export function buildProjectStyleBlock(project: Project | null): string {
   if (!project) return '';
   if (project.visual_style && project.visual_style.trim()) {
     const key = project.visual_style.trim();
@@ -392,7 +521,8 @@ export function buildFullVideoPrompt(
   const available = VIDEO_PROMPT_MAX_LENGTH - reservedLen - sepOverhead;
 
   // P0-6/P1-1: 可截断块顺序 = 动作 → blocking → 场景（从末尾截断时动作最晚被切，动作优先保留）
-  const sceneBlock = scene ? buildSceneBlock(scene) : '';
+  // P3: 视频场景块用 compact 单行（保留主光方向/颜色 + 空间布局，不丢失核心灯光信息）
+  const sceneBlock = scene ? buildSceneBlock(scene, true) : '';
   const blocking = buildBlockingBlock(shot, characters || []);
   const action = shot.action_description && shot.action_description.trim() ? shot.action_description.trim() : '';
 

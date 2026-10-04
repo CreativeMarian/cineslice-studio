@@ -1,14 +1,16 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
   ArrowLeft, User, Save, Mic2, ImageIcon, LayoutGrid,
   Lock, Shirt, Plus, Pencil, Trash2, Star,
 } from 'lucide-react';
 import { Button, Card, Badge, Textarea, EmptyState, Modal, Input, Select } from '../ui';
-import { ConceptImageGenerator } from '../common';
+import { ConceptImageGenerator, MarkdownRenderer, PromptEditor, PromptToggleButton } from '../common';
 import { useProjectStore } from '../../stores/useProjectStore';
 import { useUIStore } from '../../stores/useUIStore';
 import { characterService } from '../../services/assetService';
+import { promptService } from '../../services/promptService';
+import { usePromptEditor } from '../../hooks/usePromptEditor';
 import { showApiError, getResponseErrorMessage, getApiErrorStatus } from '../../utils/error';
 import { ROLE_TYPE_LABELS, GENDER_LABELS, generateId } from '../../utils';
 import type { Character, IdentityLock, WardrobeItem } from '../../types';
@@ -51,6 +53,9 @@ export function CharacterDetailPage() {
   const [visualPrompt, setVisualPrompt] = useState('');
   // 音色提示词（描述角色声音，用于 TTS）
   const [voicePrompt, setVoicePrompt] = useState('');
+  // 提示词编辑区「编辑/预览」切换（预览用 MarkdownRenderer 渲染富文本）
+  const [previewVisual, setPreviewVisual] = useState(false);
+  const [previewVoice, setPreviewVoice] = useState(false);
   const [savingVisual, setSavingVisual] = useState(false);
   const [savingVoice, setSavingVoice] = useState(false);
 
@@ -64,6 +69,22 @@ export function CharacterDetailPage() {
   const [wardrobeModalOpen, setWardrobeModalOpen] = useState(false);
   const [editingWardrobeIndex, setEditingWardrobeIndex] = useState<number | null>(null);
   const [wardrobeForm, setWardrobeForm] = useState({ name: '', description: '', color: '', scene_id: '' });
+
+  // PromptEditor：角色概念图提示词（展开时按当前默认服装拉取预览）
+  const defaultWardrobeId = useMemo(() => {
+    if (!character?.wardrobe) return undefined;
+    try {
+      const w = JSON.parse(character.wardrobe) as WardrobeItem[];
+      return w.find((i) => i.is_default === 1)?.id || w[0]?.id || undefined;
+    } catch {
+      return undefined;
+    }
+  }, [character?.wardrobe]);
+  const charImgPe = usePromptEditor(() =>
+    character
+      ? promptService.previewCharacterImagePrompt(character.id, defaultWardrobeId)
+      : Promise.resolve({ prompt: '', contextSummary: '' })
+  );
 
   // 页面挂载时确保角色数据已加载（支持直接访问详情 URL）；
   // 若 store 中已存在该角色（含本地暂存角色），则跳过，避免本地角色被后端数据覆盖
@@ -475,9 +496,11 @@ export function CharacterDetailPage() {
             <div className="space-y-3">
               <div>
                 <p className="text-xs font-medium text-[var(--ink-3)] mb-1">角色描述</p>
-                <p className="text-sm text-[var(--ink-2)] leading-relaxed whitespace-pre-wrap">
-                  {character.description || '暂无描述'}
-                </p>
+                {character.description ? (
+                  <MarkdownRenderer content={character.description} />
+                ) : (
+                  <p className="text-sm text-[var(--ink-2)] leading-relaxed">暂无描述</p>
+                )}
               </div>
               <div>
                 <p className="text-xs font-medium text-[var(--ink-3)] mb-1">角色信息</p>
@@ -497,14 +520,23 @@ export function CharacterDetailPage() {
               </div>
               <h3 className="font-semibold text-[var(--ink-1)] font-[var(--font-display)]">形象提示词</h3>
             </div>
-            <Textarea
-              value={visualPrompt}
-              onChange={(e) => setVisualPrompt(e.target.value)}
-              rows={5}
-              className="text-xs font-mono"
-              placeholder="描述角色的外貌、服装、气质，用于概念图与四视图生成..."
-            />
-            <div className="flex justify-end mt-3">
+            {previewVisual ? (
+              <div className="min-h-[120px]">
+                <MarkdownRenderer content={visualPrompt || '暂无内容'} />
+              </div>
+            ) : (
+              <Textarea
+                value={visualPrompt}
+                onChange={(e) => setVisualPrompt(e.target.value)}
+                rows={5}
+                className="text-xs font-mono"
+                placeholder="描述角色的外貌、服装、气质，用于概念图与四视图生成..."
+              />
+            )}
+            <div className="flex justify-end mt-3 items-center gap-2">
+              <Button variant="ghost" size="sm" onClick={() => setPreviewVisual((v) => !v)}>
+                {previewVisual ? '编辑' : '预览'}
+              </Button>
               <Button size="sm" onClick={handleSaveVisualPrompt} isLoading={savingVisual} leftIcon={<Save className="w-3.5 h-3.5" />}>
                 保存形象提示词
               </Button>
@@ -519,14 +551,23 @@ export function CharacterDetailPage() {
               </div>
               <h3 className="font-semibold text-[var(--ink-1)] font-[var(--font-display)]">音色提示词</h3>
             </div>
-            <Textarea
-              value={voicePrompt}
-              onChange={(e) => setVoicePrompt(e.target.value)}
-              rows={4}
-              className="text-xs font-mono"
-              placeholder="描述角色声音，如：清亮柔和的少女音，语速偏快，带一丝俏皮..."
-            />
-            <div className="flex justify-end mt-3">
+            {previewVoice ? (
+              <div className="min-h-[96px]">
+                <MarkdownRenderer content={voicePrompt || '暂无内容'} />
+              </div>
+            ) : (
+              <Textarea
+                value={voicePrompt}
+                onChange={(e) => setVoicePrompt(e.target.value)}
+                rows={4}
+                className="text-xs font-mono"
+                placeholder="描述角色声音，如：清亮柔和的少女音，语速偏快，带一丝俏皮..."
+              />
+            )}
+            <div className="flex justify-end mt-3 items-center gap-2">
+              <Button variant="ghost" size="sm" onClick={() => setPreviewVoice((v) => !v)}>
+                {previewVoice ? '编辑' : '预览'}
+              </Button>
               <Button size="sm" onClick={handleSaveVoicePrompt} isLoading={savingVoice} leftIcon={<Save className="w-3.5 h-3.5" />}>
                 保存音色提示词
               </Button>
@@ -543,6 +584,7 @@ export function CharacterDetailPage() {
               </div>
               <h3 className="font-semibold text-[var(--ink-1)] font-[var(--font-display)]">概念图</h3>
               <span className="text-xs text-[var(--ink-3)]">正面全身锚点图 · 使用身份锁定（不含服装），保证换装时面部一致</span>
+              <PromptToggleButton active={charImgPe.open} onClick={charImgPe.toggle} className="ml-auto" />
             </div>
             <ConceptImageGenerator
               title="概念图"
@@ -554,7 +596,21 @@ export function CharacterDetailPage() {
               onGenerated={handleConceptGenerated}
               onDeleted={handleConceptDeleted}
               aspectRatio="3:4"
+              customPrompt={charImgPe.customPrompt ?? undefined}
             />
+            {charImgPe.open && (
+              <PromptEditor
+                title="角色概念图提示词"
+                prompt={charImgPe.prompt}
+                contextSummary={charImgPe.contextSummary}
+                isLoading={charImgPe.loading}
+                expanded={charImgPe.open}
+                onExpandedChange={charImgPe.setOpen}
+                onSave={charImgPe.save}
+                onReset={charImgPe.reset}
+                className="mt-3"
+              />
+            )}
           </Card>
 
           <Card className="p-5">
@@ -575,6 +631,7 @@ export function CharacterDetailPage() {
               onDeleted={handleFourViewDeleted}
               aspectRatio="16:9"
               variant="fourView"
+              customPrompt={charImgPe.customPrompt ?? undefined}
             />
           </Card>
         </div>
@@ -670,7 +727,13 @@ export function CharacterDetailPage() {
                         />
                       )}
                     </div>
-                    <p className="text-xs text-[var(--ink-3)] line-clamp-2 mb-1.5">{w.description || '暂无描述'}</p>
+                    <div className="line-clamp-2 mb-1.5">
+                      {w.description ? (
+                        <MarkdownRenderer content={w.description} className="markdown-tight" />
+                      ) : (
+                        <p className="text-xs text-[var(--ink-3)]">暂无描述</p>
+                      )}
+                    </div>
                     <div className="flex items-center justify-between">
                       <span className="text-[10px] text-[var(--ink-3)] font-mono">场景：{sceneName}{w.color ? ` · ${w.color}` : ''}</span>
                       <div className="flex items-center gap-1">

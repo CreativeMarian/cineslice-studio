@@ -17,16 +17,16 @@ function parseScene(row: any): ScriptScene {
 }
 
 export const ScriptSceneDAO = {
-  create(db: Database, data: { user_id: string; episode_id: string; name: string; location?: string; time_of_day?: string; atmosphere?: string; description?: string; visual_prompt?: string; lighting_variants?: string; scale_reference?: string; consistency_anchor?: string; spatial_layout?: string; lighting?: string }): ScriptScene {
+  create(db: Database, data: { user_id: string; episode_id: string; name: string; location?: string; time_of_day?: string; atmosphere?: string; description?: string; visual_prompt?: string; lighting_variants?: string; scale_reference?: string; consistency_anchor?: string; spatial_layout?: string; lighting?: string; custom_image_prompt?: string; script_version?: number }): ScriptScene {
     const id = generateId('scene');
     db.prepare(`
-      INSERT INTO script_scenes (id, user_id, episode_id, name, location, time_of_day, atmosphere, description, visual_prompt, lighting_variants, scale_reference, consistency_anchor, selected_image_index, spatial_layout, lighting, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?)
-    `).run(id, data.user_id, data.episode_id, data.name, data.location || '', data.time_of_day || 'day', data.atmosphere || '', data.description || '', data.visual_prompt || null, data.lighting_variants || null, data.scale_reference || null, data.consistency_anchor || null, data.spatial_layout || null, data.lighting || null, now(), now());
+      INSERT INTO script_scenes (id, user_id, episode_id, name, location, time_of_day, atmosphere, description, visual_prompt, lighting_variants, scale_reference, consistency_anchor, selected_image_index, spatial_layout, lighting, custom_image_prompt, script_version, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?)
+    `).run(id, data.user_id, data.episode_id, data.name, data.location || '', data.time_of_day || 'day', data.atmosphere || '', data.description || '', data.visual_prompt || null, data.lighting_variants || null, data.scale_reference || null, data.consistency_anchor || null, data.spatial_layout || null, data.lighting || null, data.custom_image_prompt || null, data.script_version ?? 0, now(), now());
     return this.getById(db, id)!;
   },
 
-  batchCreate(db: Database, scenes: Array<{ user_id: string; episode_id: string; name: string; location?: string; time_of_day?: string; atmosphere?: string; description?: string; visual_prompt?: string; lighting_variants?: string; scale_reference?: string; consistency_anchor?: string; spatial_layout?: string; lighting?: string }>): ScriptScene[] {
+  batchCreate(db: Database, scenes: Array<{ user_id: string; episode_id: string; name: string; location?: string; time_of_day?: string; atmosphere?: string; description?: string; visual_prompt?: string; lighting_variants?: string; scale_reference?: string; consistency_anchor?: string; spatial_layout?: string; lighting?: string; custom_image_prompt?: string; script_version?: number }>): ScriptScene[] {
     const results: ScriptScene[] = [];
     const transaction = db.transaction(() => {
       for (const s of scenes) {

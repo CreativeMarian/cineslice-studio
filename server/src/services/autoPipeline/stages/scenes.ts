@@ -71,6 +71,8 @@ export async function stageScenes(db: Database, task: AutoPipelineTask): Promise
       const lighting = normalizeLighting(s.lighting || s.lighting_config || s.lightingConfig || null);
       return lighting ? JSON.stringify(lighting) : undefined;
     })(),
+    // P3: 记录生成时对应的剧本版本（前端据此判断场景资产是否过期）
+    script_version: first.script_version || 0,
   })));
 
   task.stageProgress['scenes'] = `提取 ${created.length} 个场景`;

@@ -54,6 +54,8 @@ export async function stageCharacters(db: Database, task: AutoPipelineTask): Pro
           voice_prompt: pc.voice_prompt || undefined,
           identity_lock: pc.identity_lock || undefined,
           wardrobe: pc.wardrobe || undefined,
+          // P3: 继承时记录当前剧本版本（上游加料后版本已递增）
+          script_version: episode.script_version || 0,
         })));
         // 概念图 / 定妆照 / 四视图引用继承（collectShotReferenceImages 优先读 concept_images，跨集复用第1集资产）
         for (let j = 0; j < prevChars.length && j < inherited.length; j++) {
@@ -131,6 +133,8 @@ export async function stageCharacters(db: Database, task: AutoPipelineTask): Pro
         // P0-1 身份锁 + 服装
         identity_lock: identityLock ? JSON.stringify(identityLock) : undefined,
         wardrobe: buildWardrobeJson(wardrobeItems, sceneNameToId) || undefined,
+        // P3: 记录生成时对应的剧本版本（前端据此判断角色资产是否过期）
+        script_version: episode.script_version || 0,
       };
     }));
 

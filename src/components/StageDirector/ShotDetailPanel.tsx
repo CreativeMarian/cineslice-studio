@@ -5,9 +5,12 @@ import {
   X, Image, RefreshCw, Trash2, AlertCircle, Clock, Check, Video, Film,
 } from 'lucide-react';
 import { Badge, ImageModal, Spinner, Select, Button, Textarea } from '../ui';
+import { PromptEditor, PromptToggleButton } from '../common';
 import { useProjectStore } from '../../stores/useProjectStore';
 import { videoService } from '../../services/videoService';
 import { shotService } from '../../services/shotService';
+import { promptService } from '../../services/promptService';
+import { usePromptEditor } from '../../hooks/usePromptEditor';
 import { usePolling } from '../../hooks/usePolling';
 import { useShotActions } from './useShotActions';
 import { showApiError, getResponseErrorMessage, getApiErrorStatus, getApiErrorMessage } from '../../utils/error';
@@ -45,6 +48,10 @@ export function ShotDetailPanel({ shot, index, showToast, onDeleted, onClose }: 
   const [legacyCharacterNames, setLegacyCharacterNames] = useState<string[]>([]);
   const [editingSceneId, setEditingSceneId] = useState('');
   const [editingBlocking, setEditingBlocking] = useState<BlockingItem[]>([]);
+
+  // PromptEditor：关键帧提示词 + 视频提示词（展开时调用预览端点自动填入）
+  const kfPe = usePromptEditor(() => promptService.previewKeyframePrompt(shot.id));
+  const vidPe = usePromptEditor(() => promptService.previewVideoPrompt(shot.id));
 
   const {
     firstKeyframe,
@@ -364,7 +371,7 @@ export function ShotDetailPanel({ shot, index, showToast, onDeleted, onClose }: 
           size="sm"
           variant="outline"
           leftIcon={isGeneratingKeyframe ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Image className="w-3.5 h-3.5" />}
-          onClick={handleGenerateKeyframe}
+          onClick={() => handleGenerateKeyframe(kfPe.customPrompt ?? undefined)}
           isLoading={isGeneratingKeyframe}
           disabled={autoRunActive}
         >
@@ -373,7 +380,7 @@ export function ShotDetailPanel({ shot, index, showToast, onDeleted, onClose }: 
         <Button
           size="sm"
           leftIcon={processingVideo || isGeneratingVideo ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Video className="w-3.5 h-3.5" />}
-          onClick={handleGenerateVideo}
+          onClick={() => handleGenerateVideo(vidPe.customPrompt ?? undefined)}
           isLoading={isGeneratingVideo}
           disabled={!firstKeyframe || !!processingVideo || isGeneratingVideo || autoRunActive}
           className={completedVideo ? '!bg-[var(--success)]' : ''}
@@ -393,6 +400,40 @@ export function ShotDetailPanel({ shot, index, showToast, onDeleted, onClose }: 
           </Button>
         )}
       </div>
+
+      {/* 提示词按钮：关键帧提示词 / 视频提示词 */}
+      <div className="flex items-center gap-2 flex-shrink-0">
+        <PromptToggleButton active={kfPe.open} onClick={kfPe.toggle} className="flex-1 justify-center" />
+        <PromptToggleButton active={vidPe.open} onClick={vidPe.toggle} className="flex-1 justify-center" />
+      </div>
+
+      {/* 提示词编辑器：展开后自动填入完整提示词 */}
+      {kfPe.open && (
+        <PromptEditor
+          title="关键帧提示词"
+          prompt={kfPe.prompt}
+          contextSummary={kfPe.contextSummary}
+          isLoading={kfPe.loading}
+          expanded={kfPe.open}
+          onExpandedChange={kfPe.setOpen}
+          onSave={kfPe.save}
+          onReset={kfPe.reset}
+          className="flex-shrink-0"
+        />
+      )}
+      {vidPe.open && (
+        <PromptEditor
+          title="视频提示词"
+          prompt={vidPe.prompt}
+          contextSummary={vidPe.contextSummary}
+          isLoading={vidPe.loading}
+          expanded={vidPe.open}
+          onExpandedChange={vidPe.setOpen}
+          onSave={vidPe.save}
+          onReset={vidPe.reset}
+          className="flex-shrink-0"
+        />
+      )}
 
       {/* 编辑区：动作描述 / 台词 / 角色 / 场景 / 角色调度 */}
       <div className="space-y-3.5 flex-shrink-0">

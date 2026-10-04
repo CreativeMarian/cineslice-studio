@@ -43,6 +43,7 @@ export async function generateKeyframesForShot(
     frameTypes?: Array<'first' | 'last' | 'middle'>;
     referenceCharacterIds?: string[];
     referenceSceneId?: string;
+    customPrompt?: string;   // 自定义关键帧提示词：undefined=未传（回退已存 custom_keyframe_prompt），''=清空并自动构建
   }
 ) {
   const shot = ShotDAO.getByIdAndUser(db, shotId, userId);
@@ -51,7 +52,20 @@ export async function generateKeyframesForShot(
   const episode = NovelEpisodeDAO.getById(db, shot.episode_id);
   if (!episode) throw createError(404, ErrorCodes.NOT_FOUND, '剧集不存在');
 
-  const { provider, modelName, frameTypes, referenceCharacterIds, referenceSceneId } = opts;
+  const { provider, modelName, frameTypes, referenceCharacterIds, referenceSceneId, customPrompt } = opts;
+
+  // P3: 自定义提示词解析（优先级：本次传入 > 已保存 custom_keyframe_prompt > 自动构建）
+  // 显式传入时落库（'' = 清除），供预览接口与下次生成默认使用
+  let finalCustomPrompt: string | null = null;
+  if (customPrompt !== undefined) {
+    finalCustomPrompt = customPrompt.trim() ? customPrompt.trim() : null;
+    ShotDAO.update(db, shot.id, { custom_keyframe_prompt: finalCustomPrompt });
+  } else if (shot.custom_keyframe_prompt && shot.custom_keyframe_prompt.trim()) {
+    finalCustomPrompt = shot.custom_keyframe_prompt.trim();
+  }
+  if (finalCustomPrompt) {
+    console.log(`[Keyframe] 使用自定义关键帧提示词（custom_keyframe_prompt），长度=${finalCustomPrompt.length}`);
+  }
   console.log('[Keyframe] start:', { provider, modelName, frameTypes, shotId: shot.id, projectId: episode.project_id });
 
   // 获取参考角色（显式传入优先；缺省自动按镜头 characters_in_shot 收集——前端/批量入口无需感知，防旧图缓存与角色漂移）
@@ -149,7 +163,10 @@ export async function generateKeyframesForShot(
       const frameShot: Shot = { ...shot, action_description: subject };
       // P1-5: prevShotContext 作为 extraContext 传入，插到禁令行之前（保留块内），
       //       不再追加在禁令行之后（避免禁令被上下文"挤出"尾部语义）
-      const finalPrompt = buildFullKeyframePrompt(frameShot, charactersInShot, sceneForPrompt, project, prevShotContext || undefined);
+      // P3: 自定义提示词有值时直接使用，跳过自动构建（帧型差异由用户提示词自行把控）
+      const finalPrompt = finalCustomPrompt
+        ? finalCustomPrompt
+        : buildFullKeyframePrompt(frameShot, charactersInShot, sceneForPrompt, project, prevShotContext || undefined);
       const finalNegativePrompt: string | undefined = undefined;
 
       console.log('[Keyframe] prompt generated, length:', finalPrompt.length);

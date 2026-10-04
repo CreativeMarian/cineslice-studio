@@ -10,6 +10,7 @@ import {
 import { Card, EmptyState, Badge, Spinner, Button, Modal } from '../ui';
 import { SectionHeader } from '../common/SectionHeader';
 import { EpisodeSelector } from '../common/EpisodeSelector';
+import { ScriptStaleBanner } from '../common/ScriptStaleBanner';
 import { useProjectStore } from '../../stores/useProjectStore';
 import { useUIStore } from '../../stores/useUIStore';
 import { useModelStore } from '../../stores/useModelStore';
@@ -22,6 +23,7 @@ import { pipelineService } from '../../services/pipelineService';
 import { videoService, type ShotVideoInterval } from '../../services/videoService';
 import { usePolling } from '../../hooks/usePolling';
 import { showApiError, getResponseErrorMessage } from '../../utils/error';
+import { countScriptStale, isScriptStale } from '../../utils/scriptVersion';
 import type { Shot, Segment } from '../../types';
 
 const SEGMENT_STATUS_LABELS: Record<Segment['status'], string> = {
@@ -498,6 +500,8 @@ export function StageDirectorPage() {
 
   const currentEpisode = episodes.find(e => e.id === currentEpisodeId);
   const hasShots = sortedShots.length > 0;
+  /** 剧本已修改 → 分镜可能过期（字段缺失时容错为未过期） */
+  const staleShotCount = countScriptStale(currentEpisode, sortedShots);
 
   // 左栏分段列表数据：镜头视图用逻辑分组，分段视图用后端段列表
   const leftSegments = useMemo(() => {
@@ -685,6 +689,16 @@ export function StageDirectorPage() {
         </Card>
       )}
 
+      {/* 剧本已修改 → 分镜可能过期警告 */}
+      {view === 'shots' && hasShots && staleShotCount > 0 && (
+        <ScriptStaleBanner
+          message={`剧本已修改，${staleShotCount} 个分镜可能已过期，建议重新生成`}
+          actionLabel="重新生成分镜"
+          onAction={() => navigate(`/project/${projectId}/script`)}
+          className="mb-4"
+        />
+      )}
+
       {/* 三栏布局 */}
       <div className="flex items-start gap-4">
         {/* ── 左栏（280px）：剧集切换 + 分段列表 ── */}
@@ -804,6 +818,7 @@ export function StageDirectorPage() {
                               selected={selectedShotId === shot.id}
                               onSelect={(s) => setSelectedShotId(s.id)}
                               showToast={showToast}
+                              stale={isScriptStale(currentEpisode, shot)}
                             />
                           );
                         })}

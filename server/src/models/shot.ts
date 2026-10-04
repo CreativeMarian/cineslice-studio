@@ -114,11 +114,12 @@ export const ShotDAO = {
     segment_id?: number | null;
     frame_timestamps?: string | null;
     blocking?: string | null;
+    script_version?: number;
   }): Shot {
     const id = generateId('shot');
     db.prepare(`
-      INSERT INTO shots (id, user_id, episode_id, scene_id, shot_number, shot_size, action_description, dialogue, camera_movement, grid_position, duration_seconds, characters_in_shot, props_in_shot, notes, subject, lighting, mood, transition, pace, character_outfits, phase, phase_name, first_frame_description, last_frame_description, segment_id, frame_timestamps, blocking, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO shots (id, user_id, episode_id, scene_id, shot_number, shot_size, action_description, dialogue, camera_movement, grid_position, duration_seconds, characters_in_shot, props_in_shot, notes, subject, lighting, mood, transition, pace, character_outfits, phase, phase_name, first_frame_description, last_frame_description, segment_id, frame_timestamps, blocking, script_version, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       id, data.user_id, data.episode_id, data.scene_id || null,
       data.shot_number, data.shot_size || 'medium', data.action_description || '',
@@ -132,6 +133,7 @@ export const ShotDAO = {
       data.first_frame_description || null, data.last_frame_description || null,
       data.segment_id ?? null, data.frame_timestamps || null,
       data.blocking ?? null,
+      data.script_version ?? 0,
       now(), now(),
     );
     return this.getById(db, id)!;

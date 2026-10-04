@@ -123,4 +123,15 @@ export const API_PATHS = {
 
   // ---------- 用户偏好 ----------
   preferences: '/preferences',
+
+  // ---------- 提示词预览（PromptEditor：各环节自动填入完整提示词） ----------
+  projectScriptPreview: '/projects/preview-script-prompt',
+  episodeCharacterPreview: (episodeId: string) => `/episodes/${episodeId}/preview-character-prompt`,
+  episodeScenePreview: (episodeId: string) => `/episodes/${episodeId}/preview-scene-prompt`,
+  episodeShotPreview: (episodeId: string) => `/episodes/${episodeId}/preview-shot-prompt`,
+  characterImagePreview: (characterId: string) => `/characters/${characterId}/preview-image-prompt`,
+  sceneImagePreview: (sceneId: string) => `/scenes/${sceneId}/preview-image-prompt`,
+  shotKeyframePreview: (shotId: string) => `/shots/${shotId}/preview-keyframe-prompt`,
+  shotVideoPreview: (shotId: string) => `/shots/${shotId}/preview-video-prompt`,
+  shotAudioPreview: (shotId: string) => `/shots/${shotId}/preview-audio-prompt`,
 } as const;

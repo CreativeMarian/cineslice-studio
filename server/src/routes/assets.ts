@@ -26,7 +26,9 @@ import {
   buildWardrobeJson,
   normalizeSpatialLayout,
   normalizeLighting,
+  buildSceneSpatialLightingBlock,
 } from '../services/promptBuilder';
+import { getCharacterImagePrompt, getSceneImagePrompt, getEpisodeEffectiveScript } from '../services/promptPreviewService';
 import { characterExpressionService } from '../services/characterExpressionService';
 import { parseAiJsonOrThrow } from '../utils/aiJsonParser';
 import type { Database, CharacterOutfit } from '../types';
@@ -61,6 +63,8 @@ const generateImageSchema = z.object({
   count: z.number().int().min(1).max(4).optional(),
   referenceImageUrl: z.string().optional(),
   prompt: z.string().optional(),
+  // 自定义概念图提示词（推荐字段）：有值时代替系统自动构建并落库 custom_image_prompt（'' = 清除）
+  custom_prompt: z.string().optional(),
 });
 
 const updateCharacterSchema = z.object({
@@ -97,10 +101,8 @@ router.post('/episodes/:id/characters/extract', validateBody(extractSchema), asy
   if (!episode) throw createError(404, ErrorCodes.NOT_FOUND, '剧集不存在');
 
   const { provider, modelName } = req.body;
-  // 优先使用加料后的剧本（更详细、角色描述更丰富），没有加料则用原始剧本
-  const scriptForExtract = episode.enriched_script && episode.enriched_script.trim().length > 0
-    ? episode.enriched_script
-    : episode.script_content;
+  // 使用剧集"最新剧本"（已通过加料时用加料后剧本正文，否则 script_content；一律实时读库，不用缓存）
+  const scriptForExtract = getEpisodeEffectiveScript(episode);
   const prompt = buildCharacterExtractPrompt(scriptForExtract);
 
   const result = await aiProxy.generateText({
@@ -197,6 +199,8 @@ router.post('/episodes/:id/characters/extract', validateBody(extractSchema), asy
         // P0-1 身份锁 + 服装
         identity_lock: identityLock ? JSON.stringify(identityLock) : undefined,
         wardrobe: buildWardrobeJson(wardrobeItems, sceneNameToId) || undefined,
+        // P3: 记录生成时对应的剧本版本（前端据此判断角色资产是否过期）
+        script_version: episode.script_version || 0,
       };
     }));
   })();
@@ -238,14 +242,24 @@ router.post('/characters/:id/generate-image', validateBody(generateImageSchema),
   if (!character) throw createError(404, ErrorCodes.NOT_FOUND, '角色不存在');
 
   const episode = NovelEpisodeDAO.getById(db, character.episode_id);
-  const { provider, modelName, count, referenceImageUrl, prompt: customPrompt } = req.body;
+  const { provider, modelName, count, referenceImageUrl } = req.body;
+
+  // 自定义提示词（custom_prompt 优先，兼容旧字段 prompt；均未传时回退已保存 custom_image_prompt）
+  // P3: 显式传入时落库 custom_image_prompt（'' = 清除），预览接口与下次生成默认使用
+  const explicitCustom = req.body.custom_prompt !== undefined ? req.body.custom_prompt : req.body.prompt;
+  const finalCustom = explicitCustom !== undefined
+    ? (explicitCustom && explicitCustom.trim() ? explicitCustom.trim() : null)
+    : (character.custom_image_prompt && character.custom_image_prompt.trim() ? character.custom_image_prompt : null);
+  if (explicitCustom !== undefined) {
+    ScriptCharacterDAO.update(db, character.id, { custom_image_prompt: finalCustom });
+  }
 
   // 使用自定义提示词或极简概念图提示词
   // P0-1: 默认提示词使用身份锁（不含服装——锚点图只锁定面容/体型/发型，服装由 wardrobe 分场景控制）
   const project = episode ? (ProjectDAO.getById(db, episode.project_id) || null) : null;
   let prompt, negativePrompt;
-  if (customPrompt && customPrompt.trim()) {
-    prompt = customPrompt;
+  if (finalCustom) {
+    prompt = finalCustom;
     negativePrompt = undefined;
   } else {
     prompt = buildCharacterConceptPromptWithIdentity(character, project);
@@ -283,6 +297,27 @@ router.post('/characters/:id/generate-image', validateBody(generateImageSchema),
 }));
 
 // 生成角色四视图（面部特写 + 三视图：正面/侧面/背面）
+// ============ 提示词预览（角色/场景概念图，不调用AI） ============
+
+// 角色概念图提示词预览（query: wardrobe_id? 指定服装套系）
+router.get('/characters/:id/preview-image-prompt', asyncHandler(async (req: Request, res: Response) => {
+  const db = getDb(req);
+  const character = ScriptCharacterDAO.getByIdAndUser(db, req.params.id, req.user.id);
+  if (!character) throw createError(404, ErrorCodes.NOT_FOUND, '角色不存在');
+  const wardrobeId = typeof req.query.wardrobe_id === 'string' ? req.query.wardrobe_id : undefined;
+  const data = await getCharacterImagePrompt(db, req.params.id, wardrobeId);
+  res.json({ success: true, data });
+}));
+
+// 场景概念图提示词预览
+router.get('/scenes/:id/preview-image-prompt', asyncHandler(async (req: Request, res: Response) => {
+  const db = getDb(req);
+  const scene = ScriptSceneDAO.getByIdAndUser(db, req.params.id, req.user.id);
+  if (!scene) throw createError(404, ErrorCodes.NOT_FOUND, '场景不存在');
+  const data = await getSceneImagePrompt(db, req.params.id);
+  res.json({ success: true, data });
+}));
+
 // 对齐《AI短剧制作全流程手册》：最左侧超大人脸特写，右侧依次全身正面、侧面、后视图，16:9比例
 router.post('/characters/:id/generate-four-view', validateBody(generateImageSchema), asyncHandler(async (req: Request, res: Response) => {
   const db = getDb(req);
@@ -531,10 +566,8 @@ router.post('/episodes/:id/scenes/extract', validateBody(extractSchema), asyncHa
   if (!episode) throw createError(404, ErrorCodes.NOT_FOUND, '剧集不存在');
 
   const { provider, modelName } = req.body;
-  // 优先使用加料后的剧本
-  const scriptForExtract = episode.enriched_script && episode.enriched_script.trim().length > 0
-    ? episode.enriched_script
-    : episode.script_content;
+  // 使用剧集"最新剧本"（已通过加料时用加料后剧本正文，否则 script_content；一律实时读库）
+  const scriptForExtract = getEpisodeEffectiveScript(episode);
   const prompt = buildSceneExtractPrompt(scriptForExtract);
 
   const result = await aiProxy.generateText({
@@ -612,6 +645,8 @@ router.post('/episodes/:id/scenes/extract', validateBody(extractSchema), asyncHa
       const lighting = normalizeLighting(s.lighting || s.lighting_config || s.lightingConfig || s.灯光配置 || null);
       return lighting ? JSON.stringify(lighting) : undefined;
     })(),
+    // P3: 记录生成时对应的剧本版本（前端据此判断场景资产是否过期）
+    script_version: episode.script_version || 0,
     })));
   })();
 
@@ -652,20 +687,32 @@ router.post('/scenes/:id/generate-image', validateBody(generateImageSchema), asy
   if (!scene) throw createError(404, ErrorCodes.NOT_FOUND, '场景不存在');
 
   const episode = NovelEpisodeDAO.getById(db, scene.episode_id);
-  const { provider, modelName, count, prompt: customPrompt } = req.body;
+  const { provider, modelName, count } = req.body;
 
   // 描述为空时的兜底
   const sceneDesc = scene.description && scene.description.trim()
     ? scene.description
     : `${scene.name}，${scene.location || '未指定地点'}，${scene.time_of_day === 'night' ? '夜晚，月光照明' : scene.time_of_day === 'dawn' ? '黎明，柔和晨光' : scene.time_of_day === 'dusk' ? '黄昏，金色夕阳' : '白天，自然光'}，氛围${scene.atmosphere || '自然'}，详细的环境布局和陈设`;
 
-  // 使用自定义提示词或极简场景概念图提示词
+  // 自定义提示词（custom_prompt 优先，兼容旧字段 prompt；均未传时回退已保存 custom_image_prompt）
+  // P3: 显式传入时落库 custom_image_prompt（'' = 清除），预览接口与下次生成默认使用
+  const explicitCustom = req.body.custom_prompt !== undefined ? req.body.custom_prompt : req.body.prompt;
+  const finalCustom = explicitCustom !== undefined
+    ? (explicitCustom && explicitCustom.trim() ? explicitCustom.trim() : null)
+    : (scene.custom_image_prompt && scene.custom_image_prompt.trim() ? scene.custom_image_prompt : null);
+  if (explicitCustom !== undefined) {
+    ScriptSceneDAO.update(db, scene.id, { custom_image_prompt: finalCustom });
+  }
+
+  // 使用自定义提示词或场景概念图提示词（默认注入【空间布局】+【灯光体系】块，与场景参考图一致）
   let prompt, negativePrompt;
-  if (customPrompt && customPrompt.trim()) {
-    prompt = customPrompt;
+  if (finalCustom) {
+    prompt = finalCustom;
     negativePrompt = undefined;
   } else {
-    prompt = buildSceneConceptPrompt(scene.name, sceneDesc);
+    const spatialLightingBlock = buildSceneSpatialLightingBlock(scene);
+    const conceptPrompt = buildSceneConceptPrompt(scene.name, sceneDesc);
+    prompt = spatialLightingBlock ? `${conceptPrompt}\n\n${spatialLightingBlock}` : conceptPrompt;
     negativePrompt = undefined;
   }
 
@@ -740,10 +787,8 @@ router.post('/episodes/:id/props/extract', validateBody(extractSchema), asyncHan
   if (!episode) throw createError(404, ErrorCodes.NOT_FOUND, '剧集不存在');
 
   const { provider, modelName } = req.body;
-  // 优先使用加料后的剧本
-  const scriptForExtract = episode.enriched_script && episode.enriched_script.trim().length > 0
-    ? episode.enriched_script
-    : episode.script_content;
+  // 使用剧集"最新剧本"（已通过加料时用加料后剧本正文，否则 script_content；一律实时读库）
+  const scriptForExtract = getEpisodeEffectiveScript(episode);
 
   const systemPrompt = `你是一位专业的影视道具分析师。请从剧本中提取所有重要道具。
 目标提取数量：3-8个关键道具。

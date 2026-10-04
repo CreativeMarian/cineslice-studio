@@ -5,7 +5,7 @@ import type { Character, Scene, Prop, ApiResponse } from '../types';
 // ---------- 角色 ----------
 
 export const characterService = {
-  extract: (episodeId: string, data: { provider: string; modelName: string }) =>
+  extract: (episodeId: string, data: { provider: string; modelName: string; custom_prompt?: string }) =>
     apiClient.post<unknown, ApiResponse<Character[]>>(
       API_PATHS.charactersExtract(episodeId),
       data
@@ -19,13 +19,13 @@ export const characterService = {
 
   generateImage: (
     id: string,
-    data: { provider: string; modelName: string; count?: number; referenceImageUrl?: string; prompt?: string }
+    data: { provider: string; modelName: string; count?: number; referenceImageUrl?: string; prompt?: string; custom_prompt?: string }
   ) => apiClient.post<unknown, ApiResponse<Character>>(API_PATHS.characterGenerateImage(id), data),
 
   // 生成角色四视图（面部特写 + 三视图：正面/侧面/背面）
   generateFourView: (
     id: string,
-    data: { provider: string; modelName: string; referenceImageUrl?: string; prompt?: string }
+    data: { provider: string; modelName: string; referenceImageUrl?: string; prompt?: string; custom_prompt?: string }
   ) => apiClient.post<unknown, ApiResponse<Character>>(API_PATHS.characterGenerateFourView(id), data),
 
   uploadReference: (id: string, file: File) => {
@@ -52,7 +52,7 @@ export const characterService = {
 // ---------- 场景 ----------
 
 export const sceneService = {
-  extract: (episodeId: string, data: { provider: string; modelName: string }) =>
+  extract: (episodeId: string, data: { provider: string; modelName: string; custom_prompt?: string }) =>
     apiClient.post<unknown, ApiResponse<Scene[]>>(
       API_PATHS.scenesExtract(episodeId),
       data
@@ -66,7 +66,7 @@ export const sceneService = {
 
   generateImage: (
     id: string,
-    data: { provider: string; modelName: string; count?: number; prompt?: string }
+    data: { provider: string; modelName: string; count?: number; prompt?: string; custom_prompt?: string }
   ) => apiClient.post<unknown, ApiResponse<Scene>>(API_PATHS.sceneGenerateImage(id), data),
 
   deleteImage: (id: string, index: number) =>
@@ -99,7 +99,7 @@ export const propService = {
 
   generateImage: (
     id: string,
-    data: { provider: string; modelName: string; count?: number; referenceImageUrl?: string; prompt?: string }
+    data: { provider: string; modelName: string; count?: number; referenceImageUrl?: string; prompt?: string; custom_prompt?: string }
   ) => apiClient.post<unknown, ApiResponse<Array<{ url: string; model: string; prompt: string }>>>(API_PATHS.propGenerateImage(id), data),
 
   deleteImage: (id: string, index: number) =>

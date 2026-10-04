@@ -23,6 +23,7 @@ export const shotService = {
       imageModel?: string;
       shotDensity?: 'sparse' | 'normal' | 'dense';
       includeDialogue?: boolean;
+      custom_prompt?: string;
     }
   ) => apiClient.post<unknown, ApiResponse<Shot[]>>(API_PATHS.shotsGenerate(episodeId), data),
 
@@ -47,6 +48,7 @@ export const shotService = {
       frameTypes?: Array<'first' | 'last' | 'middle'>;
       referenceCharacterIds?: string[];
       referenceSceneId?: string;
+      custom_prompt?: string;
     }
   ) => apiClient.post<unknown, ApiResponse<Keyframe[]>>(
     API_PATHS.shotKeyframesGenerate(shotId),

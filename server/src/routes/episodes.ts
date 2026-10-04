@@ -41,6 +41,14 @@ import { exportEpisodeProductionPack } from '../services/exportProductionService
 import { episodeEnrichService } from '../services/episodeEnrichService';
 import { consistencyCheckService } from '../services/consistencyCheckService';
 import {
+  getCharacterExtractPrompt,
+  getSceneExtractPrompt,
+  getShotGenerationPrompt,
+  getKeyframePrompt,
+  getVideoPrompt,
+  getAudioPrompt,
+} from '../services/promptPreviewService';
+import {
   aggregateSegments,
   getSegmentsByEpisode,
   generateSegmentVideo,
@@ -86,6 +94,8 @@ const generateShotsSchema = z.object({
   imageModel: z.string().optional(),
   shotDensity: z.enum(['sparse', 'normal', 'dense']).optional(),
   includeDialogue: z.boolean().optional(),
+  // 自定义分镜生成提示词：有值时代替系统自动构建
+  custom_prompt: z.string().optional(),
 });
 
 const generateKeyframesSchema = z.object({
@@ -94,6 +104,8 @@ const generateKeyframesSchema = z.object({
   frameTypes: z.array(z.enum(['first', 'last', 'middle'])).optional(),
   referenceCharacterIds: z.array(z.string()).optional(),
   referenceSceneId: z.string().optional(),
+  // 自定义关键帧提示词：有值时代替系统自动构建并落库（'' = 清除已存自定义提示词）
+  custom_prompt: z.string().optional(),
 });
 
 // ============ 剧集详情与剧本 ============
@@ -111,7 +123,10 @@ router.put('/episodes/:id', validateBody(updateEpisodeSchema), asyncHandler(asyn
   const db = getDb(req);
   const episode = NovelEpisodeDAO.getByIdAndUser(db, req.params.id, req.user.id);
   if (!episode) throw createError(404, ErrorCodes.NOT_FOUND, '剧集不存在');
-  const updated = NovelEpisodeDAO.update(db, req.params.id, req.body);
+  // P3: 剧本内容更新走 updateScript（script_version + 1 / script_updated_at 刷新，供前端判断下游资产过期）
+  const updated = req.body.script_content !== undefined
+    ? NovelEpisodeDAO.updateScript(db, req.params.id, req.body)
+    : NovelEpisodeDAO.update(db, req.params.id, req.body);
   res.json({ success: true, data: updated });
 }));
 
@@ -168,6 +183,7 @@ router.post('/episodes/:id/shots/generate', validateBody(generateShotsSchema), a
     textModel: req.body.textModel,
     shotDensity: req.body.shotDensity,
     includeDialogue: req.body.includeDialogue,
+    customPrompt: req.body.custom_prompt,
   });
   res.json({ success: true, data: created });
 }));
@@ -232,6 +248,61 @@ router.delete('/episodes/:id/shots', asyncHandler(async (req: Request, res: Resp
   res.json({ success: true, data: { message: `已删除 ${count} 个镜头`, deleted: count } });
 }));
 
+// ============ 提示词预览（不调用AI，基于当前数据库数据构建提示词字符串） ============
+
+// 角色提取提示词预览
+router.get('/episodes/:id/preview-character-prompt', asyncHandler(async (req: Request, res: Response) => {
+  const db = getDb(req);
+  assertEpisodeOwner(db, req.params.id, req.user.id);
+  const data = await getCharacterExtractPrompt(db, req.params.id);
+  res.json({ success: true, data });
+}));
+
+// 场景提取提示词预览
+router.get('/episodes/:id/preview-scene-prompt', asyncHandler(async (req: Request, res: Response) => {
+  const db = getDb(req);
+  assertEpisodeOwner(db, req.params.id, req.user.id);
+  const data = await getSceneExtractPrompt(db, req.params.id);
+  res.json({ success: true, data });
+}));
+
+// 分镜生成提示词预览（query: shot_density? / include_dialogue?）
+router.get('/episodes/:id/preview-shot-prompt', asyncHandler(async (req: Request, res: Response) => {
+  const db = getDb(req);
+  assertEpisodeOwner(db, req.params.id, req.user.id);
+  const shotDensity = typeof req.query.shot_density === 'string' ? req.query.shot_density : undefined;
+  let includeDialogue: boolean | undefined;
+  if (typeof req.query.include_dialogue === 'string') {
+    includeDialogue = req.query.include_dialogue === 'true' || req.query.include_dialogue === '1';
+  }
+  const data = await getShotGenerationPrompt(db, req.params.id, { shot_density: shotDensity, include_dialogue: includeDialogue });
+  res.json({ success: true, data });
+}));
+
+// 关键帧提示词预览
+router.get('/shots/:id/preview-keyframe-prompt', asyncHandler(async (req: Request, res: Response) => {
+  const db = getDb(req);
+  assertShotOwner(db, req.params.id, req.user.id);
+  const data = await getKeyframePrompt(db, req.params.id);
+  res.json({ success: true, data });
+}));
+
+// 视频提示词预览
+router.get('/shots/:id/preview-video-prompt', asyncHandler(async (req: Request, res: Response) => {
+  const db = getDb(req);
+  assertShotOwner(db, req.params.id, req.user.id);
+  const data = await getVideoPrompt(db, req.params.id);
+  res.json({ success: true, data });
+}));
+
+// 配音提示词预览
+router.get('/shots/:id/preview-audio-prompt', asyncHandler(async (req: Request, res: Response) => {
+  const db = getDb(req);
+  assertShotOwner(db, req.params.id, req.user.id);
+  const data = await getAudioPrompt(db, req.params.id);
+  res.json({ success: true, data });
+}));
+
 // ============ 关键帧 ============
 
 // 生成关键帧
@@ -243,6 +314,7 @@ router.post('/shots/:id/keyframes/generate', validateBody(generateKeyframesSchem
     frameTypes: req.body.frameTypes,
     referenceCharacterIds: req.body.referenceCharacterIds,
     referenceSceneId: req.body.referenceSceneId,
+    customPrompt: req.body.custom_prompt,
   });
   res.json({ success: true, data: results });
 }));
@@ -366,6 +438,8 @@ const generateVideoSchema = z.object({
   endFrameId: z.string().optional(),       // 显式指定尾帧关键帧（首尾帧插值）
   referenceImages: z.array(z.string()).optional(), // 一致性参考图，未传则自动收集
   firstFrameImageUrl: z.string().optional(), // 显式覆盖首帧（上一镜尾帧继承等）
+  // 自定义视频提示词：有值时代替系统自动构建并落库（'' = 清除已存自定义提示词）
+  custom_prompt: z.string().optional(),
 });
 
 // 生成视频
@@ -383,6 +457,7 @@ router.post('/shots/:id/video/generate', validateBody(generateVideoSchema), asyn
     endFrameId: req.body.endFrameId,
     referenceImages: req.body.referenceImages,
     firstFrameImageUrl: req.body.firstFrameImageUrl,
+    customPrompt: req.body.custom_prompt,
   });
   res.json({ success: true, data: result });
 }));

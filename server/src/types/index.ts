@@ -140,6 +140,9 @@ export interface NovelEpisode {
   enrich_feedback: string | null;
   enrich_reject_count: number;
   structured_script?: string;    // 结构化剧本 JSON（场次 + 节拍流）
+  // 剧本版本追踪：每次剧本内容更新 +1 / 刷新时间戳，下游资产据此判断是否过期
+  script_version?: number;
+  script_updated_at?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -213,6 +216,8 @@ export interface ScriptCharacter {
   // P0-1: 身份锁（全片不变）+ 服装列表（每场可换）
   identity_lock?: string | null;   // JSON: IdentityLock
   wardrobe?: string | null;        // JSON: WardrobeItem[]
+  custom_image_prompt?: string | null; // 角色概念图自定义提示词（custom_prompt 落库）
+  script_version?: number;         // 生成时对应的剧本版本（0 = 旧数据/未知）
   created_at: string;
   updated_at: string;
 }
@@ -361,6 +366,8 @@ export interface ScriptScene {
   // P1-2: 空间布局 + 灯光体系
   spatial_layout?: string | null;  // JSON: SpatialLayoutItem[]
   lighting?: string | null;        // JSON: LightingConfig
+  custom_image_prompt?: string | null; // 场景概念图自定义提示词（custom_prompt 落库）
+  script_version?: number;         // 生成时对应的剧本版本（0 = 旧数据/未知）
   created_at: string;
   updated_at: string;
 }
@@ -444,6 +451,10 @@ export interface Shot {
   frame_timestamps?: string;    // 分镜图时间戳 JSON
   // P0-2: 角色调度（位置/朝向/动作），引用式不重复描述外貌
   blocking?: string | null;     // JSON: BlockingItem[]
+  // 自定义提示词：生成接口传入 custom_prompt 时替代系统自动构建，并落库供预览/下次生成默认使用
+  custom_keyframe_prompt?: string | null;  // 关键帧生成自定义提示词
+  custom_video_prompt?: string | null;     // 视频生成自定义提示词
+  script_version?: number;         // 生成时对应的剧本版本（0 = 旧数据/未知）
   created_at: string;
   updated_at: string;
 }

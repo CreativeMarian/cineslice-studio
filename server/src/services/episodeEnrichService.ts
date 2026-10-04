@@ -399,7 +399,17 @@ export const episodeEnrichService = {
     const episode = NovelEpisodeDAO.getByIdAndUser(db, episodeId, userId);
     if (!episode) throw new Error(`剧集不存在: ${episodeId}`);
     if (!episode.enriched_script) throw new Error('该集还没有加料重构结果');
-    NovelEpisodeDAO.update(db, episodeId, { enrich_status: 'approved' });
+    const result = this.parseStored(episode);
+    // P3: 通过时把加料后剧本正文回写 script_content（updateScript 同时递增 script_version / 刷新 script_updated_at，
+    //     使后续所有环节读到的都是最新剧本；enriched_script 保留原文供 diff 展示）
+    if (result && result.enrichedScript && result.enrichedScript.trim().length > 0) {
+      NovelEpisodeDAO.updateScript(db, episodeId, {
+        script_content: result.enrichedScript.trim(),
+        enrich_status: 'approved',
+      });
+    } else {
+      NovelEpisodeDAO.update(db, episodeId, { enrich_status: 'approved' });
+    }
   },
 
   /** 打回重改：标记 rejected，记录用户不满意反馈，前端可重新触发加料（重新加料时携带反馈上下文） */

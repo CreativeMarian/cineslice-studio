@@ -20,6 +20,7 @@ import { projectStorage } from '../services/projectStorage';
 import { decodeFilename } from '../utils/filename';
 import { rewriteScriptByMode, splitScriptToEpisodes } from '../services/scriptRewriter';
 import type { ScriptRewriteOptions } from '../services/scriptRewriter';
+import { getScriptRewritePrompt } from '../services/promptPreviewService';
 import {
   detectMaxEpisodeMark,
   calcBatchSize,
@@ -124,6 +125,18 @@ const fromInputSchema = z.object({
   modelName: z.string().optional(),
   style: z.string().optional(),
   pacing: z.string().optional(),
+  // 自定义改写提示词：有值时代替系统自动构建的改写提示词
+  custom_prompt: z.string().optional(),
+});
+
+// 剧本改写提示词预览 schema（不调用AI，只基于输入+项目配置构建提示词字符串）
+const previewScriptPromptSchema = z.object({
+  input: z.string().min(1).max(200000),
+  project_style: z.string().optional(),
+  aspect_ratio: z.string().optional(),
+  target_duration: z.number().optional(),
+  genre: z.string().optional(),
+  input_mode: z.enum(['one_liner', 'outline', 'novel']).optional(),
 });
 
 /** 解析文本模型：body 指定 > 用户默认文本模型 > 已注册文本模型（首个） */
@@ -153,7 +166,7 @@ function resolveTextModel(
 // 调用 scriptRewriter 生成标准短剧剧本后创建项目 + 剧集
 router.post('/from-input', validateBody(fromInputSchema), asyncHandler(async (req: Request, res: Response) => {
   const db = getDb(req);
-  const { input_mode, content, title, visual_style, aspect_ratio, target_episodes, provider, modelName, style, pacing } = req.body;
+  const { input_mode, content, title, visual_style, aspect_ratio, target_episodes, provider, modelName, style, pacing, custom_prompt } = req.body;
 
   const model = resolveTextModel(db, req.user.id, provider, modelName);
   const rewriteOptions: ScriptRewriteOptions = {
@@ -164,6 +177,8 @@ router.post('/from-input', validateBody(fromInputSchema), asyncHandler(async (re
     targetEpisodes: target_episodes,
     style,
     pacing,
+    // 自定义改写提示词：有值时代替系统自动构建的提示词
+    customPrompt: custom_prompt,
   };
 
   // 按输入模式改写为标准短剧剧本
@@ -212,6 +227,19 @@ router.post('/from-input', validateBody(fromInputSchema), asyncHandler(async (re
       script: createdEpisodes.length > 0 ? createdEpisodes[0].script_content : '',
     },
   });
+}));
+
+// 剧本改写提示词预览：不调用AI，只基于输入+项目配置构建改写提示词
+router.post('/preview-script-prompt', validateBody(previewScriptPromptSchema), asyncHandler(async (req: Request, res: Response) => {
+  const db = getDb(req);
+  const data = await getScriptRewritePrompt(db, req.body.input, {
+    project_style: req.body.project_style,
+    aspect_ratio: req.body.aspect_ratio,
+    target_duration: req.body.target_duration,
+    genre: req.body.genre,
+    input_mode: req.body.input_mode,
+  });
+  res.json({ success: true, data });
 }));
 
 // 项目详情

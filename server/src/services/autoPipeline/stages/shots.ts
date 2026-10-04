@@ -4,6 +4,7 @@ import type { Database } from '../../../types';
 import { NovelEpisodeDAO, ShotDAO, ScriptCharacterDAO, ScriptSceneDAO, ScriptPropDAO, ProjectDAO, SegmentDAO } from '../../../models';
 import { aiProxy } from '../../aiProxy';
 import { buildShotGenerationPrompt } from '../../prompts/shotGeneration';
+import { buildSceneTableEntryForPrompt } from '../../promptBuilder';
 import { parseShotListArray } from '../../../utils/aiJsonParser';
 import { buildShotAssetAssociations, matchSceneNameFromText } from '../../shotConsistencyService';
 import type { AutoPipelineTask } from '../types';
@@ -95,6 +96,8 @@ export async function stageShots(db: Database, task: AutoPipelineTask): Promise<
           scene_id: assoc.scene_id ?? undefined,
           blocking: assoc.blocking ?? null,
           character_outfits: assoc.character_outfits ?? undefined,
+          // P3: 记录生成时对应的剧本版本（前端据此判断分镜资产是否过期）
+          script_version: first.script_version || 0,
         });
         ShotDAO.update(db, shotRow.id, {
           video_prompt: splitSegmentPromptByShot(en.h3Prompt, sh.shot || num, total),
@@ -122,10 +125,10 @@ export async function stageShots(db: Database, task: AutoPipelineTask): Promise<
     .filter(c => c.name)
     .map(c => ({ name: c.name, appearance: c.visual_prompt || c.visual_description || c.description || c.name }));
 
-  // 场景表（visual_prompt 优先）→ 注入分镜 prompt，分镜只做输出、不引入新场景
+  // 场景表（含空间布局 + 灯光体系摘要）→ 注入分镜 prompt，分镜只做输出、不引入新场景
   const existingScenes = ScriptSceneDAO.listByEpisode(db, first.id);
   const scenesStr = existingScenes.length > 0
-    ? existingScenes.map(s => `${s.name}: ${s.visual_prompt || s.description || s.location || ''}`).join('\n')
+    ? existingScenes.map(s => buildSceneTableEntryForPrompt(s)).join('\n')
     : '未提供场景表';
 
   // 道具表（visual_prompt + keywords）→ 注入分镜 prompt，用于 props_in_shot 匹配
@@ -231,6 +234,8 @@ export async function stageShots(db: Database, task: AutoPipelineTask): Promise<
         phase: s.phase ?? null,
         phase_name: s.phaseName || null,
         segment_id: s.segmentId ?? null,
+        // P3: 记录生成时对应的剧本版本（前端据此判断分镜资产是否过期）
+        script_version: first.script_version || 0,
       };
     }));
   })();

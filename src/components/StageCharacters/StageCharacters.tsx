@@ -2,15 +2,18 @@ import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Users, Sparkles, Plus, Wand2, Film } from 'lucide-react';
 import { Button, Card, EmptyState, Modal, Input, Textarea, GenerationProgress } from '../ui';
-import { SectionHeader, EpisodeSelector } from '../common';
+import { SectionHeader, EpisodeSelector, PromptEditor, PromptToggleButton, ScriptStaleBanner } from '../common';
 import { CharacterCard } from '../StageAssets/CharacterCard';
 import { useProjectStore } from '../../stores/useProjectStore';
 import { useUIStore } from '../../stores/useUIStore';
 import { characterService } from '../../services/assetService';
+import { promptService } from '../../services/promptService';
+import { usePromptEditor } from '../../hooks/usePromptEditor';
 import { useDefaultModels } from '../../hooks/useDefaultModels';
 import { showApiError, getResponseErrorMessage } from '../../utils/error';
 import { parseModelKey } from '../../types/model';
 import { generateId } from '../../utils';
+import { countScriptStale } from '../../utils/scriptVersion';
 import type { Character } from '../../types';
 
 /**
@@ -20,7 +23,7 @@ import type { Character } from '../../types';
 export function StageCharacters() {
   const { id } = useParams();
   const navigate = useNavigate();
-  const { characters, setCharacters, currentEpisodeId, currentProject, loadCharacters } = useProjectStore();
+  const { characters, setCharacters, currentEpisodeId, currentProject, episodes, loadCharacters } = useProjectStore();
   const { showToast } = useUIStore();
   const { getDefaultModel } = useDefaultModels();
 
@@ -28,6 +31,17 @@ export function StageCharacters() {
   const [addOpen, setAddOpen] = useState(false);
   const [addName, setAddName] = useState('');
   const [addDescription, setAddDescription] = useState('');
+
+  // PromptEditor：角色提取提示词（自动填入，可查看/编辑/重置）
+  const charsPe = usePromptEditor(() =>
+    currentEpisodeId
+      ? promptService.previewCharacterPrompt(currentEpisodeId)
+      : Promise.resolve({ prompt: '', contextSummary: '' })
+  );
+
+  const currentEpisode = episodes.find((e) => e.id === currentEpisodeId);
+  /** 剧本已修改 → 角色可能过期（字段缺失时容错为未过期） */
+  const staleCharacterCount = countScriptStale(currentEpisode, characters);
 
   // 当前剧集变化时加载角色
   useEffect(() => {
@@ -51,7 +65,11 @@ export function StageCharacters() {
     setIsExtracting(true);
     try {
       const { provider, modelName } = parseModelKey(modelKey);
-      const res = await characterService.extract(currentEpisodeId, { provider, modelName });
+      const res = await characterService.extract(currentEpisodeId, {
+        provider,
+        modelName,
+        custom_prompt: charsPe.customPrompt ?? undefined,
+      });
       if (res.success && res.data) {
         setCharacters(res.data);
         showToast(`成功提取 ${res.data.length} 个角色，点击卡片查看详情并生成概念图`, 'success');
@@ -168,9 +186,33 @@ export function StageCharacters() {
             >
               {isExtracting ? '提取中...' : '重新提取角色'}
             </Button>
+            <PromptToggleButton active={charsPe.open} onClick={charsPe.toggle} />
           </>
         }
       />
+
+      {/* 剧本已修改：角色可能过期警告 */}
+      {staleCharacterCount > 0 && (
+        <ScriptStaleBanner
+          message={`剧本已修改，${staleCharacterCount} 个角色可能已过期，建议重新提取`}
+          actionLabel="重新提取"
+          onAction={handleExtract}
+        />
+      )}
+
+      {/* 提示词编辑器：展开后自动填入完整提示词 */}
+      {charsPe.open && (
+        <PromptEditor
+          title="角色提取提示词"
+          prompt={charsPe.prompt}
+          contextSummary={charsPe.contextSummary}
+          isLoading={charsPe.loading}
+          expanded={charsPe.open}
+          onExpandedChange={charsPe.setOpen}
+          onSave={charsPe.save}
+          onReset={charsPe.reset}
+        />
+      )}
 
       {isExtracting && (
         <GenerationProgress

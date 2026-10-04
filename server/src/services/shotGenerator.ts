@@ -16,6 +16,7 @@ import { PHASE_NAMES } from '../constants';
 import { aiProxy } from './aiProxy';
 import { buildNovelToScriptPrompt } from './prompts/novelToScript';
 import { buildShotGenerationPrompt } from './prompts/shotGeneration';
+import { buildSceneTableEntryForPrompt } from './promptBuilder';
 import { parseAiJsonOrThrow, parseAiJson, parseShotListArray } from '../utils/aiJsonParser';
 import { buildShotAssetAssociations, matchSceneNameFromText } from './shotConsistencyService';
 import type { Database } from '../types';
@@ -91,7 +92,8 @@ export async function regenerateEpisodeScript(
   console.log(`[RegenerateEpisode] episodeId=${episode.id} AI返回长度: ${result.content.length}`);
   const data = parseEpisodeAiData(result.content, 'AI返回内容解析失败');
 
-  return NovelEpisodeDAO.update(db, episode.id, {
+  // P3: 剧本更新走 updateScript（script_version + 1 / script_updated_at 刷新，供前端判断下游资产过期）
+  return NovelEpisodeDAO.updateScript(db, episode.id, {
     title: data.title || episode.title,
     script_content: data.scriptContent || episode.script_content,
     chapter_range: data.chapterRange || episode.chapter_range,
@@ -137,7 +139,8 @@ ${episode.script_content}`;
 
   const data = parseEpisodeAiData(result.content, '润色失败');
 
-  return NovelEpisodeDAO.update(db, episode.id, {
+  // P3: 剧本更新走 updateScript（script_version + 1 / script_updated_at 刷新）
+  return NovelEpisodeDAO.updateScript(db, episode.id, {
     title: data.title || episode.title,
     script_content: data.scriptContent || episode.script_content,
     text_model_used: `${provider}/${modelName}`,
@@ -166,6 +169,7 @@ export async function generateShotsForEpisode(
     textModel: string;
     shotDensity?: 'sparse' | 'normal' | 'dense';
     includeDialogue?: boolean;
+    customPrompt?: string;   // 自定义分镜生成提示词：有值时代替系统自动构建
   }
 ) {
   const episode = NovelEpisodeDAO.getByIdAndUser(db, episodeId, userId);
@@ -224,6 +228,7 @@ export async function generateShotsForEpisode(
           scene_id: assoc.scene_id ?? undefined,
           blocking: assoc.blocking ?? null,
           character_outfits: assoc.character_outfits ?? undefined,
+          script_version: episode.script_version || 0,
         });
         // 段级提示词按镜头切分落库（5s/镜独立提交消费；最后一镜含声景/配乐尾部）
         ShotDAO.update(db, shotRow.id, {
@@ -262,10 +267,10 @@ export async function generateShotsForEpisode(
     ? characters.map(c => `${c.name}: ${c.appearance}`).join('\n')
     : '未指定';
 
-  // 场景表（visual_prompt 优先）
+  // 场景表（buildSceneTableEntryForPrompt：含空间布局 + 灯光体系摘要，分镜生成时考虑角色位置与灯光氛围）
   const existingScenes = ScriptSceneDAO.listByEpisode(db, episode.id);
   const scenesStr = existingScenes.length > 0
-    ? existingScenes.map(s => `${s.name}: ${s.visual_prompt || s.description || s.location || ''}`).join('\n')
+    ? existingScenes.map(s => buildSceneTableEntryForPrompt(s)).join('\n')
     : '未提供场景表';
 
   // 道具表（visual_prompt + keywords，用于 props_in_shot 匹配）
@@ -274,12 +279,15 @@ export async function generateShotsForEpisode(
     ? existingProps.map(p => `${p.name}: ${p.visual_prompt || p.description || ''}（关键词：${p.keywords || '无'}）`).join('\n')
     : '未提供道具表';
 
-  const prompt = buildShotGenerationPrompt(
-    episode.script_content,
-    charactersStr,
-    scenesStr,
-    propsStr
-  );
+  // 自定义分镜提示词：有值时代替系统自动构建（跳过自动构建）
+  const prompt = (opts.customPrompt && opts.customPrompt.trim())
+    ? opts.customPrompt.trim()
+    : buildShotGenerationPrompt(
+        episode.script_content,
+        charactersStr,
+        scenesStr,
+        propsStr
+      );
 
   const result = await aiProxy.generateText({
     db, userId, provider: textProvider, modelName: textModel,
@@ -365,6 +373,7 @@ export async function generateShotsForEpisode(
         phase: s.phase ?? null,
         phase_name: s.phaseName || null,
         segment_id: s.segmentId ?? null,
+        script_version: episode.script_version || 0,
       };
     }));
   })();

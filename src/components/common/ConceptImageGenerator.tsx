@@ -27,6 +27,8 @@ export interface ConceptImageGeneratorProps {
   aspectRatio?: '1:1' | '3:4' | '16:9';
   /** 生成模式：concept=常规概念图；fourView=角色四视图（调用四视图专用接口，参考概念图锚点生成） */
   variant?: 'concept' | 'fourView';
+  /** 用户通过 PromptEditor 保存的自定义提示词（生成时随请求传入 custom_prompt，优先于默认提示词） */
+  customPrompt?: string;
 }
 
 const ASPECT_CLASS: Record<NonNullable<ConceptImageGeneratorProps['aspectRatio']>, string> = {
@@ -51,6 +53,7 @@ export function ConceptImageGenerator({
   onDeleted,
   aspectRatio = '3:4',
   variant = 'concept',
+  customPrompt,
 }: ConceptImageGeneratorProps) {
   const { showToast } = useUIStore();
   const { getDefaultModel } = useDefaultModels();
@@ -84,6 +87,7 @@ export function ConceptImageGenerator({
             modelName,
             referenceImageUrl: images[0]?.url,
             prompt,
+            custom_prompt: customPrompt,
           });
           if (res.success && res.data) {
             onGenerated(res.data.four_view_images ?? []);
@@ -91,7 +95,7 @@ export function ConceptImageGenerator({
             setModalOpen(false);
           }
         } else {
-          const res = await characterService.generateImage(entityId, { provider, modelName, count: 1, prompt });
+          const res = await characterService.generateImage(entityId, { provider, modelName, count: 1, prompt, custom_prompt: customPrompt });
           if (res.success && res.data) {
             onGenerated(res.data.concept_images ?? []);
             showToast('概念图生成成功', 'success');
@@ -99,14 +103,14 @@ export function ConceptImageGenerator({
           }
         }
       } else if (entityType === 'scene') {
-        const res = await sceneService.generateImage(entityId, { provider, modelName, count: 1, prompt });
+        const res = await sceneService.generateImage(entityId, { provider, modelName, count: 1, prompt, custom_prompt: customPrompt });
         if (res.success && res.data) {
           onGenerated(res.data.concept_images ?? []);
           showToast('场景概念图生成成功', 'success');
           setModalOpen(false);
         }
       } else {
-        const res = await propService.generateImage(entityId, { provider, modelName, count: 1, prompt });
+        const res = await propService.generateImage(entityId, { provider, modelName, count: 1, prompt, custom_prompt: customPrompt });
         if (res.success && res.data) {
           onGenerated(res.data.map((d) => ({ url: d.url })));
           showToast('道具概念图生成成功', 'success');

@@ -123,6 +123,8 @@ export const videoService = {
       ratio?: '16:9' | '9:16' | '1:1' | '4:3' | '3:4' | '21:9';
       resolution?: '720p' | '1080p' | '2k' | '4k';
       subtitles?: boolean;
+      /** 用户编辑后的视频提示词 */
+      custom_prompt?: string;
     }
   ) =>
     apiClient.post<unknown, ApiResponse<ShotVideoInterval>>(

@@ -61,6 +61,21 @@ export const NovelEpisodeDAO = {
     return this.getById(db, id);
   },
 
+  /**
+   * 更新剧本并递增剧本版本（script_version + 1 / script_updated_at = now）
+   * 供剧本编辑、剧本重写、加料通过等"剧本内容更新"路径调用；
+   * 角色/场景/分镜表在生成时记录 script_version，前端据此判断下游资产是否过期。
+   */
+  updateScript(db: Database, id: string, data: Partial<NovelEpisode> & { script_content?: string }): NovelEpisode | null {
+    const ep = this.getById(db, id);
+    const version = (ep?.script_version || 0) + 1;
+    return this.update(db, id, {
+      ...data,
+      script_version: version,
+      script_updated_at: now(),
+    });
+  },
+
   delete(db: Database, id: string): void {
     db.prepare('DELETE FROM novel_episodes WHERE id = ?').run(id);
   },

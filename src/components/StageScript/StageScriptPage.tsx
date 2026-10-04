@@ -13,11 +13,13 @@ import {
   Users,
 } from 'lucide-react';
 import { Tabs, Button, Card, EmptyState, Badge, Textarea } from '../ui';
-import { SectionHeader, EpisodeSelector } from '../common';
+import { SectionHeader, EpisodeSelector, MarkdownRenderer, PromptEditor, PromptToggleButton } from '../common';
 import { useProjectStore } from '../../stores/useProjectStore';
 import { useUIStore } from '../../stores/useUIStore';
 import { projectService } from '../../services/projectService';
 import { shotService } from '../../services/shotService';
+import { promptService } from '../../services/promptService';
+import { usePromptEditor } from '../../hooks/usePromptEditor';
 import { useDefaultModels } from '../../hooks/useDefaultModels';
 import { showApiError, getResponseErrorMessage } from '../../utils/error';
 import { SCRIPT_MAX_LENGTH, SCRIPT_WARN_THRESHOLD } from '../../constants';
@@ -115,7 +117,7 @@ const estimateDuration = (text: string) => Math.max(1, Math.round(text.length / 
 export function StageScriptPage() {
   const { id } = useParams();
   const navigate = useNavigate();
-  const { episodes, currentEpisodeId, updateEpisode, characters, scenes } = useProjectStore();
+  const { episodes, currentEpisodeId, currentProject, updateEpisode, characters, scenes } = useProjectStore();
   const { showToast } = useUIStore();
   const { getDefaultModel } = useDefaultModels();
 
@@ -132,6 +134,23 @@ export function StageScriptPage() {
   const cancelEditRef = useRef(false);
 
   const currentEpisode = episodes.find((e) => e.id === currentEpisodeId) as Episode | undefined;
+
+  // PromptEditor：剧本重写提示词 + 分镜生成提示词（自动填入，可查看/编辑/重置）
+  const scriptPe = usePromptEditor(() =>
+    currentEpisode
+      ? promptService.previewScriptPrompt(currentEpisode.script_content || content, {
+          project_style: currentProject?.visual_style || currentProject?.style_description || undefined,
+          aspect_ratio: currentProject?.aspect_ratio || undefined,
+          target_duration: currentProject?.target_duration || undefined,
+          genre: currentProject?.genre || undefined,
+        })
+      : Promise.resolve({ prompt: '', contextSummary: '' })
+  );
+  const shotsPe = usePromptEditor(() =>
+    currentEpisode
+      ? promptService.previewShotPrompt(currentEpisode.id, { shot_density: 'normal', include_dialogue: true })
+      : Promise.resolve({ prompt: '', contextSummary: '' })
+  );
 
   // 切换剧集时同步剧本内容
   useEffect(() => {
@@ -196,6 +215,10 @@ export function StageScriptPage() {
         });
         setContent(newContent);
         showToast('台词已更新并保存', 'success');
+        // 剧本已修改：若已提取角色/场景，提示下游可能过期
+        if (characters.length > 0 || scenes.length > 0) {
+          showToast('剧本已更新，下游角色/场景/分镜可能需要重新生成', 'warning');
+        }
       }
     } catch (err: unknown) {
       showApiError(showToast, err, '保存失败');
@@ -246,7 +269,10 @@ export function StageScriptPage() {
     }
     setIsRegenerating(true);
     try {
-      const res = await projectService.regenerateEpisode(currentEpisode.id, { text_model: modelKey });
+      const res = await projectService.regenerateEpisode(currentEpisode.id, {
+        text_model: modelKey,
+        custom_prompt: scriptPe.customPrompt ?? undefined,
+      });
       if (res.success && res.data) {
         const newContent = res.data.script_content;
         setContent(newContent);
@@ -290,6 +316,7 @@ export function StageScriptPage() {
         textModel: modelName,
         shotDensity: 'normal',
         includeDialogue: true,
+        custom_prompt: shotsPe.customPrompt ?? undefined,
       });
       if (res.success && res.data) {
         showToast(`已生成 ${res.data.length} 个分镜，进入导演台`, 'success');
@@ -351,13 +378,13 @@ export function StageScriptPage() {
             {renderEditHint()}
           </div>
         ) : (
-          <span
-            className="text-[var(--ink-1)] leading-[1.6] cursor-text hover:bg-[var(--panel-2)] rounded px-1.5 py-0.5 transition-colors"
+          <div
+            className="flex-1 text-[var(--ink-1)] leading-[1.6] cursor-text hover:bg-[var(--panel-2)] rounded px-1.5 py-0.5 transition-colors"
             onClick={() => startEdit(beat.lineIndex, beat.name, beat.text)}
             title="点击编辑台词"
           >
-            {beat.text || '（空台词，点击输入）'}
-          </span>
+            {beat.text ? <MarkdownRenderer content={beat.text} className="markdown-primary" /> : '（空台词，点击输入）'}
+          </div>
         )}
       </div>
     );
@@ -411,6 +438,7 @@ export function StageScriptPage() {
             >
               {isRegenerating ? '生成中...' : '重新生成剧本'}
             </Button>
+            <PromptToggleButton active={scriptPe.open} onClick={scriptPe.toggle} />
             <Button
               size="md"
               leftIcon={isGeneratingShots ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Clapperboard className="w-4 h-4" />}
@@ -419,9 +447,38 @@ export function StageScriptPage() {
             >
               {isGeneratingShots ? '生成分镜中...' : '确认并进入导演台'}
             </Button>
+            <PromptToggleButton active={shotsPe.open} onClick={shotsPe.toggle} />
           </>
         }
       />
+
+      {/* 提示词编辑器：展开后自动填入完整提示词，可查看/编辑/重置 */}
+      {scriptPe.open && (
+        <PromptEditor
+          title="剧本重写提示词"
+          prompt={scriptPe.prompt}
+          contextSummary={scriptPe.contextSummary}
+          isLoading={scriptPe.loading}
+          expanded={scriptPe.open}
+          onExpandedChange={scriptPe.setOpen}
+          onSave={scriptPe.save}
+          onReset={scriptPe.reset}
+          className="mb-3"
+        />
+      )}
+      {shotsPe.open && (
+        <PromptEditor
+          title="分镜生成提示词"
+          prompt={shotsPe.prompt}
+          contextSummary={shotsPe.contextSummary}
+          isLoading={shotsPe.loading}
+          expanded={shotsPe.open}
+          onExpandedChange={shotsPe.setOpen}
+          onSave={shotsPe.save}
+          onReset={shotsPe.reset}
+          className="mb-3"
+        />
+      )}
 
       <div className="flex items-center gap-2 mb-4 flex-wrap">
         <Badge variant="accent">
@@ -491,9 +548,10 @@ export function StageScriptPage() {
                       <ChevronDown
                         className={`w-4 h-4 text-[var(--ink-3)] transition-transform flex-shrink-0 ${isExpanded ? 'rotate-180' : ''}`}
                       />
-                      <span className="text-sm font-semibold text-[var(--ink-1)] font-[var(--font-display)]">
-                        {scene.title}
-                      </span>
+                      <MarkdownRenderer
+                        content={scene.title}
+                        className="markdown-title text-sm font-semibold text-[var(--ink-1)] font-[var(--font-display)]"
+                      />
                       {matchedScene && (
                         <>
                           <Badge variant="default">{matchedScene.location || '未设置地点'}</Badge>
@@ -519,7 +577,7 @@ export function StageScriptPage() {
                               className="flex items-start gap-2.5 bg-[var(--panel-2)] rounded-lg px-3.5 py-2.5 text-[13px] leading-[1.6] text-[var(--ink-2)]"
                             >
                               <Film className="w-3.5 h-3.5 text-[var(--ink-3)] flex-shrink-0 mt-0.5" />
-                              <span className="flex-1">{beat.text}</span>
+                              <MarkdownRenderer content={beat.text} className="flex-1" />
                             </div>
                           ) : (
                             renderDialogueRow(beat)
@@ -618,13 +676,13 @@ export function StageScriptPage() {
                                 {renderEditHint()}
                               </div>
                             ) : (
-                              <span
+                              <div
                                 className="flex-1 text-[13px] text-[var(--ink-1)] leading-[1.6] cursor-text hover:bg-[var(--panel-2)] rounded px-1.5 py-0.5 transition-colors"
                                 onClick={() => startEdit(line.lineIndex, group.name, line.text)}
                                 title="点击编辑台词"
                               >
-                                {line.text || '（空台词，点击输入）'}
-                              </span>
+                                {line.text ? <MarkdownRenderer content={line.text} className="markdown-primary" /> : '（空台词，点击输入）'}
+                              </div>
                             )}
                             <Badge variant="default" className="flex-shrink-0">
                               <Clock className="w-3 h-3 mr-1" /> ~{seconds}s

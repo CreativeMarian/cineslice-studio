@@ -4,6 +4,7 @@
 import { useState } from 'react';
 import { Image, RefreshCw, Maximize2, MessageSquare, AlertCircle } from 'lucide-react';
 import { Card, Badge, ImageModal, Spinner } from '../ui';
+import { MarkdownRenderer } from '../common';
 import { useProjectStore } from '../../stores/useProjectStore';
 import { useShotActions } from './useShotActions';
 import { shotSizeLabels, cameraLabels, parseShotCharacterNames } from './shotUtils';
@@ -21,6 +22,8 @@ interface ShotCardProps {
   /** 点击卡片：选中该镜并打开右侧详情面板 */
   onSelect?: (shot: Shot) => void;
   showToast: (msg: string, type: ToastType) => void;
+  /** 剧本已修改 → 该分镜可能过期（script_version 低于剧集当前版本） */
+  stale?: boolean;
 }
 
 function StatusDot({ state }: { state: CardState }) {
@@ -39,7 +42,7 @@ function StatusDot({ state }: { state: CardState }) {
   return <span className={`w-2 h-2 rounded-full flex-shrink-0 ${map[state]}`} title={title[state]} />;
 }
 
-export function ShotCard({ shot, index, selected, onSelect, showToast }: ShotCardProps) {
+export function ShotCard({ shot, index, selected, onSelect, showToast, stale }: ShotCardProps) {
   const [previewOpen, setPreviewOpen] = useState(false);
   const autoRunActive = useProjectStore((s) => s.autoRunActive);
 
@@ -95,6 +98,9 @@ export function ShotCard({ shot, index, selected, onSelect, showToast }: ShotCar
           {cameraLabels[shot.camera_movement] || shot.camera_movement}
         </span>
         <span className="ml-auto flex items-center gap-1.5 flex-shrink-0">
+          {stale && (
+            <Badge variant="warning" className="text-[10px] px-1.5 py-px leading-none">过期</Badge>
+          )}
           {autoRunActive && <span className="text-[10px] text-[var(--warning)]">流水线运行中</span>}
           <StatusDot state={cardState} />
         </span>
@@ -190,9 +196,9 @@ export function ShotCard({ shot, index, selected, onSelect, showToast }: ShotCar
 
       {/* 底部：动作描述（2行截断）+ 台词图标 */}
       <div className="px-3.5 pt-2.5 pb-3.5">
-        <p className="text-[13px] leading-relaxed text-[var(--ink-2)] line-clamp-2 min-h-[2.4em]">
-          {shot.action_description}
-        </p>
+        <div className="line-clamp-2 min-h-[2.4em]">
+          <MarkdownRenderer content={shot.action_description} className="markdown-tight" />
+        </div>
         {dialogueLine && (
           <div className="flex items-start gap-1.5 mt-1.5 text-xs text-[var(--ink-3)]">
             <MessageSquare className="w-3 h-3 mt-0.5 flex-shrink-0 text-[var(--accent-2)]" />

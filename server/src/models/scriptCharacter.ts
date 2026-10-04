@@ -93,16 +93,16 @@ function cleanShotReferences(db: Database, character: ScriptCharacter): void {
 }
 
 export const ScriptCharacterDAO = {
-  create(db: Database, data: { user_id: string; episode_id: string; name: string; gender?: string; role_type?: string; description?: string; visual_description?: string; character_profile?: string; visual_prompt?: string; voice_prompt?: string; detail_images?: string; identity_lock?: string; wardrobe?: string }): ScriptCharacter {
+  create(db: Database, data: { user_id: string; episode_id: string; name: string; gender?: string; role_type?: string; description?: string; visual_description?: string; character_profile?: string; visual_prompt?: string; voice_prompt?: string; detail_images?: string; identity_lock?: string; wardrobe?: string; custom_image_prompt?: string; script_version?: number }): ScriptCharacter {
     const id = generateId('char');
     db.prepare(`
-      INSERT INTO script_characters (id, user_id, episode_id, name, gender, role_type, description, visual_description, character_profile, visual_prompt, voice_prompt, detail_images, selected_image_index, identity_lock, wardrobe, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?)
-    `).run(id, data.user_id, data.episode_id, data.name, data.gender || 'other', data.role_type || 'supporting', data.description || '', data.visual_description || '', data.character_profile || null, data.visual_prompt || null, data.voice_prompt || null, data.detail_images || null, data.identity_lock || null, data.wardrobe || null, now(), now());
+      INSERT INTO script_characters (id, user_id, episode_id, name, gender, role_type, description, visual_description, character_profile, visual_prompt, voice_prompt, detail_images, selected_image_index, identity_lock, wardrobe, custom_image_prompt, script_version, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?)
+    `).run(id, data.user_id, data.episode_id, data.name, data.gender || 'other', data.role_type || 'supporting', data.description || '', data.visual_description || '', data.character_profile || null, data.visual_prompt || null, data.voice_prompt || null, data.detail_images || null, data.identity_lock || null, data.wardrobe || null, data.custom_image_prompt || null, data.script_version ?? 0, now(), now());
     return this.getById(db, id)!;
   },
 
-  batchCreate(db: Database, characters: Array<{ user_id: string; episode_id: string; name: string; gender?: string; role_type?: string; description?: string; visual_description?: string; character_profile?: string; visual_prompt?: string; voice_prompt?: string; detail_images?: string; identity_lock?: string; wardrobe?: string }>): ScriptCharacter[] {
+  batchCreate(db: Database, characters: Array<{ user_id: string; episode_id: string; name: string; gender?: string; role_type?: string; description?: string; visual_description?: string; character_profile?: string; visual_prompt?: string; voice_prompt?: string; detail_images?: string; identity_lock?: string; wardrobe?: string; custom_image_prompt?: string; script_version?: number }>): ScriptCharacter[] {
     const results: ScriptCharacter[] = [];
     const transaction = db.transaction(() => {
       for (const c of characters) {

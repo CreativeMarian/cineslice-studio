@@ -33,13 +33,14 @@ export const projectService = {
   create: (data: CreateProjectData) =>
     apiClient.post<unknown, ApiResponse<Project>>(API_PATHS.projects, data),
 
-  /** 三步新建流程：AI 根据输入内容生成剧本并创建项目 */
+  /** 三步新建流程：AI 根据输入内容生成剧本并创建项目（custom_prompt 使用用户编辑后的提示词） */
   createFromInput: (data: {
     input_mode: InputMode;
     content: string;
     title: string;
     visual_style: string;
     aspect_ratio: string;
+    custom_prompt?: string;
   }) =>
     apiClient.post<unknown, ApiResponse<CreateFromInputResult>>(API_PATHS.createFromInput, data),
 
@@ -165,11 +166,12 @@ export const projectService = {
   updateEpisode: (episodeId: string, data: Partial<Pick<Episode, 'title' | 'script_content'>>) =>
     apiClient.put<unknown, ApiResponse<Episode>>(API_PATHS.episode(episodeId), data),
 
-  regenerateEpisode: (episodeId: string, data: { text_model: string }) => {
+  regenerateEpisode: (episodeId: string, data: { text_model: string; custom_prompt?: string }) => {
     const [provider, modelName] = data.text_model.split(':');
     return apiClient.post<unknown, ApiResponse<Episode>>(API_PATHS.episodeRegenerate(episodeId), {
       provider,
       modelName,
+      ...(data.custom_prompt !== undefined ? { custom_prompt: data.custom_prompt } : {}),
     });
   },
 

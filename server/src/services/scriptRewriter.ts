@@ -23,6 +23,8 @@ export interface ScriptRewriteOptions {
   pacing?: string;
   /** 语言（默认 zh） */
   language?: string;
+  /** 自定义改写提示词：有值时代替系统自动构建的提示词（单次调用，跳过模式内多段式） */
+  customPrompt?: string;
 }
 
 const DEFAULT_TARGET_EPISODES = 1;
@@ -199,6 +201,21 @@ export async function rewriteScriptByMode(
   content: string,
   options: ScriptRewriteOptions,
 ): Promise<string> {
+  // 自定义改写提示词：直接单次调用（用户编辑后的提示词替代系统自动构建，不套用模式内多段式流程）
+  if (options.customPrompt && options.customPrompt.trim()) {
+    console.log(`[${new Date().toISOString()}] [ScriptRewriter] 使用自定义改写提示词（customPrompt），输入长度=${content.length}`);
+    const result = await aiProxy.generateText({
+      db: options.db, userId: options.userId,
+      provider: options.provider, modelName: options.modelName,
+      prompt: options.customPrompt.trim(),
+      responseFormat: 'text',
+      maxTokens: 32000,
+    });
+    const script = (result.content || '').trim();
+    if (!script) throw createError(400, 'EMPTY_SCRIPT', 'AI 生成的剧本为空，请重试或调整提示词');
+    console.log(`[${new Date().toISOString()}] [ScriptRewriter] 自定义提示词输出剧本长度=${script.length}`);
+    return script;
+  }
   switch (inputMode) {
     case 'one_liner':
       return rewriteOneLiner(content, options);

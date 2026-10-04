@@ -204,10 +204,24 @@ export async function generateVideoForShot(
     endFrameId?: string;       // 显式指定尾帧关键帧
     firstFrameImageUrl?: string; // 显式覆盖首帧（上一镜尾帧继承等）
     referenceImages?: string[]; // 一致性参考图（角色/场景/道具），未传则自动收集
+    customPrompt?: string;     // 自定义视频提示词：undefined=未传（回退已存 custom_video_prompt），''=清空并自动构建
   }
 ) {
   const shot = ShotDAO.getByIdAndUser(db, shotId, userId);
   if (!shot) throw createError(404, ErrorCodes.NOT_FOUND, '镜头不存在');
+
+  // P3: 自定义提示词解析（优先级：本次传入 > 已保存 custom_video_prompt > 自动构建）
+  // 显式传入时落库（'' = 清除），供预览接口与下次生成默认使用
+  let finalCustomPrompt: string | null = null;
+  if (opts.customPrompt !== undefined) {
+    finalCustomPrompt = opts.customPrompt.trim() ? opts.customPrompt.trim() : null;
+    ShotDAO.update(db, shot.id, { custom_video_prompt: finalCustomPrompt });
+  } else if (shot.custom_video_prompt && shot.custom_video_prompt.trim()) {
+    finalCustomPrompt = shot.custom_video_prompt.trim();
+  }
+  if (finalCustomPrompt) {
+    console.log(`[Video] 使用自定义视频提示词（custom_video_prompt），长度=${finalCustomPrompt.length}`);
+  }
 
   // P1-14: 入口检查——该镜头已有 processing 状态的视频任务时不重复创建（返回现有任务，避免并发重复提交）
   const existingIntervals = ShotVideoIntervalDAO.listByShot(db, shot.id);
@@ -275,8 +289,9 @@ export async function generateVideoForShot(
     shotReferenceImages = [imageToDataUrl(firstFrameUrl), ...shotReferenceImages];
   }
 
-  // 极简视频提示词：未传入 motionPrompt 时用 promptBuilder 构建（身份锁+场景+动作+禁令）
-  let finalMotionPrompt = motionPrompt;
+  // 极简视频提示词：未传入 motionPrompt 且未启用自定义提示词时用 promptBuilder 构建（身份锁+场景+动作+禁令）
+  // P3: 自定义提示词（custom_video_prompt）优先于 motionPrompt 与自动构建
+  let finalMotionPrompt = finalCustomPrompt || motionPrompt;
   if (!finalMotionPrompt) {
     try {
       finalMotionPrompt = buildPromptBuilderVideoPrompt(db, shot);

@@ -135,6 +135,8 @@ export interface Episode extends BaseEntity {
   enriched_model?: string | null;
   enriched_at?: string | null;
   enrich_status?: 'none' | 'pending' | 'approved' | 'rejected' | 'manual';
+  /** 剧本版本号：用户编辑剧本后自增，用于判断下游角色/场景/分镜是否过期 */
+  script_version?: number | null;
 }
 
 // ---------- 加料重构（按集触发：规范前置 + 五层护栏） ----------
@@ -242,6 +244,8 @@ export interface Character extends BaseEntity {
   // P0-1: 身份锁（全片不变，JSON 字符串）+ 服装列表（每场可换，JSON 字符串）
   identity_lock?: string | null;  // JSON: IdentityLock
   wardrobe?: string | null;       // JSON: WardrobeItem[]
+  /** 生成时的剧本版本号：小于剧集当前 script_version 表示角色可能已过期 */
+  script_version?: number | null;
 }
 
 // ---------- 场景 ----------
@@ -284,6 +288,8 @@ export interface Scene extends BaseEntity {
   // P1-2: 空间布局 + 灯光体系（JSON 字符串）
   spatial_layout?: string | null;  // JSON: SpatialLayoutItem[]
   lighting?: string | null;        // JSON: LightingConfig
+  /** 生成时的剧本版本号：小于剧集当前 script_version 表示场景可能已过期 */
+  script_version?: number | null;
 }
 
 // ---------- 道具 ----------
@@ -358,6 +364,8 @@ export interface Shot extends BaseEntity {
   video_skill?: string | null;
   // P0-2: 角色调度（位置/朝向/动作），引用式不重复描述外貌（JSON 字符串）
   blocking?: string | null;     // JSON: BlockingItem[]
+  /** 生成时的剧本版本号：小于剧集当前 script_version 表示分镜可能已过期 */
+  script_version?: number | null;
 }
 
 // ---------- 分段（P2-2: Segment） ----------

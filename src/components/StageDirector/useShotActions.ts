@@ -40,7 +40,7 @@ export function useShotActions(
   const processingVideo = videos.find((v) => v.status === 'processing' || v.status === 'pending' || v.status === 'generating');
   const failedVideo = videos.find((v) => v.status === 'failed');
 
-  const handleGenerateKeyframe = async () => {
+  const handleGenerateKeyframe = async (customPrompt?: string) => {
     const model = resolveImageModel(configs.image);
     if (!model) {
       showToast('请先在模型配置中添加图像模型，或在批量工具栏选择首帧模型', 'error');
@@ -54,6 +54,7 @@ export function useShotActions(
         frameTypes: ['first'],
         referenceSceneId: shot.scene_id || undefined,
         // 角色参考缺省由后端按 characters_in_shot 自动收集（防旧图缓存与角色漂移）
+        custom_prompt: customPrompt,
       });
       if (res.success && res.data) {
         setKeyframesForShot(shot.id, res.data as unknown as ShotKeyframe[]);
@@ -71,7 +72,7 @@ export function useShotActions(
     }
   };
 
-  const handleGenerateVideo = async () => {
+  const handleGenerateVideo = async (customPrompt?: string) => {
     if (!firstKeyframe) {
       showToast('请先生成首帧，再生成视频', 'error');
       return;
@@ -95,6 +96,7 @@ export function useShotActions(
         ratio: config.defaultRatio as '16:9' | '9:16' | '1:1' | '4:3' | '3:4' | '21:9',
         resolution: config.defaultResolution as '720p' | '1080p' | '2k' | '4k',
         subtitles: false,
+        custom_prompt: customPrompt,
       });
       if (res.success && res.data) {
         const currentVideos = useProjectStore.getState().videosByShot[shot.id] || [];

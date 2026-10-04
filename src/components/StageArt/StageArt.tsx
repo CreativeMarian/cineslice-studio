@@ -13,14 +13,17 @@ import {
   Users,
 } from 'lucide-react';
 import { Tabs, Button, Card, EmptyState, Badge, Modal, Input, Select, Textarea } from '../ui';
-import { SectionHeader, EpisodeSelector } from '../common';
+import { SectionHeader, EpisodeSelector, PromptEditor, PromptToggleButton, ScriptStaleBanner } from '../common';
 import { useProjectStore } from '../../stores/useProjectStore';
 import { useUIStore } from '../../stores/useUIStore';
 import { sceneService, propService } from '../../services/assetService';
+import { promptService } from '../../services/promptService';
+import { usePromptEditor } from '../../hooks/usePromptEditor';
 import { useDefaultModels } from '../../hooks/useDefaultModels';
 import { showApiError, getResponseErrorMessage } from '../../utils/error';
 import { parseModelKey } from '../../types/model';
 import { TIME_OF_DAY_LABELS } from '../../utils';
+import { countScriptStale } from '../../utils/scriptVersion';
 import type { Scene, Prop, PropCategory } from '../../types';
 
 const PROP_CATEGORY_LABELS: Record<string, string> = {
@@ -91,6 +94,16 @@ export function StageArt() {
 
   const currentEpisode = episodes.find((e) => e.id === currentEpisodeId);
 
+  // PromptEditor：场景提取提示词（自动填入，可查看/编辑/重置；道具 Tab 无预览端点）
+  const scenePe = usePromptEditor(() =>
+    currentEpisodeId
+      ? promptService.previewScenePrompt(currentEpisodeId)
+      : Promise.resolve({ prompt: '', contextSummary: '' })
+  );
+
+  /** 剧本已修改 → 场景可能过期（字段缺失时容错为未过期） */
+  const staleSceneCount = countScriptStale(currentEpisode, scenes);
+
   // 生成场景默认提示词（与 StageAssets 中保持一致）
   const generateSceneDefaultPrompt = (scene: Scene) => {
     const timeText = scene.time_of_day === 'night' ? '夜晚，月光照明，深色天空' :
@@ -112,7 +125,11 @@ export function StageArt() {
     try {
       const { provider, modelName } = parseModelKey(modelKey);
       if (tab === 'scenes') {
-        const res = await sceneService.extract(currentEpisodeId, { provider, modelName });
+        const res = await sceneService.extract(currentEpisodeId, {
+          provider,
+          modelName,
+          custom_prompt: scenePe.customPrompt ?? undefined,
+        });
         if (res.success && res.data) {
           setScenes(res.data);
           showToast(`成功提取 ${res.data.length} 个场景。下一步：点击场景卡片生成场景概念图`, 'success');
@@ -262,9 +279,27 @@ export function StageArt() {
                 ? '重新提取场景'
                 : '重新提取道具'}
             </Button>
+            {tab === 'scenes' && (
+              <PromptToggleButton active={scenePe.open} onClick={scenePe.toggle} />
+            )}
           </>
         }
       />
+
+      {/* 提示词编辑器：展开后自动填入完整提示词（仅场景提取有预览端点） */}
+      {scenePe.open && (
+        <PromptEditor
+          title="场景提取提示词"
+          prompt={scenePe.prompt}
+          contextSummary={scenePe.contextSummary}
+          isLoading={scenePe.loading}
+          expanded={scenePe.open}
+          onExpandedChange={scenePe.setOpen}
+          onSave={scenePe.save}
+          onReset={scenePe.reset}
+          className="mt-3"
+        />
+      )}
 
       <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
         <EpisodeSelector />
@@ -307,6 +342,14 @@ export function StageArt() {
 
         {/* 场景 Tab */}
         <Tabs.Content value="scenes">
+          {scenes.length > 0 && staleSceneCount > 0 && (
+            <ScriptStaleBanner
+              message={`剧本已修改，${staleSceneCount} 个场景可能已过期，建议重新提取`}
+              actionLabel="重新提取"
+              onAction={handleExtract}
+              className="mb-3"
+            />
+          )}
           {isExtracting && tab === 'scenes' ? (
             <Card className="p-8 flex flex-col items-center justify-center">
               <div className="w-12 h-12 border-3 border-[var(--accent)] border-t-transparent rounded-full animate-spin mb-3" />

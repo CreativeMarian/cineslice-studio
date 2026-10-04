@@ -5,10 +5,12 @@ import {
   LayoutGrid, Plus, Trash2, Pencil, Lightbulb,
 } from 'lucide-react';
 import { Button, Card, Badge, Textarea, LoadingState, Modal, Input } from '../ui';
-import { ConceptImageGenerator } from '../common';
+import { ConceptImageGenerator, MarkdownRenderer, PromptEditor, PromptToggleButton } from '../common';
 import { useProjectStore } from '../../stores/useProjectStore';
 import { useUIStore } from '../../stores/useUIStore';
 import { sceneService } from '../../services/assetService';
+import { promptService } from '../../services/promptService';
+import { usePromptEditor } from '../../hooks/usePromptEditor';
 import { useDebouncedCallback } from '../../hooks/useDebounce';
 import { showApiError } from '../../utils/error';
 import { TIME_OF_DAY_LABELS, generateId } from '../../utils';
@@ -40,6 +42,9 @@ export function SceneDetailPage() {
 
   const [descriptionDraft, setDescriptionDraft] = useState('');
   const [prompt, setPrompt] = useState('');
+  // 「编辑/预览」切换（预览用 MarkdownRenderer 渲染富文本）
+  const [previewDesc, setPreviewDesc] = useState(false);
+  const [previewPrompt, setPreviewPrompt] = useState(false);
   const [isSavingDesc, setIsSavingDesc] = useState(false);
   const [isSavingPrompt, setIsSavingPrompt] = useState(false);
 
@@ -59,6 +64,13 @@ export function SceneDetailPage() {
   const [savingLighting, setSavingLighting] = useState(false);
 
   const scene = useMemo(() => scenes.find((s) => s.id === sceneId) ?? null, [scenes, sceneId]);
+
+  // PromptEditor：场景概念图提示词（展开时调用预览端点自动填入）
+  const sceneImgPe = usePromptEditor(() =>
+    scene
+      ? promptService.previewSceneImagePrompt(scene.id)
+      : Promise.resolve({ prompt: '', contextSummary: '' })
+  );
 
   // 直接访问详情页时，store 可能尚未加载场景列表，自动加载当前集场景
   useEffect(() => {
@@ -341,22 +353,33 @@ export function SceneDetailPage() {
           <Card className="p-5">
             <div className="flex items-center justify-between mb-2">
               <h3 className="text-sm font-semibold text-[var(--ink-2)]">场景描述</h3>
-              <Button
-                variant="outline"
-                size="sm"
-                leftIcon={<Save className="w-3.5 h-3.5" />}
-                onClick={handleSaveDescription}
-                isLoading={isSavingDesc}
-              >
-                保存
-              </Button>
+              <div className="flex items-center gap-2">
+                <Button variant="ghost" size="sm" onClick={() => setPreviewDesc((v) => !v)}>
+                  {previewDesc ? '编辑' : '预览'}
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  leftIcon={<Save className="w-3.5 h-3.5" />}
+                  onClick={handleSaveDescription}
+                  isLoading={isSavingDesc}
+                >
+                  保存
+                </Button>
+              </div>
             </div>
-            <Textarea
-              value={descriptionDraft}
-              onChange={(e) => setDescriptionDraft(e.target.value)}
-              rows={4}
-              placeholder="场景的空间布局、陈设细节、环境氛围描述..."
-            />
+            {previewDesc ? (
+              <div className="min-h-[96px]">
+                <MarkdownRenderer content={descriptionDraft || '暂无内容'} />
+              </div>
+            ) : (
+              <Textarea
+                value={descriptionDraft}
+                onChange={(e) => setDescriptionDraft(e.target.value)}
+                rows={4}
+                placeholder="场景的空间布局、陈设细节、环境氛围描述..."
+              />
+            )}
           </Card>
 
           <Card className="p-5">
@@ -364,23 +387,34 @@ export function SceneDetailPage() {
               <h3 className="text-sm font-semibold text-[var(--ink-2)] flex items-center gap-1.5">
                 <Edit3 className="w-3.5 h-3.5 text-[var(--accent)]" /> 形象提示词
               </h3>
-              <Button
-                variant="outline"
-                size="sm"
-                leftIcon={<Save className="w-3.5 h-3.5" />}
-                onClick={handleSavePrompt}
-                isLoading={isSavingPrompt}
-              >
-                保存
-              </Button>
+              <div className="flex items-center gap-2">
+                <Button variant="ghost" size="sm" onClick={() => setPreviewPrompt((v) => !v)}>
+                  {previewPrompt ? '编辑' : '预览'}
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  leftIcon={<Save className="w-3.5 h-3.5" />}
+                  onClick={handleSavePrompt}
+                  isLoading={isSavingPrompt}
+                >
+                  保存
+                </Button>
+              </div>
             </div>
-            <Textarea
-              value={prompt}
-              onChange={(e) => setPrompt(e.target.value)}
-              rows={6}
-              className="text-xs font-mono"
-              placeholder="编辑场景概念图生成提示词..."
-            />
+            {previewPrompt ? (
+              <div className="min-h-[144px]">
+                <MarkdownRenderer content={prompt || '暂无内容'} />
+              </div>
+            ) : (
+              <Textarea
+                value={prompt}
+                onChange={(e) => setPrompt(e.target.value)}
+                rows={6}
+                className="text-xs font-mono"
+                placeholder="编辑场景概念图生成提示词..."
+              />
+            )}
             <p className="text-xs text-[var(--ink-3)] mt-2">
               保存后作为概念图生成默认提示词（页面本地记忆），生成时仍可在弹窗中微调
             </p>
@@ -541,7 +575,10 @@ export function SceneDetailPage() {
         {/* 右侧：概念图区 */}
         <div className="lg:col-span-2">
           <Card className="p-5">
-            <h3 className="text-sm font-semibold text-[var(--ink-2)] mb-4">场景概念图（16:9）</h3>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-sm font-semibold text-[var(--ink-2)]">场景概念图（16:9）</h3>
+              <PromptToggleButton active={sceneImgPe.open} onClick={sceneImgPe.toggle} />
+            </div>
             <ConceptImageGenerator
               title="概念图"
               entityId={scene.id}
@@ -552,7 +589,21 @@ export function SceneDetailPage() {
               onGenerated={handleGenerated}
               onDeleted={handleDeleted}
               aspectRatio="16:9"
+              customPrompt={sceneImgPe.customPrompt ?? undefined}
             />
+            {sceneImgPe.open && (
+              <PromptEditor
+                title="场景概念图提示词"
+                prompt={sceneImgPe.prompt}
+                contextSummary={sceneImgPe.contextSummary}
+                isLoading={sceneImgPe.loading}
+                expanded={sceneImgPe.open}
+                onExpandedChange={sceneImgPe.setOpen}
+                onSave={sceneImgPe.save}
+                onReset={sceneImgPe.reset}
+                className="mt-3"
+              />
+            )}
           </Card>
         </div>
       </div>
