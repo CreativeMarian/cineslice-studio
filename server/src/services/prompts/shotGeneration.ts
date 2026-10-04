@@ -23,6 +23,12 @@ export interface ShotGenerationOutput {
   mood: string;                   // 情绪基调
   transition: string;             // 转场方式
   segment_id: number;             // 所属段编号（每段≤15秒，即≤3-4镜）
+  blocking: Array<{               // 角色调度（每个出场角色必须指定位置/朝向/动作）
+    character_name: string;       // 角色名（必须来自角色表）
+    position: string;             // 画面位置：左/中/右/前景/背景
+    facing: string;               // 朝向：镜头/左/右/背对镜头
+    action: string;               // 该角色在本镜的具体动作
+  }>;
 }
 
 export function buildShotGenerationPrompt(
@@ -87,6 +93,17 @@ ${propsSection}
 12. mood — 情绪基调（如"紧张""温馨""悲伤""愤怒"）
 13. transition — 转场方式（cut硬切/fade淡入淡出/dissolve叠化/match_cut匹配剪辑）
 14. segment_id — 段编号（每3-4个连续镜头为一段，每段总时长≤15秒，从1开始）
+15. blocking — 角色调度数组（每个出场角色都必须指定，数量与 characters_in_shot 一致）：
+   - character_name — 角色名（必须来自角色表）
+   - position — 画面位置：左 / 中 / 右 / 前景 / 背景（参考九宫格构图）
+   - facing — 朝向：镜头 / 左 / 右 / 背对镜头
+   - action — 该角色在本镜的具体动作（如"推门进入""低头看手机""转身离开"）
+   格式示例：[{"character_name":"林小雨","position":"左","facing":"镜头","action":"坐在沙发上翻手机"}]
+
+【调度规则】
+- 对话场景：双人对话时一左一右或一前一后，朝向镜头或彼此
+- 动作场景：位置随镜头运动变化，动作清晰可执行
+- 每个出场角色必须出现在 blocking 中，禁止遗漏
 
 【台词时长规则（必须严格遵守）】
 - 中文台词按 4.5 字/秒 折算

@@ -6,7 +6,7 @@ import { ConceptImageGenerator } from '../common';
 import { useProjectStore } from '../../stores/useProjectStore';
 import { useUIStore } from '../../stores/useUIStore';
 import { propService } from '../../services/assetService';
-import apiClient from '../../services/apiClient';
+import { showApiError } from '../../utils/error';
 import type { Prop } from '../../types';
 
 const PROMPT_STORAGE_PREFIX = 'moo:prop_prompt:';
@@ -23,6 +23,11 @@ const PROP_CATEGORY_LABELS: Record<string, string> = {
   vehicle: '载具',
   other: '其他',
 };
+
+/** 纯白底单一物品提示词（1:1 道具方图）——模块级函数，与组件状态无关 */
+function generatePropDefaultPrompt(p: Prop): string {
+  return `道具概念设定图：${p.name}。${p.description || ''}。纯白色背景，单一物品居中展示，完整呈现道具外观，材质细节清晰，颜色准确，比例真实。产品级白底图，光影均匀柔和，无阴影杂乱，电影级质感，8K分辨率，高清细节。画面中绝对不能出现任何文字、字母、数字、符号、水印、标签、logo、手部或人物。专业道具设定参考图，用于视频生成时保持道具一致性。`;
+}
 
 /** 第 3 段 · 道具详情页：左侧设定信息 + 右侧概念图（1:1 白底方图） */
 export function PropDetailPage() {
@@ -66,10 +71,49 @@ export function PropDetailPage() {
     loadProps();
   }, [loadProps]);
 
-  // 纯白底单一物品提示词（1:1 道具方图）
-  const generatePropDefaultPrompt = (p: Prop) => {
-    return `道具概念设定图：${p.name}。${p.description || ''}。纯白色背景，单一物品居中展示，完整呈现道具外观，材质细节清晰，颜色准确，比例真实。产品级白底图，光影均匀柔和，无阴影杂乱，电影级质感，8K分辨率，高清细节。画面中绝对不能出现任何文字、字母、数字、符号、水印、标签、logo、手部或人物。专业道具设定参考图，用于视频生成时保持道具一致性。`;
+  // 保存道具描述/形象提示词（声明在 Ctrl+S effect 之前，避免 TDZ 与过期闭包）
+  const handleSaveDescription = async () => {
+    if (!prop) return;
+    setIsSavingDesc(true);
+    try {
+      const res = await propService.update(prop.id, { description: descriptionDraft });
+      if (res.success && res.data) {
+        setProp(res.data);
+        showToast('道具描述已更新', 'success');
+      }
+    } catch (err: unknown) {
+      showApiError(showToast, err, '保存失败');
+    } finally {
+      setIsSavingDesc(false);
+    }
   };
+
+  const handleSavePrompt = () => {
+    if (!prop) return;
+    try {
+      localStorage.setItem(`${PROMPT_STORAGE_PREFIX}${prop.id}`, prompt);
+    } catch { /* ignore */ }
+    setIsSavingPrompt(true);
+    setTimeout(() => {
+      setIsSavingPrompt(false);
+      showToast('形象提示词已保存，将作为概念图默认生成提示词', 'success');
+    }, 300);
+  };
+
+  // P2-9: Ctrl+S 保存道具描述（聚焦在输入框时拦截浏览器默认"保存页面"行为）
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
+        const t = e.target as HTMLElement | null;
+        if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) {
+          e.preventDefault();
+          if (prop) void handleSaveDescription();
+        }
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  });
 
   if (isLoading) {
     return (
@@ -100,48 +144,23 @@ export function PropDetailPage() {
     );
   }
 
-  const handleSaveDescription = async () => {
-    setIsSavingDesc(true);
-    try {
-      const res = await propService.update(prop.id, { description: descriptionDraft });
-      if (res.success && res.data) {
-        setProp(res.data);
-        showToast('道具描述已更新', 'success');
-      }
-    } catch (err: any) {
-      const errorMsg = err?.response?.data?.message || err?.message || '保存失败';
-      showToast(errorMsg, 'error');
-    } finally {
-      setIsSavingDesc(false);
-    }
-  };
-
-  const handleSavePrompt = () => {
-    try {
-      localStorage.setItem(`${PROMPT_STORAGE_PREFIX}${prop.id}`, prompt);
-    } catch { /* ignore */ }
-    setIsSavingPrompt(true);
-    setTimeout(() => {
-      setIsSavingPrompt(false);
-      showToast('形象提示词已保存，将作为概念图默认生成提示词', 'success');
-    }, 300);
-  };
-
   // 线索道具标记切换：线索道具将作为参考图注入对应镜头，保证关键物件跨镜一致
   const handleToggleClue = async () => {
     setIsTogglingClue(true);
     try {
-      await apiClient.put(`/props/${prop.id}`, { is_clue: prop.is_clue ? 0 : 1 });
-      setProp((prev) => (prev ? { ...prev, is_clue: prev.is_clue ? 0 : 1 } : prev));
-      showToast(
-        prop.is_clue
-          ? '已取消线索标记'
-          : '已标记为线索道具：该道具将注入相关镜头参考图',
-        'success'
-      );
-    } catch (err: any) {
-      const errorMsg = err?.response?.data?.message || err?.message || '线索标记保存失败';
-      showToast(errorMsg, 'error');
+      // 复用 propService.update（后端同字段部分更新），避免页面内散落裸 API 路径
+      const res = await propService.update(prop.id, { is_clue: prop.is_clue ? 0 : 1 });
+      if (res.success) {
+        setProp((prev) => (prev ? { ...prev, is_clue: prev.is_clue ? 0 : 1 } : prev));
+        showToast(
+          prop.is_clue
+            ? '已取消线索标记'
+            : '已标记为线索道具：该道具将注入相关镜头参考图',
+          'success'
+        );
+      }
+    } catch (err: unknown) {
+      showApiError(showToast, err, '线索标记保存失败');
     } finally {
       setIsTogglingClue(false);
     }
@@ -167,9 +186,8 @@ export function PropDetailPage() {
         );
         showToast('图片已删除', 'success');
       }
-    } catch (err: any) {
-      const errorMsg = err?.response?.data?.message || err?.message || '删除图片失败';
-      showToast(errorMsg, 'error');
+    } catch (err: unknown) {
+      showApiError(showToast, err, '删除图片失败');
     }
   };
 

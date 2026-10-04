@@ -35,7 +35,6 @@ export class EdgeTTSAdapter implements AudioAdapter {
   readonly provider = 'edge-tts';
   readonly modelName: string;
   private voice: string;
-  private rate: string;
   private pitch: string;
   private baseUrl: string | null;
   private cli: string;
@@ -48,13 +47,11 @@ export class EdgeTTSAdapter implements AudioAdapter {
     this.voice = voiceMatch ? voiceMatch[1] : 'zh-CN-XiaoxiaoNeural';
     
     // 从config中解析参数
-    this.rate = '+0%';
     this.pitch = '+0Hz';
     if (config) {
       try {
         const cfg = JSON.parse(config);
         if (cfg.voice) this.voice = cfg.voice;
-        if (cfg.rate) this.rate = cfg.rate;
         if (cfg.pitch) this.pitch = cfg.pitch;
       } catch {
         // 忽略配置解析错误

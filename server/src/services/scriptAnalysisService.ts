@@ -357,7 +357,7 @@ export const scriptAnalysisService = {
   async analyzeShotContext(
     db: Database,
     shotId: string,
-    userId: string,
+    _userId: string,
     scriptAnalysis?: ScriptAnalysisResult
   ): Promise<{
     shotDescription: string;

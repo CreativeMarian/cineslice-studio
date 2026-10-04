@@ -26,6 +26,7 @@ const SceneDetailPage = lazy(() => import('./components/StageArt/SceneDetailPage
 const PropDetailPage = lazy(() => import('./components/StageArt/PropDetailPage').then(m => ({ default: m.PropDetailPage })));
 const StageScriptPage = lazy(() => import('./components/StageScript/StageScriptPage').then(m => ({ default: m.StageScriptPage })));
 const StageDirectorPage = lazy(() => import('./components/StageDirector/StageDirectorPage').then(m => ({ default: m.StageDirectorPage })));
+const ProjectSettingsPage = lazy(() => import('./components/ProjectSettingsPage').then(m => ({ default: m.ProjectSettingsPage })));
 
 function LazyRoute({ children }: { children: React.ReactNode }) {
   return <Suspense fallback={<div className="flex items-center justify-center h-screen"><Spinner size="lg" /></div>}>{children}</Suspense>;
@@ -65,6 +66,7 @@ export default function App() {
                 <Route path="art/prop/:propId" element={<LazyRoute><PropDetailPage /></LazyRoute>} />
                 <Route path="script" element={<LazyRoute><StageScriptPage /></LazyRoute>} />
                 <Route path="director" element={<LazyRoute><StageDirectorPage /></LazyRoute>} />
+                <Route path="settings" element={<LazyRoute><ProjectSettingsPage /></LazyRoute>} />
               </Route>
             </Route>
 

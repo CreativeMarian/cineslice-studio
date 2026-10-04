@@ -47,18 +47,18 @@ function referenceToDataUrl(url: string): string {
 
 const creativeUpload = multer({
   storage: multer.diskStorage({
-    destination: (req, file, cb) => {
+    destination: (_req, _file, cb) => {
       const dir = path.resolve(config.uploadDir, 'creative');
       if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
       cb(null, dir);
     },
-    filename: (req, file, cb) => {
+    filename: (_req, file, cb) => {
       const originalName = (file.originalname || 'reference').replace(/[^\w.\-\u4e00-\u9fa5]/g, '_');
       cb(null, `${Date.now()}_${originalName}`);
     },
   }),
   limits: { fileSize: 10 * 1024 * 1024 },
-  fileFilter: (req, file, cb) => {
+  fileFilter: (_req, file, cb) => {
     const allowed = ['.png', '.jpg', '.jpeg', '.webp', '.gif'];
     const ext = path.extname(file.originalname).toLowerCase();
     if (allowed.includes(ext) || file.mimetype.startsWith('image/')) {

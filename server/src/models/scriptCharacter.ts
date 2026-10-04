@@ -3,33 +3,33 @@
 
 import type { Database, ScriptCharacter } from '../types';
 import { generateId, now } from './index';
+import { safeJsonParse } from '../utils/json';
 
 // 解析角色数据：将 JSON 字符串字段转为数组
 function parseCharacter(row: any): ScriptCharacter {
   if (!row) return row;
   const result = { ...row };
-  if (typeof result.concept_images === 'string') {
-    try { result.concept_images = JSON.parse(result.concept_images); } catch { result.concept_images = []; }
-  }
-  if (typeof result.four_view_images === 'string') {
-    try { result.four_view_images = JSON.parse(result.four_view_images); } catch { result.four_view_images = []; }
-  }
+  if (typeof result.concept_images === 'string') result.concept_images = safeJsonParse(result.concept_images, []);
+  if (typeof result.four_view_images === 'string') result.four_view_images = safeJsonParse(result.four_view_images, []);
   if (result.concept_images === null) result.concept_images = [];
   if (result.four_view_images === null) result.four_view_images = [];
+  // identity_lock / wardrobe 保持 JSON 字符串（由服务层按需解析），但确保 null 安全
+  if (result.identity_lock === undefined) result.identity_lock = null;
+  if (result.wardrobe === undefined) result.wardrobe = null;
   return result;
 }
 
 export const ScriptCharacterDAO = {
-  create(db: Database, data: { user_id: string; episode_id: string; name: string; gender?: string; role_type?: string; description?: string; visual_description?: string; character_profile?: string; visual_prompt?: string; voice_prompt?: string; detail_images?: string }): ScriptCharacter {
+  create(db: Database, data: { user_id: string; episode_id: string; name: string; gender?: string; role_type?: string; description?: string; visual_description?: string; character_profile?: string; visual_prompt?: string; voice_prompt?: string; detail_images?: string; identity_lock?: string; wardrobe?: string }): ScriptCharacter {
     const id = generateId('char');
     db.prepare(`
-      INSERT INTO script_characters (id, user_id, episode_id, name, gender, role_type, description, visual_description, character_profile, visual_prompt, voice_prompt, detail_images, selected_image_index, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)
-    `).run(id, data.user_id, data.episode_id, data.name, data.gender || 'other', data.role_type || 'supporting', data.description || '', data.visual_description || '', data.character_profile || null, data.visual_prompt || null, data.voice_prompt || null, data.detail_images || null, now(), now());
+      INSERT INTO script_characters (id, user_id, episode_id, name, gender, role_type, description, visual_description, character_profile, visual_prompt, voice_prompt, detail_images, selected_image_index, identity_lock, wardrobe, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?)
+    `).run(id, data.user_id, data.episode_id, data.name, data.gender || 'other', data.role_type || 'supporting', data.description || '', data.visual_description || '', data.character_profile || null, data.visual_prompt || null, data.voice_prompt || null, data.detail_images || null, data.identity_lock || null, data.wardrobe || null, now(), now());
     return this.getById(db, id)!;
   },
 
-  batchCreate(db: Database, characters: Array<{ user_id: string; episode_id: string; name: string; gender?: string; role_type?: string; description?: string; visual_description?: string; character_profile?: string; visual_prompt?: string; voice_prompt?: string; detail_images?: string }>): ScriptCharacter[] {
+  batchCreate(db: Database, characters: Array<{ user_id: string; episode_id: string; name: string; gender?: string; role_type?: string; description?: string; visual_description?: string; character_profile?: string; visual_prompt?: string; voice_prompt?: string; detail_images?: string; identity_lock?: string; wardrobe?: string }>): ScriptCharacter[] {
     const results: ScriptCharacter[] = [];
     const transaction = db.transaction(() => {
       for (const c of characters) {
@@ -72,10 +72,14 @@ export const ScriptCharacterDAO = {
   },
 
   delete(db: Database, id: string): void {
+    // P1-25: 级联删除 character_outfits（角色删除后避免孤儿服装记录）
+    db.prepare('DELETE FROM character_outfits WHERE character_id = ?').run(id);
     db.prepare('DELETE FROM script_characters WHERE id = ?').run(id);
   },
 
   deleteByEpisode(db: Database, episodeId: string): void {
+    // P1-25: 级联删除该集全部角色的服装记录
+    db.prepare('DELETE FROM character_outfits WHERE character_id IN (SELECT id FROM script_characters WHERE episode_id = ?)').run(episodeId);
     db.prepare('DELETE FROM script_characters WHERE episode_id = ?').run(episodeId);
   },
 };

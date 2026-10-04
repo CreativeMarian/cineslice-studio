@@ -5,6 +5,7 @@ import { aiProxy } from '../../aiProxy';
 import { buildSceneExtractPrompt } from '../../prompts/sceneExtract';
 import { buildPropExtractPrompt } from '../../prompts/propExtract';
 import { buildSceneConceptPrompt, buildPropConceptPrompt, SCENE_CONCEPT_NEGATIVE, PROP_CONCEPT_NEGATIVE } from '../../prompts/keyframe';
+import { normalizeSpatialLayout, normalizeLighting } from '../../promptBuilder';
 import { parseAiJsonOrThrow } from '../../../utils/aiJsonParser';
 import type { AutoPipelineTask } from '../types';
 import { getFirstModel, getOrCreateScriptAnalysis, getProjectStyleDescription, withRetry } from '../helpers';
@@ -61,6 +62,15 @@ export async function stageScenes(db: Database, task: AutoPipelineTask): Promise
     lighting_variants: toStr(s.lighting_variants || s.lightingVariants),
     scale_reference: toStr(s.scale_reference || s.scaleReference),
     description: s.description || '',
+    // P1-2 空间坐标 + 灯光体系（AI 输出 → 归一化 JSON）
+    spatial_layout: (() => {
+      const layout = normalizeSpatialLayout(s.spatial_layout || s.spatialLayout || s.layout || []);
+      return layout.length > 0 ? JSON.stringify(layout) : undefined;
+    })(),
+    lighting: (() => {
+      const lighting = normalizeLighting(s.lighting || s.lighting_config || s.lightingConfig || null);
+      return lighting ? JSON.stringify(lighting) : undefined;
+    })(),
   })));
 
   task.stageProgress['scenes'] = `提取 ${created.length} 个场景`;

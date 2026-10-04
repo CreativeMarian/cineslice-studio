@@ -1,4 +1,5 @@
 import apiClient from './apiClient';
+import { API_PATHS } from '../constants/api';
 import type { ApiResponse } from '../types';
 
 // 音频生成结果
@@ -85,7 +86,7 @@ export const audioService = {
     voice?: string;
     speed?: number;
   }) =>
-    apiClient.post<unknown, ApiResponse<AudioGenerateResult>>('/ai/audio', params),
+    apiClient.post<unknown, ApiResponse<AudioGenerateResult>>(API_PATHS.aiAudio, params),
 
   /** 为某集剧本生成配音，音频保存到服务器并返回可访问 URL */
   generateEpisodeTTS: (
@@ -98,7 +99,7 @@ export const audioService = {
     }
   ) =>
     apiClient.post<unknown, ApiResponse<EpisodeTTSResult>>(
-      `/episodes/${episodeId}/tts`,
+      API_PATHS.episodeTts(episodeId),
       params
     ),
 };

@@ -13,6 +13,21 @@ export interface CharacterExtractOutput {
   character_profile: string;   // 人物画像：性格、背景、动机、人物弧光
   visual_prompt: string;       // 形象提示词：精确外貌描述，用于出图
   voice_prompt: string;        // 音色提示词：声音特征，用于 TTS
+  identity_lock: {             // 身份锁：跨镜一致的关键特征（逐字输出，禁止二次描述）
+    age: string;               // 年龄（如"28岁"）
+    face_shape: string;        // 脸型（如"方脸"）
+    hairstyle: string;         // 发型（如"黑色短发利落背头"）
+    hair_color: string;        // 发色（如"黑色"）
+    body_type: string;         // 体型（如"身高180cm，挺拔"）
+    distinctive_features: string; // 标志特征（痣/疤/眼镜/配饰等，无则空字符串）
+    prohibitions: string;      // 禁忌（绝不能改变的特征，如"左眉有疤""戴银耳钉"）
+  };
+  wardrobe: Array<{            // 服装列表（按场景列出）
+    name: string;              // 服装名（如"日常装""职业装"）
+    description: string;       // 服装详细描述（上装/下装/鞋子，具体颜色款式）
+    color: string;             // 主色（如"深灰色"）
+    scene_name: string;        // 适用场景名（剧本中场景名，无特定场景填"通用"）
+  }>;
 }
 
 export function buildCharacterExtractPrompt(scriptContent: string): string {
@@ -43,6 +58,21 @@ export function buildCharacterExtractPrompt(scriptContent: string): string {
    - 语速偏好（偏快/适中/偏慢）
    - 常见情绪基调（冷静/激昂/温柔/暴躁等）
    格式示例："青年男性，低沉磁性嗓音，语速适中偏慢，情绪冷静克制，偶尔爆发时沙哑有力"
+7. identity_lock — 身份锁（跨镜一致的关键特征，逐字输出、不可二次描述）：
+   - age — 年龄（"28岁"）
+   - face_shape — 脸型（"方脸"）
+   - hairstyle — 发型（"黑色短发利落背头"）
+   - hair_color — 发色（"黑色"）
+   - body_type — 体型（"身高180cm，挺拔"）
+   - distinctive_features — 标志特征（痣/疤/眼镜/配饰/纹身等，无则空字符串）
+   - prohibitions — 禁忌（绝不能改变的特征，如"左眉有疤""戴银耳钉"）
+   要求：必须与 visual_prompt 完全一致，只提取最稳定、最关键的特征，禁止空泛描述
+8. wardrobe — 服装列表（按场景列出，1-5套）：
+   - name — 服装名（"日常装""职业装""睡衣"等）
+   - description — 详细描述（上装/下装/鞋子，具体颜色款式）
+   - color — 主色
+   - scene_name — 适用场景名（剧本中的场景名；若该服装多场景通用填"通用"）
+   要求：服装变化按剧情场景推断，同一场景只给一套服装，主角必须至少1套
 
 【重要规则】
 - 只提取剧本中实际出现的角色，不要编造

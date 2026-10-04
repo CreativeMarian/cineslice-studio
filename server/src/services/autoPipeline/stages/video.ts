@@ -1,7 +1,7 @@
 // 阶段9：视频批量生成（异步任务+轮询，支持并发）
 import fs from 'fs';
 import path from 'path';
-import type { Database } from '../../../types';
+import type { Database, ScriptCharacter, ScriptScene } from '../../../types';
 import {
   NovelEpisodeDAO,
   ShotDAO,
@@ -10,11 +10,14 @@ import {
   SubtitleDAO,
   ScriptCharacterDAO,
   ScriptSceneDAO,
+  ProjectDAO,
+  SegmentDAO,
 } from '../../../models';
 import { aiProxy } from '../../aiProxy';
 import { downloadToFile } from '../../../utils/download';
 import { projectStorage } from '../../projectStorage';
-import { buildVideoPrompt, type VideoPromptInput } from '../../prompts/video';
+import { buildFullVideoPrompt } from '../../promptBuilder';
+import { getVideoRatio } from '../../../constants';
 import {
   resolveLastFrameForShot,
   collectShotReferenceImages,
@@ -22,19 +25,12 @@ import {
   imageToDataUrl,
 } from '../../shotConsistencyService';
 import type { AutoPipelineTask } from '../types';
-import { getFirstModel, getProjectStyleDescription } from '../helpers';
+import { getFirstModel } from '../helpers';
 import { saveTask } from '../taskStore';
 import { assessVideoClip } from '../../videoQualityGate';
 import { parseCharactersInShot } from '../../../models/shot';
 import { projectMemoryService } from '../../projectMemoryService';
 import { visualMemoryService } from '../../visualMemoryService';
-
-/** 镜头运动英文枚举 → 中文标签（buildVideoPrompt 的 cameraMovement 段，生成自然中文提示词） */
-const CAMERA_MOVEMENT_LABEL: Record<string, string> = {
-  static: '固定', push_in: '缓慢推近', pull_out: '缓慢拉远', pan: '水平摇移', tilt: '垂直摇移',
-  truck: '横向移动', crane: '升降运镜', handheld: '手持跟拍', zoom: '变焦', dolly: '推拉运镜',
-  steadicam: '稳定器跟拍', long: '固定', full: '固定',
-};
 
 
 export async function stageVideo(db: Database, task: AutoPipelineTask): Promise<void> {
@@ -83,11 +79,10 @@ export async function stageVideo(db: Database, task: AutoPipelineTask): Promise<
   }
 
   // 动态调整并发数：根据待生成数量调整，最大3个避免 API 限流
-  // P1-3: 首尾帧衔接强化 — 强制顺序生成（并发=1），确保前镜尾帧可作为后镜首帧参考
-  // P1-3: 强制顺序生成（并发=1），保证前镜尾帧可作为后镜首帧参考
-  // 如需提速可设置环境变量 VIDEO_CONCURRENCY，但会降低首尾帧衔接质量
-  const concurrency = Math.min(baseConcurrency, 1);
-  console.log(`[AutoPipeline] video 并发数: ${concurrency}（强制顺序生成保证首尾帧衔接，待生成${totalToGenerate}个）`);
+  // P2修复（VIDEO_CONCURRENCY 锁死）：并发数直接使用环境变量配置值，不再强制 min(...,1)
+  // 如需保证首尾帧衔接质量可设置 VIDEO_CONCURRENCY=1
+  const concurrency = baseConcurrency;
+  console.log(`[AutoPipeline] video 并发数: ${concurrency}（环境变量 VIDEO_CONCURRENCY 生效，待生成${totalToGenerate}个）`);
 
   // 第二步：并发池生成视频
   let nextIndex = 0;
@@ -95,9 +90,6 @@ export async function stageVideo(db: Database, task: AutoPipelineTask): Promise<
     task.stageProgress['video'] = `生成中 ${generated}/${totalToGenerate}（并发${concurrency}，失败${failed}）`;
     saveTask(db, task);
   };
-
-  // 从项目风格描述获取统一风格（极简系统：一句话风格拼在提示词开头）
-  const styleDescription = getProjectStyleDescription(db, task.projectId);
 
   const processShot = async (shot: typeof shots[0]): Promise<void> => {
     if (task.cancelled) return;
@@ -168,63 +160,56 @@ export async function stageVideo(db: Database, task: AutoPipelineTask): Promise<
       const allReferenceImages = [...new Set([...shotReferenceImages, ...visualMemoryRefs, ...expressionReferenceImages])];
 
       // ═══════════════════════════════════════════════════════════
-      // 极简视频提示词（v3.0）：风格 + 动作 + 角色定妆 + 场景
-      // 一致性主要靠参考图（collectShotReferenceImages/视觉记忆/表情图），不再做导演级/AI深度优化
+      // 视频提示词（P0-1）：promptBuilder 模块化拼接，总字数 ≤300 字
+      // 项目风格 + 身份锁定块(每角色) + 服装块(每角色) + 场景块(空间坐标/灯光) + 调度块 + 动作 + 禁令行
+      // 一致性主要靠参考图（collectShotReferenceImages/视觉记忆/表情图）+ 身份锁文字双重约束
       // ═══════════════════════════════════════════════════════════
-      const promptInput: VideoPromptInput = {
-        styleDescription: styleDescription || undefined,
-        action: shot.action_description || '',
-        // shuohao novel-storyboard：注入镜头情绪基调与运镜（英文枚举转中文标签），总字数由 buildVideoPrompt 严格控制在300字内
-        mood: shot.mood || undefined,
-        cameraMovement: shot.camera_movement ? (CAMERA_MOVEMENT_LABEL[shot.camera_movement] || shot.camera_movement) : undefined,
-      };
-      // 镜头角色定妆信息（buildVideoPrompt 的 characters 段）
+      // P1-12: 视频比例跟随项目画面比例（aspect_ratio='9:16' 时竖屏，否则横屏 16:9）
+      const project = ProjectDAO.getById(db, first.project_id) || null;
+      const shotCharacters: ScriptCharacter[] = [];
       try {
         const charRefs = parseCharactersInShot(shot.characters_in_shot);
-        const characters: Array<{ name: string; appearance: string }> = [];
         for (const ref of charRefs) {
           let c = ScriptCharacterDAO.getById(db, ref);
           if (!c) {
             const epChars = ScriptCharacterDAO.listByEpisode(db, shot.episode_id);
             c = epChars.find((x: any) => x.name === ref) || null;
           }
-          if (c && (c.visual_prompt || c.visual_description || c.description)) {
-            characters.push({ name: c.name, appearance: (c.visual_prompt || c.visual_description || c.description || '').slice(0, 120) });
-          }
+          if (c) shotCharacters.push(c);
         }
-        if (characters.length > 0) promptInput.characters = characters;
       } catch (charErr) {
         console.warn(`[AutoPipeline] video shot=${shot.shot_number} 角色信息解析失败:`, (charErr as Error).message);
       }
-      // 场景描述（buildVideoPrompt 的 scene 段）
-      try {
-        if (shot.scene_id) {
-          const sc = ScriptSceneDAO.getById(db, shot.scene_id);
-          if (sc) {
-            promptInput.scene = { name: sc.name, environment: (sc.visual_prompt || sc.description || sc.atmosphere || '').slice(0, 150) };
-          }
+      const shotScene: ScriptScene | null = (() => {
+        try {
+          return shot.scene_id ? (ScriptSceneDAO.getById(db, shot.scene_id) || null) : null;
+        } catch {
+          return null;
         }
-      } catch (sceneErr) {
-        console.warn(`[AutoPipeline] video shot=${shot.shot_number} 场景信息解析失败:`, (sceneErr as Error).message);
-      }
-      let videoMotionPrompt = buildVideoPrompt(promptInput);
-      console.log(`[AutoPipeline] video shot=${shot.shot_number} 提示词生成完成`);
-
+      })();
       // ═══════════════════════════════════════════════════════════════
       // P0-1: 项目级长期记忆注入（角色圣经/世界观/剧情摘要）
-      // 在视频生成前注入，确保视频画面符合全项目角色设定和世界观
+      // P1-4: 不再在 buildFullVideoPrompt 返回后追加（会挤掉禁令行/超 300 字），
+      //       改为把记忆文本拼到动作描述前面再进 buildFullVideoPrompt，
+      //       由内部"保头尾"截断统一控制总长，禁令行始终完整保留在末尾。
       // ═══════════════════════════════════════════════════════════════
       const memoryInjection = projectMemoryService.buildMemoryInjection(db, task.projectId);
+      let actionDescForPrompt = shot.action_description || '';
       if (memoryInjection.characterBible) {
-        videoMotionPrompt = videoMotionPrompt + '\n\n【角色视觉一致性·强制锚点】\n' + memoryInjection.characterBible;
+        actionDescForPrompt = '【角色视觉一致性·强制锚点】\n' + memoryInjection.characterBible + '\n' + actionDescForPrompt;
       }
       if (memoryInjection.worldSetting) {
-        videoMotionPrompt = videoMotionPrompt + '\n\n【世界观一致性·强制参考】\n' + memoryInjection.worldSetting;
+        actionDescForPrompt = '【世界观一致性·强制参考】\n' + memoryInjection.worldSetting + '\n' + actionDescForPrompt;
       }
       // P0-2: 视觉记忆上下文（历史帧参考说明）
       if (visualMemoryContext) {
-        videoMotionPrompt = videoMotionPrompt + '\n\n【视觉记忆·历史帧参考】\n' + visualMemoryContext;
+        actionDescForPrompt = '【视觉记忆·历史帧参考】\n' + visualMemoryContext + '\n' + actionDescForPrompt;
       }
+      const promptShot = (actionDescForPrompt !== (shot.action_description || ''))
+        ? { ...shot, action_description: actionDescForPrompt }
+        : shot;
+      const videoMotionPrompt = buildFullVideoPrompt(promptShot, shotCharacters, shotScene, project);
+      console.log(`[AutoPipeline] video shot=${shot.shot_number} 提示词生成完成`);
 
       // ═══════════════════════════════════════════════════════════
       // 视频生成自动重试机制：最多重试2次（总共3次尝试），指数退避
@@ -265,7 +250,7 @@ export async function stageVideo(db: Database, task: AutoPipelineTask): Promise<
             referenceImages: allReferenceImages.length > 0 ? allReferenceImages : undefined,
             motion: videoMotionPrompt,
             duration: shot.duration_seconds || 5,
-            ratio: '16:9',
+            ratio: getVideoRatio(project?.aspect_ratio || null),
             resolution: '1080p',
           });
 
@@ -417,6 +402,15 @@ export async function stageVideo(db: Database, task: AutoPipelineTask): Promise<
     throw new Error('视频生成全部失败');
   }
   task.stageProgress['video'] = `生成 ${generated} 个，跳过 ${skipped} 个，失败 ${failed} 个`;
+
+  // P2-2 按段提交：视频生成完成后自动聚合 segments（段状态依据镜头视频刷新：completed/failed/generating）
+  try {
+    const segments = SegmentDAO.autoAggregate(db, first.id, task.userId, task.projectId);
+    task.stageProgress['video'] += `，段聚合 ${segments.length} 段`;
+    console.log(`[AutoPipeline] video 段聚合完成: ${segments.length} 段`);
+  } catch (segErr) {
+    console.warn('[AutoPipeline] video 段聚合失败（不影响主流程）:', (segErr as Error).message);
+  }
 
   // ═══════════════════════════════════════════════════════════════
   // P0-1: 视频阶段完成后自动更新项目记忆

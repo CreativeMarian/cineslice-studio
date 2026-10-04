@@ -125,7 +125,7 @@ export function getProjectStyleDescription(db: Database, projectId: string): str
  */
 export async function getOrCreateScriptAnalysis(
   db: Database,
-  projectId: string,
+  _projectId: string,
   userId: string,
   episodeId: string
 ): Promise<ScriptAnalysisResult | null> {

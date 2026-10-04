@@ -78,6 +78,8 @@ export interface PipelineStatusData {
   stage_order?: PipelineStage[];
 }
 
+export type InputMode = 'one_liner' | 'outline' | 'novel';
+
 export interface Project extends BaseEntity {
   user_id: string;
   title: string;
@@ -96,6 +98,10 @@ export interface Project extends BaseEntity {
   pipeline_status?: string;
   style_description?: string;
   model_preferences?: Record<string, string>;
+  // P2-1: 项目级风格锁定（创建后不可改）
+  visual_style?: string | null;   // 视觉风格：3D漫剧/写实/古风/赛博朋克/日系动漫/美式漫画
+  aspect_ratio?: string | null;   // 画面比例：16:9/9:16
+  input_mode?: InputMode | null;  // 输入模式：one_liner | outline | novel
 }
 
 // ---------- 小说章节 ----------
@@ -197,6 +203,27 @@ export interface ConceptImage {
   prompt?: string;
 }
 
+// ---------- P0-1: 身份锁 + 服装（身份与服装分离） ----------
+
+export interface IdentityLock {
+  age: string;                    // 年龄（如"25岁"）
+  face_shape: string;             // 脸型（如"鹅蛋脸"）
+  hairstyle: string;              // 发型（如"黑色短发，刘海偏左"）
+  hair_color: string;             // 发色
+  body_type: string;              // 体型（如"中等身材，偏瘦"）
+  distinctive_features: string;   // 标志性特征（痣/疤/纹身/眼镜）
+  prohibitions: string;           // 禁忌（全片不可变的特征约束）
+}
+
+export interface WardrobeItem {
+  id: string;
+  name: string;                   // 服装名称（如"日常便装"）
+  description: string;            // 服装描述
+  color: string;                  // 主色调
+  scene_id?: string | null;       // 关联场景ID（null=通用）
+  is_default?: number;            // 是否默认服装（1=是）
+}
+
 export interface Character extends BaseEntity {
   user_id: string;
   episode_id: string;
@@ -212,11 +239,37 @@ export interface Character extends BaseEntity {
   voice_profile?: string;
   expression_images?: string; // P1-4: 九宫格表情图 JSON
   expression_status?: string; // P1-4: 表情图生成状态
+  // P0-1: 身份锁（全片不变，JSON 字符串）+ 服装列表（每场可换，JSON 字符串）
+  identity_lock?: string | null;  // JSON: IdentityLock
+  wardrobe?: string | null;       // JSON: WardrobeItem[]
 }
 
 // ---------- 场景 ----------
 
 export type TimeOfDay = 'day' | 'night' | 'dawn' | 'dusk';
+
+// ---------- P1-2: 空间坐标体系 ----------
+
+export interface SpatialLayoutItem {
+  id: string;            // 前端唯一标识（后端 JSON 存储时忽略该字段，仅用于前端增删改定位）
+  name: string;          // 家具/道具名称
+  position: string;      // 文字位置描述（如"画面左侧"）
+  x: number;             // 相对X坐标 0-1
+  y: number;             // 相对Y坐标 0-1
+}
+
+export interface LightSource {
+  position: string;      // 光源位置（如"画面左上方45度"）
+  color: string;         // 光源颜色（如"暖白色"）
+  intensity: string;     // 强度描述（如"柔和"、"强烈"）
+}
+
+export interface LightingConfig {
+  key_light: LightSource;    // 主光源
+  fill_light?: LightSource;  // 补光
+  rim_light?: LightSource;   // 轮廓光
+  ambient?: string;          // 环境光描述
+}
 
 export interface Scene extends BaseEntity {
   user_id: string;
@@ -228,6 +281,9 @@ export interface Scene extends BaseEntity {
   description: string;
   concept_images: ConceptImage[];
   selected_image_index: number;
+  // P1-2: 空间布局 + 灯光体系（JSON 字符串）
+  spatial_layout?: string | null;  // JSON: SpatialLayoutItem[]
+  lighting?: string | null;        // JSON: LightingConfig
 }
 
 // ---------- 道具 ----------
@@ -265,10 +321,19 @@ export interface CharacterOutfit {
 export type ShotSize = 'closeup' | 'medium' | 'wide' | 'extreme_wide' | 'extreme_closeup' | 'long' | 'full' | 'medium_closeup';
 export type CameraMovement = 'static' | 'pan' | 'tilt' | 'dolly' | 'zoom' | 'push_in' | 'pull_out' | 'truck' | 'crane' | 'handheld' | 'steadicam';
 
+// ---------- P0-2: 分镜角色调度 ----------
+
+export interface BlockingItem {
+  character_id: string;    // 角色ID（引用式，不重复描述外貌）
+  position: string;        // 画面位置（如"画面左侧"、"画面中央"、"画面右侧"、"前景"、"背景"）
+  facing: string;          // 朝向（如"左"、"右"、"镜头"、"背对镜头"）
+  action: string;          // 动作描述
+}
+
 export interface Shot extends BaseEntity {
   user_id: string;
   episode_id: string;
-  scene_id?: string;
+  scene_id?: string | null;
   shot_number: number;
   shot_size: ShotSize;
   action_description: string;
@@ -287,6 +352,33 @@ export interface Shot extends BaseEntity {
   use_next_first_frame?: number;
   phase?: number | null;    // 阶段编号（1-4）：每集按4个剧情阶段划分，每阶段独立成视频
   phase_name?: string | null; // 阶段名称（如"开场引入""矛盾升级"等）
+  segment_id?: number | null; // 所属段编号（每段≤15秒）
+  character_outfits?: string | null; // 造型调度：该镜头各角色应穿的造型，JSON {"角色名":"造型名"}
+  video_prompt?: string | null;
+  video_skill?: string | null;
+  // P0-2: 角色调度（位置/朝向/动作），引用式不重复描述外貌（JSON 字符串）
+  blocking?: string | null;     // JSON: BlockingItem[]
+}
+
+// ---------- 分段（P2-2: Segment） ----------
+
+export type SegmentStatus = 'pending' | 'generating' | 'completed' | 'failed';
+
+export interface Segment extends BaseEntity {
+  user_id: string;
+  project_id?: string | null;
+  episode_id: string;
+  segment_number: number;
+  name: string;
+  start_shot_id?: string | null;
+  end_shot_id?: string | null;
+  start_shot_number?: number | null;
+  end_shot_number?: number | null;
+  duration_seconds: number;
+  status: SegmentStatus;
+  video_url?: string | null;
+  video_model_used?: string | null;
+  error_message?: string | null;
 }
 
 // ---------- 关键帧 ----------

@@ -1,4 +1,5 @@
 import apiClient from './apiClient';
+import { API_PATHS } from '../constants/api';
 
 export type ExportFormat = 'zip' | 'pdf' | 'docx' | 'txt' | 'fdx' | 'xlsx' | 'json' | 'mp4' | 'html' | 'csv';
 export type ExportType = 'project' | 'script' | 'storyboard' | 'characters' | 'scenes' | 'video';
@@ -25,7 +26,7 @@ function triggerDownload(blob: Blob, filename: string) {
 export const exportService = {
   // 导出完整项目 ZIP
   exportProject: async (projectId: string): Promise<void> => {
-    const response = await apiClient.post(`/projects/${projectId}/export`, null, {
+    const response = await apiClient.post(API_PATHS.projectExport(projectId), null, {
       responseType: 'blob',
     });
     const blob = response as unknown as Blob;
@@ -42,7 +43,7 @@ export const exportService = {
     if (options.includeVideos !== undefined) params.set('includeVideos', String(options.includeVideos));
 
     const response = await apiClient.get(
-      `/projects/${projectId}/export-custom?${params.toString()}`,
+      `${API_PATHS.projectExportCustom(projectId)}?${params.toString()}`,
       { responseType: 'blob' }
     );
     const blob = response as unknown as Blob;
@@ -54,7 +55,7 @@ export const exportService = {
   importProject: (file: File): Promise<{ success: boolean; data: { project: any; chaptersCount: number; episodesCount: number } }> => {
     const formData = new FormData();
     formData.append('file', file);
-    return apiClient.post('/projects/import', formData, {
+    return apiClient.post(API_PATHS.projectImport, formData, {
       headers: { 'Content-Type': 'multipart/form-data' },
     }) as Promise<{ success: boolean; data: { project: any; chaptersCount: number; episodesCount: number } }>;
   },

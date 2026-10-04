@@ -59,7 +59,7 @@ export function serializeCharactersInShot(characters: string[]): string | null {
 }
 
 /** 统一解析 props_in_shot 字段（与 parseCharactersInShot 同规则） */
-export function parsePropsInShot(value: any): string[] {
+function parsePropsInShot(value: any): string[] {
   if (!value) return [];
   if (Array.isArray(value)) {
     return value.filter((v: any) => typeof v === 'string' && v.trim()).map((v: string) => v.trim());
@@ -81,28 +81,22 @@ export function parsePropsInShot(value: any): string[] {
 }
 
 /** 安全解析 character_outfits JSON */
-export function parseCharacterOutfits(value: any): Record<string, string> | null {
+function parseCharacterOutfits(value: any): Record<string, string> | null {
   if (!value) return null;
   if (typeof value === 'object') return value;
   try { return JSON.parse(value); } catch { return null; }
 }
-const safeParseOutfits = parseCharacterOutfits;
 
 /** 将 SQL 行解析为前端/API 期望的 Shot（characters_in_shot / props_in_shot 转为数组） */
-export function mapShotRow(row: any): Shot {
+function mapShotRow(row: any): Shot {
   if (!row) return row;
   return {
     ...row,
     characters_in_shot: row.characters_in_shot ? parseCharactersInShot(row.characters_in_shot) : null,
     props_in_shot: row.props_in_shot ? parsePropsInShot(row.props_in_shot) : null,
-    character_outfits: row.character_outfits ? safeParseOutfits(row.character_outfits) : null,
+    character_outfits: row.character_outfits ? parseCharacterOutfits(row.character_outfits) : null,
+    blocking: row.blocking ?? null,
   };
-}
-
-/** 序列化 props_in_shot 为 JSON 字符串 */
-export function serializePropsInShot(props: string[]): string | null {
-  if (!props || props.length === 0) return null;
-  return JSON.stringify(props);
 }
 
 export const ShotDAO = {
@@ -119,11 +113,12 @@ export const ShotDAO = {
     last_frame_description?: string | null;
     segment_id?: number | null;
     frame_timestamps?: string | null;
+    blocking?: string | null;
   }): Shot {
     const id = generateId('shot');
     db.prepare(`
-      INSERT INTO shots (id, user_id, episode_id, scene_id, shot_number, shot_size, action_description, dialogue, camera_movement, grid_position, duration_seconds, characters_in_shot, props_in_shot, notes, subject, lighting, mood, transition, pace, character_outfits, phase, phase_name, first_frame_description, last_frame_description, segment_id, frame_timestamps, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO shots (id, user_id, episode_id, scene_id, shot_number, shot_size, action_description, dialogue, camera_movement, grid_position, duration_seconds, characters_in_shot, props_in_shot, notes, subject, lighting, mood, transition, pace, character_outfits, phase, phase_name, first_frame_description, last_frame_description, segment_id, frame_timestamps, blocking, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       id, data.user_id, data.episode_id, data.scene_id || null,
       data.shot_number, data.shot_size || 'medium', data.action_description || '',
@@ -136,6 +131,7 @@ export const ShotDAO = {
       data.phase ?? null, data.phase_name || null,
       data.first_frame_description || null, data.last_frame_description || null,
       data.segment_id ?? null, data.frame_timestamps || null,
+      data.blocking ?? null,
       now(), now(),
     );
     return this.getById(db, id)!;
@@ -184,6 +180,18 @@ export const ShotDAO = {
   },
 
   delete(db: Database, id: string): void {
+    // P1-15: 删除前查询该镜头 processing 且有 external_task_id 的视频任务。
+    // 当前各视频 adapter 未实现 cancelTask 取消接口，此处至少记录日志并清理本地记录（标记 failed 防止悬挂）
+    const processingIntervals = db.prepare(
+      "SELECT id, external_task_id FROM shot_video_intervals WHERE shot_id = ? AND status = 'processing'"
+    ).all(id) as Array<{ id: string; external_task_id: string | null }>;
+    if (processingIntervals.length > 0) {
+      console.warn(`[ShotDAO] 删除镜头 ${id} 前发现 ${processingIntervals.length} 个处理中的视频任务（external_task_id=${processingIntervals.map(v => v.external_task_id || '无').join(',')}），标记为 failed 并清理`);
+      const markFailed = db.prepare("UPDATE shot_video_intervals SET status = 'failed', updated_at = ? WHERE id = ?");
+      for (const v of processingIntervals) markFailed.run(now(), v.id);
+    }
+    // P1-26: 级联删除 shot_audio（避免孤儿音频记录；shot_keyframes 等子表已由 ON DELETE CASCADE 处理）
+    db.prepare('DELETE FROM shot_audio WHERE shot_id = ?').run(id);
     db.prepare('DELETE FROM shots WHERE id = ?').run(id);
   },
 

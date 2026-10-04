@@ -3,7 +3,7 @@
 
 import { useUIStore } from '../stores/useUIStore';
 
-interface RequestConfig {
+export interface RequestConfig {
   params?: Record<string, unknown>;
   headers?: Record<string, string>;
   responseType?: 'json' | 'blob' | 'text';
@@ -133,8 +133,9 @@ async function request(
     }
 
     if (!response.ok) {
-      const errorData = (result as any)?.error || result;
-      const errorMsg = (errorData as any)?.message || `HTTP ${response.status}`;
+      // 后端错误体形如 { error: { message }, message }，逐级提取可展示文案
+      const errBody = result as { error?: { message?: string }; message?: string } | null;
+      const errorMsg = errBody?.error?.message || errBody?.message || `HTTP ${response.status}`;
       // 自动显示 Toast（401 除外：会跳转登录）。轮询等高频请求应传 silent:true
       if (!silent && response.status !== 401) {
         showDedupedToast(errorMsg, response.status >= 500);

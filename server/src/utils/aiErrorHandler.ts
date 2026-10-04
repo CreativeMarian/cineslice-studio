@@ -127,20 +127,6 @@ export function parseAIError(err: unknown): {
 }
 
 /**
- * 判断错误是否可重试
- */
-export function isRetryableError(err: unknown): boolean {
-  const parsed = parseAIError(err);
-  const retryableCodes = [
-    'RATE_LIMITED',
-    'SERVER_ERROR',
-    'TIMEOUT',
-    'UNKNOWN_ERROR',
-  ];
-  return retryableCodes.includes(parsed.code);
-}
-
-/**
  * 格式化错误信息用于日志
  */
 export function formatAIErrorForLog(err: unknown, provider?: string, model?: string): string {

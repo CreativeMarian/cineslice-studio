@@ -24,6 +24,7 @@ export * from './subtitle';
 export * from './autoPipelineTask';
 export * from './projectMemory';
 export * from './visualMemory';
+export * from './segment';
 
 // 通用工具
 import crypto from 'crypto';

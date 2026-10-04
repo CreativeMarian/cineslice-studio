@@ -12,6 +12,7 @@ import { useUIStore } from '../../stores/useUIStore';
 import { exportService, type ExportType, type ExportFormat } from '../../services/exportService';
 import { videoComposeService, type ComposeResult } from '../../services/videoComposeService';
 import { videoService } from '../../services/videoService';
+import { API_PATHS } from '../../constants/api';
 
 interface ExportPackageModalProps {
   open: boolean;
@@ -175,7 +176,8 @@ export function ExportPackageModal({ open, onOpenChange }: ExportPackageModalPro
     setIsExportingPack(true);
     try {
       const BASE_URL = (import.meta.env.VITE_API_BASE_URL || '/api').replace(/\/$/, '');
-      const exportUrl = `${BASE_URL}/projects/${currentProject.id}/episodes/${currentEpisodeId}/export`;
+      // 投产包下载走 GET 直链（window.open 触发浏览器下载），路径统一由 API_PATHS 管理
+      const exportUrl = `${BASE_URL}${API_PATHS.projectEpisodeExport(currentProject.id, currentEpisodeId)}`;
       window.open(exportUrl, '_blank');
       showToast('正在生成投产包，浏览器将自动下载', 'success');
     } catch {

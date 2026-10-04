@@ -23,6 +23,8 @@ import { projectService } from '../../services/projectService';
 import { propService } from '../../services/assetService';
 import { formatWordCount } from '../../services/novelParser';
 import { useDefaultModels } from '../../hooks/useDefaultModels';
+import { showApiError, getResponseErrorMessage } from '../../utils/error';
+import { EPISODE_TITLE_MAX_LENGTH } from '../../constants';
 import { ROLE_TYPE_LABELS, GENDER_LABELS } from '../../utils';
 import type { Prop, Episode, NovelChapter } from '../../types';
 
@@ -103,12 +105,10 @@ export function StageOutline() {
         setSelectedChapterIds(res.data.chapters.map((c: NovelChapter) => c.id));
         showToast(`成功解析 ${res.data.total_chapters} 个章节，点击「重新生成大纲」生成分集梗概`, 'success');
       } else {
-        const errMsg = (res as any)?.error?.message || '上传失败，请重试';
-        showToast(errMsg, 'error');
+        showToast(getResponseErrorMessage(res, '上传失败，请重试'), 'error');
       }
-    } catch (err: any) {
-      const errMsg = err?.response?.data?.error?.message || err?.message || '上传失败，请重试';
-      showToast(errMsg, 'error');
+    } catch (err: unknown) {
+      showApiError(showToast, err, '上传失败，请重试');
     } finally {
       setIsUploading(false);
     }
@@ -160,12 +160,10 @@ export function StageOutline() {
         }
         showToast(`大纲已重新生成：${res.data.length} 集`, 'success');
       } else {
-        const errMsg = (res as any)?.error?.message || '重新生成失败';
-        showToast(errMsg, 'error');
+        showToast(getResponseErrorMessage(res, '重新生成失败'), 'error');
       }
-    } catch (err: any) {
-      const errMsg = err?.response?.data?.message || err?.message || '重新生成失败，请检查模型配置';
-      showToast(errMsg, 'error');
+    } catch (err: unknown) {
+      showApiError(showToast, err, '重新生成失败，请检查模型配置');
     } finally {
       setIsRegenerating(false);
     }
@@ -194,10 +192,10 @@ export function StageOutline() {
         showToast('该集大纲已保存', 'success');
         setEditingEpisodeId(null);
       } else {
-        showToast((res as any)?.error?.message || '保存失败', 'error');
+        showToast(getResponseErrorMessage(res, '保存失败'), 'error');
       }
-    } catch (err: any) {
-      showToast(err?.response?.data?.message || '保存失败', 'error');
+    } catch (err: unknown) {
+      showApiError(showToast, err, '保存失败');
     } finally {
       setIsSavingEpisode(false);
     }
@@ -457,8 +455,9 @@ export function StageOutline() {
                         </div>
                         <Input
                           value={editTitle}
-                          onChange={(e) => setEditTitle(e.target.value)}
+                          onChange={(e) => setEditTitle(e.target.value.slice(0, EPISODE_TITLE_MAX_LENGTH))}
                           placeholder="剧集标题"
+                          maxLength={EPISODE_TITLE_MAX_LENGTH}
                           className="flex-1"
                         />
                       </div>

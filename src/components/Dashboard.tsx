@@ -2,15 +2,19 @@
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Plus, Film, MoreVertical, Pencil, Trash2, FolderOpen, Search, Clock, Sun, Moon, HelpCircle, Radio,
-  BookOpen, Wand2, ChevronRight, Zap, Settings, Archive, ArchiveRestore,
+  BookOpen, ChevronRight, Zap, Settings, Archive, ArchiveRestore,
   AlertTriangle, Server, RefreshCw, Activity, Boxes, GitBranch,
 } from 'lucide-react';
 import { Button, Card, EmptyState, Modal, Input, Badge } from './ui';
+import { ProjectWizard } from './ProjectWizard';
 import { projectService } from '../services/projectService';
 import { modelConfigService } from '../services/modelConfigService';
+import { useProjectStore } from '../stores/useProjectStore';
 import { useUIStore } from '../stores/useUIStore';
 import { TaskCenter } from './ui/TaskCenter';
-import type { Project, PipelineMode } from '../types';
+import { showApiError } from '../utils/error';
+import { PROJECT_NAME_MAX_LENGTH } from '../constants';
+import type { Project } from '../types';
 import { formatRelativeTime } from '../utils';
 
 type DashboardTab = 'active' | 'archived';
@@ -21,10 +25,7 @@ export function Dashboard() {
   const [isLoading, setIsLoading] = useState(true);
   const [tab, setTab] = useState<DashboardTab>('active');
   const [createModalOpen, setCreateModalOpen] = useState(false);
-  const [newTitle, setNewTitle] = useState('');
-  const [newDesc, setNewDesc] = useState('');
-  const [newMode, setNewMode] = useState<PipelineMode>('semi-auto');
-  const [newStyleDescription, setNewStyleDescription] = useState('');
+  const [wizardInitialMode, setWizardInitialMode] = useState<'one_liner' | 'outline' | 'novel' | undefined>(undefined);
   const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [modelCount, setModelCount] = useState(0);
@@ -95,31 +96,13 @@ export function Dashboard() {
     loadProjects(next);
   };
 
-  const handleStartFromNovel = () => {
+  const openCreateWizard = (mode?: 'one_liner' | 'outline' | 'novel') => {
+    setWizardInitialMode(mode);
     setCreateModalOpen(true);
   };
 
-  const handleCreate = async () => {
-    if (!newTitle.trim()) return;
-    try {
-      const res = await projectService.create({
-        title: newTitle,
-        description: newDesc,
-        mode: newMode,
-        style_description: newStyleDescription || undefined,
-      });
-      if (res.success && res.data) {
-        showToast('项目创建成功', 'success');
-        setCreateModalOpen(false);
-        setNewTitle('');
-        setNewDesc('');
-        setNewMode('semi-auto');
-        setNewStyleDescription('');
-        navigate(`/project/${res.data.id}`);
-      }
-    } catch {
-      showToast('创建失败，请重试', 'error');
-    }
+  const handleStartFromNovel = () => {
+    openCreateWizard('novel');
   };
 
   const handleArchive = async (id: string) => {
@@ -174,8 +157,13 @@ export function Dashboard() {
       showToast('项目已重命名', 'success');
       setRenameTarget(null);
       loadProjects(tab);
-    } catch {
-      showToast('重命名失败', 'error');
+      // P2-15: 同步刷新 store 中的项目信息（若重命名的正是当前打开的项目）
+      const store = useProjectStore.getState();
+      if (store.currentProject && store.currentProject.id === renameTarget.id) {
+        store.setCurrentProject({ ...store.currentProject, title: renameTitle.trim() });
+      }
+    } catch (err: unknown) {
+      showApiError(showToast, err, '重命名失败');
     }
   };
 
@@ -223,7 +211,7 @@ export function Dashboard() {
   ];
 
   const quickActions = [
-    { label: '新建项目', desc: '从灵感开始创作', icon: Plus, onClick: () => setCreateModalOpen(true) },
+    { label: '新建项目', desc: '从灵感开始创作', icon: Plus, onClick: () => openCreateWizard() },
     { label: '上传小说', desc: '从小说改编剧本', icon: BookOpen, onClick: handleStartFromNovel },
     { label: '配置模型', desc: '接入 AI 服务', icon: Settings, onClick: () => navigate('/models') },
   ];
@@ -603,87 +591,12 @@ export function Dashboard() {
         </div>
       </main>
 
-      {/* 创建项目弹窗 */}
-      <Modal
+      {/* 创建项目三步向导 */}
+      <ProjectWizard
         open={createModalOpen}
         onOpenChange={setCreateModalOpen}
-        title="创建新项目"
-        description="输入项目信息，从灵感开始创作"
-        footer={
-          <>
-            <Button variant="secondary" onClick={() => setCreateModalOpen(false)}>取消</Button>
-            <Button onClick={handleCreate} leftIcon={<Plus className="w-4 h-4" />}>创建项目</Button>
-          </>
-        }
-      >
-        <div className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-[var(--ink-2)] mb-1.5">项目名称</label>
-            <Input
-              placeholder="输入项目名称"
-              value={newTitle}
-              onChange={(e) => setNewTitle(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && handleCreate()}
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-[var(--ink-2)] mb-1.5">项目描述（可选）</label>
-            <Input
-              placeholder="简短描述这个项目"
-              value={newDesc}
-              onChange={(e) => setNewDesc(e.target.value)}
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-[var(--ink-2)] mb-1.5 flex items-center gap-1">
-              <Settings className="w-4 h-4" />
-              流水线模式
-            </label>
-            <div className="grid grid-cols-2 gap-2">
-              <button
-                type="button"
-                onClick={() => setNewMode('semi-auto')}
-                className={`p-3 rounded-lg border-2 text-left transition-all ${
-                  newMode === 'semi-auto'
-                    ? 'border-[var(--accent)] bg-[var(--accent-soft)]'
-                    : 'border-[var(--border)] hover:border-[var(--accent)]/50'
-                }`}
-              >
-                <div className="flex items-center gap-1.5 mb-1">
-                  <Wand2 className="w-4 h-4 text-[var(--accent)]" />
-                  <span className="text-sm font-medium text-[var(--ink-1)]">半自动</span>
-                </div>
-                <p className="text-xs text-[var(--ink-3)]">每阶段生成后需确认，适合精细控制</p>
-              </button>
-              <button
-                type="button"
-                onClick={() => setNewMode('auto')}
-                className={`p-3 rounded-lg border-2 text-left transition-all ${
-                  newMode === 'auto'
-                    ? 'border-[var(--accent)] bg-[var(--accent-soft)]'
-                    : 'border-[var(--border)] hover:border-[var(--accent)]/50'
-                }`}
-              >
-                <div className="flex items-center gap-1.5 mb-1">
-                  <Zap className="w-4 h-4 text-[var(--accent)]" />
-                  <span className="text-sm font-medium text-[var(--ink-1)]">全自动</span>
-                </div>
-                <p className="text-xs text-[var(--ink-3)]">上传小说后自动运行到视频生成</p>
-              </button>
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-[var(--ink-2)] mb-1.5">风格描述（可选）</label>
-            <Input
-              placeholder="如：真人短剧，电影级画质"
-              value={newStyleDescription}
-              onChange={(e) => setNewStyleDescription(e.target.value)}
-            />
-          </div>
-        </div>
-      </Modal>
+        initialMode={wizardInitialMode}
+      />
 
       {/* 重命名弹窗 */}
       <Modal
@@ -701,7 +614,8 @@ export function Dashboard() {
           <label className="block text-sm font-medium text-[var(--ink-2)]">项目名称</label>
           <Input
             value={renameTitle}
-            onChange={(e) => setRenameTitle(e.target.value)}
+            maxLength={PROJECT_NAME_MAX_LENGTH}
+            onChange={(e) => setRenameTitle(e.target.value.slice(0, PROJECT_NAME_MAX_LENGTH))}
             onKeyDown={(e) => e.key === 'Enter' && handleRenameSubmit()}
           />
         </div>

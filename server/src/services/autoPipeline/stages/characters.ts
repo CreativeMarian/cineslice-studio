@@ -1,9 +1,15 @@
 // 阶段4：角色提取
 import type { Database } from '../../../types';
-import { NovelEpisodeDAO, ScriptCharacterDAO, CharacterOutfitDAO } from '../../../models';
+import { NovelEpisodeDAO, ScriptCharacterDAO, CharacterOutfitDAO, ProjectDAO, ScriptSceneDAO } from '../../../models';
 import { aiProxy } from '../../aiProxy';
 import { buildCharacterExtractPrompt } from '../../prompts/characterExtract';
-import { buildCharacterConceptPrompt, buildCharacterFourViewPrompt, CHARACTER_CONCEPT_NEGATIVE } from '../../prompts/keyframe';
+import {
+  buildCharacterConceptPromptWithIdentity,
+  normalizeIdentityLock,
+  normalizeWardrobe,
+  buildWardrobeJson,
+} from '../../promptBuilder';
+import { buildCharacterFourViewPrompt, CHARACTER_CONCEPT_NEGATIVE } from '../../prompts/keyframe';
 import { parseAiJsonOrThrow } from '../../../utils/aiJsonParser';
 import type { AutoPipelineTask } from '../types';
 import { getFirstModel, getOrCreateScriptAnalysis, getProjectStyleDescription, withRetry } from '../helpers';
@@ -40,19 +46,35 @@ export async function stageCharacters(db: Database, task: AutoPipelineTask): Pro
   const characters = parseAiJsonOrThrow<any[]>(result.content);
   const list = Array.isArray(characters) ? characters : [characters];
 
-  const created = ScriptCharacterDAO.batchCreate(db, list.map((c: any) => ({
-    user_id: task.userId,
-    episode_id: first.id,
-    name: c.name || '未知角色',
-    gender: c.gender || 'other',
-    role_type: c.roleType || c.role_type || 'supporting',
-    // shuohao 角色三件套：画像 / 形象提示词 / 音色提示词（DAO 同时回填旧字段 description / visual_description，兼容既有消费方）
-    character_profile: c.character_profile || c.characterProfile || '',
-    visual_prompt: c.visual_prompt || c.visualPrompt || '',
-    voice_prompt: c.voice_prompt || c.voicePrompt || '',
-    description: c.description || '',
-    visual_description: c.visualDescription || c.visual_description || '',
-  })));
+  // P0-1: 场景名 → 场景ID 映射（wardrobe.scene_name 解析为 scene_id；本阶段场景未提取时置 null 通用服装）
+  const sceneList = ScriptSceneDAO.listByEpisode(db, first.id);
+  const sceneNameToId: Record<string, string> = {};
+  for (const sc of sceneList) {
+    if (sc.name) sceneNameToId[sc.name] = sc.id;
+  }
+
+  const created = ScriptCharacterDAO.batchCreate(db, list.map((c: any) => {
+    // P0-1 身份锁：AI 返回 identity_lock → 归一化 JSON（空则 null）
+    const identityLock = normalizeIdentityLock(c.identity_lock || c.identityLock || null);
+    // P0-1 服装：AI 返回 wardrobe → 归一化 + scene_id 解析（空则 null）
+    const wardrobeItems = normalizeWardrobe(c.wardrobe || c.wardrobeList || []);
+    return {
+      user_id: task.userId,
+      episode_id: first.id,
+      name: c.name || '未知角色',
+      gender: c.gender || 'other',
+      role_type: c.roleType || c.role_type || 'supporting',
+      // shuohao 角色三件套：画像 / 形象提示词 / 音色提示词（DAO 同时回填旧字段 description / visual_description，兼容既有消费方）
+      character_profile: c.character_profile || c.characterProfile || '',
+      visual_prompt: c.visual_prompt || c.visualPrompt || '',
+      voice_prompt: c.voice_prompt || c.voicePrompt || '',
+      description: c.description || '',
+      visual_description: c.visualDescription || c.visual_description || '',
+      // P0-1 身份锁 + 服装
+      identity_lock: identityLock ? JSON.stringify(identityLock) : undefined,
+      wardrobe: buildWardrobeJson(wardrobeItems, sceneNameToId) || undefined,
+    };
+  }));
 
   task.stageProgress['characters'] = `提取 ${created.length} 个角色`;
 
@@ -78,12 +100,13 @@ export async function stageCharacters(db: Database, task: AutoPipelineTask): Pro
           );
         }
 
-        // 极简角色概念图提示词（buildCharacterConceptPrompt：风格 + 角色名/外貌 + 纯白背景全身）
-        // shuohao 标准：visual_prompt（形象提示词）优先，空时降级旧字段（visual_description / description）+ 剧本分析兜底
+        // P0-1 极简角色概念图提示词（buildCharacterConceptPromptWithIdentity：项目风格 + 身份锁定块 + 纯白背景全身）
+        // 身份锁不含服装——锚点图只锁定面容/体型/发型，服装由 wardrobe 分场景控制
         const visualDesc = character.visual_prompt
           || [character.visual_description || character.description || '', charAnalysis?.personality || '', charAnalysis?.visualTraits || '']
             .filter(Boolean).join('，');
-        const characterPrompt = buildCharacterConceptPrompt(character.name, visualDesc || '无描述', styleDescription || undefined);
+        const project = ProjectDAO.getById(db, task.projectId) || null;
+        const characterPrompt = buildCharacterConceptPromptWithIdentity(character, project);
 
         // 负面提示词（shuohao character-refs 标准，替换原硬编码）
         const charNegativePrompt = CHARACTER_CONCEPT_NEGATIVE;

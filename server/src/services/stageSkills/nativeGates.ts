@@ -29,10 +29,6 @@ export interface NativeGateOutcome {
   artifacts?: Record<string, string>;
 }
 
-function stageName(s: NativeStage): string {
-  return s === 'shots' ? 'storyboard' : s === 'characters' ? 'characters' : 'art';
-}
-
 function skillDirFor(s: NativeStage): string {
   // shots → novel-storyboard；characters → novel-characters；scenes → novel-art
   if (s === 'shots') return 'novel-storyboard';

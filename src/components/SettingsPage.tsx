@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Settings as SettingsIcon, ArrowLeft, Palette, Bell, Database, Info, Save, Sun, Moon, Monitor, FileText, Image, Video, Mic, Brain, Sparkles, BookOpen, Globe, ListTree, Users } from 'lucide-react';
+import { Settings as SettingsIcon, ArrowLeft, Palette, Bell, Database, Info, Save, Sun, Moon, Monitor, FileText, Image, Video, Mic, Brain, Sparkles, BookOpen, Globe, ListTree, Users, FolderOpen, Lock, Ratio, Type } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { Card, Tabs, Badge, Button } from './ui';
 import { ModelSelector } from './ModelConfig/ModelSelector';
@@ -7,6 +7,8 @@ import { preferenceService, type UserPreferences } from '../services/preferenceS
 import { useUIStore } from '../stores/useUIStore';
 import { useProjectStore } from '../stores/useProjectStore';
 import apiClient from '../services/apiClient';
+import { API_PATHS } from '../constants/api';
+import { showApiError } from '../utils/error';
 
 const STORAGE_KEY = 'moo-default-models';
 
@@ -48,7 +50,7 @@ export function SettingsPage() {
   const loadMemory = async () => {
     if (!currentProject?.id) return;
     try {
-      const res = await apiClient.get<unknown, { success?: boolean; data?: any }>(`/projects/${currentProject.id}/memory`);
+      const res = await apiClient.get<unknown, { success?: boolean; data?: any }>(API_PATHS.projectMemory(currentProject.id));
       if (res.success && res.data) {
         setMemoryData(res.data);
       }
@@ -64,15 +66,15 @@ export function SettingsPage() {
     }
     setIsGeneratingMemory(true);
     try {
-      const res = await apiClient.post<unknown, { success?: boolean; data?: any }>(`/projects/${currentProject.id}/memory/generate`);
+      const res = await apiClient.post<unknown, { success?: boolean; data?: any }>(API_PATHS.projectMemoryGenerate(currentProject.id));
       if (res.success) {
         showToast('项目记忆生成成功，角色圣经/世界观/剧情摘要已更新', 'success');
         await loadMemory();
       } else {
         showToast('项目记忆生成失败', 'error');
       }
-    } catch (err: any) {
-      showToast(err?.response?.data?.error?.message || '项目记忆生成失败', 'error');
+    } catch (err: unknown) {
+      showApiError(showToast, err, '项目记忆生成失败');
     } finally {
       setIsGeneratingMemory(false);
     }
@@ -88,8 +90,8 @@ export function SettingsPage() {
     if (!currentProject?.id) return;
     try {
       const [listRes, statsRes] = await Promise.all([
-        apiClient.get<unknown, { success?: boolean; data?: any[] }>(`/projects/${currentProject.id}/visual-memory`),
-        apiClient.get<unknown, { success?: boolean; data?: any }>(`/projects/${currentProject.id}/visual-memory/stats`),
+        apiClient.get<unknown, { success?: boolean; data?: any[] }>(API_PATHS.projectVisualMemory(currentProject.id)),
+        apiClient.get<unknown, { success?: boolean; data?: any }>(API_PATHS.projectVisualMemoryStats(currentProject.id)),
       ]);
       if (listRes.success && listRes.data) setVisualMemory(listRes.data);
       if (statsRes.success && statsRes.data) setVisualStats(statsRes.data);
@@ -102,7 +104,7 @@ export function SettingsPage() {
     if (!currentProject?.id) return;
     setIsIndexingVisual(true);
     try {
-      const res = await apiClient.post<unknown, { success?: boolean; data?: any }>(`/projects/${currentProject.id}/visual-memory/index`, {});
+      const res = await apiClient.post<unknown, { success?: boolean; data?: any }>(API_PATHS.projectVisualMemoryIndex(currentProject.id), {});
       if (res.success) {
         showToast(`视觉记忆索引完成：${res.data?.indexed || 0} 张`, 'success');
         await loadVisualMemory();
@@ -116,7 +118,7 @@ export function SettingsPage() {
 
   const handleToggleReference = async (id: string, isReference: boolean) => {
     try {
-      await apiClient.put(`/visual-memory/${id}/reference`, { is_reference: !isReference });
+      await apiClient.put(API_PATHS.visualMemoryReference(id), { is_reference: !isReference });
       await loadVisualMemory();
     } catch {
       showToast('操作失败', 'error');
@@ -125,7 +127,7 @@ export function SettingsPage() {
 
   const handleDeleteVisual = async (id: string) => {
     try {
-      await apiClient.delete(`/visual-memory/${id}`);
+      await apiClient.delete(API_PATHS.visualMemoryItem(id));
       showToast('已删除', 'success');
       await loadVisualMemory();
     } catch {
@@ -231,6 +233,9 @@ export function SettingsPage() {
             </Tabs.Trigger>
             <Tabs.Trigger value="data">
               <Database className="w-4 h-4 mr-2" /> 数据
+            </Tabs.Trigger>
+            <Tabs.Trigger value="project">
+              <FolderOpen className="w-4 h-4 mr-2" /> 项目
             </Tabs.Trigger>
             <Tabs.Trigger value="memory">
               <Brain className="w-4 h-4 mr-2" /> 项目记忆
@@ -397,7 +402,7 @@ export function SettingsPage() {
                     ].map(tab => (
                       <button
                         key={tab.key}
-                        onClick={() => setActiveMemoryTab(tab.key as any)}
+                        onClick={() => setActiveMemoryTab(tab.key as 'character' | 'world' | 'story' | 'foreshadows')}
                         className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
                           activeMemoryTab === tab.key
                             ? 'bg-[var(--accent-soft)] text-[var(--accent)]'
@@ -552,7 +557,7 @@ export function SettingsPage() {
                     ].map(f => (
                       <button
                         key={f.key}
-                        onClick={() => setVisualFilter(f.key as any)}
+                        onClick={() => setVisualFilter(f.key as 'all' | 'character' | 'scene' | 'keyframe')}
                         className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
                           visualFilter === f.key
                             ? 'bg-[var(--accent-soft)] text-[var(--accent)]'
@@ -618,6 +623,74 @@ export function SettingsPage() {
                     </div>
                   )}
                 </>
+              )}
+            </Card>
+          </Tabs.Content>
+
+          <Tabs.Content value="project">
+            <Card className="p-6">
+              <h3 className="font-medium text-[var(--ink-1)] mb-1 flex items-center gap-2">
+                <Lock className="w-4 h-4 text-[var(--accent)]" /> 创作锁定项
+              </h3>
+              <p className="text-sm text-[var(--ink-2)] mb-5">
+                风格和比例在项目创建时锁定，保证全片视觉统一。如需更改请新建项目。
+              </p>
+              {!currentProject ? (
+                <div className="text-center py-10 text-[var(--ink-3)]">
+                  <FolderOpen className="w-12 h-12 mx-auto mb-3 opacity-30" />
+                  <p className="text-sm">未加载项目</p>
+                  <p className="text-xs mt-1">请在项目工作台左侧菜单点击「项目设置」查看当前项目的锁定配置</p>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  <div className="flex items-center gap-4 p-4 rounded-xl bg-[var(--panel-2)]/50 border border-[var(--border)]">
+                    <div className="w-9 h-9 rounded-lg bg-[var(--accent-soft)] flex items-center justify-center flex-shrink-0">
+                      <FolderOpen className="w-5 h-5 text-[var(--accent)]" />
+                    </div>
+                    <div className="flex-1">
+                      <p className="text-xs font-medium text-[var(--ink-3)] mb-0.5">项目</p>
+                      <p className="text-sm font-medium text-[var(--ink-1)]">{currentProject.title}</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-4 p-4 rounded-xl bg-[var(--panel-2)]/50 border border-[var(--border)]">
+                    <div className="w-9 h-9 rounded-lg bg-[var(--accent-soft)] flex items-center justify-center flex-shrink-0">
+                      <Type className="w-5 h-5 text-[var(--accent)]" />
+                    </div>
+                    <div className="flex-1">
+                      <p className="text-xs font-medium text-[var(--ink-3)] mb-0.5">视觉风格</p>
+                      <p className="text-sm font-medium text-[var(--ink-1)]">{currentProject.visual_style || '未设置'}</p>
+                    </div>
+                    <span className="text-[var(--ink-3)] opacity-70 flex items-center gap-1 text-xs">
+                      <Lock className="w-3.5 h-3.5" /> 已锁定
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-4 p-4 rounded-xl bg-[var(--panel-2)]/50 border border-[var(--border)]">
+                    <div className="w-9 h-9 rounded-lg bg-[var(--accent-soft)] flex items-center justify-center flex-shrink-0">
+                      <Ratio className="w-5 h-5 text-[var(--accent)]" />
+                    </div>
+                    <div className="flex-1">
+                      <p className="text-xs font-medium text-[var(--ink-3)] mb-0.5">画面比例</p>
+                      <p className="text-sm font-medium text-[var(--ink-1)]">{currentProject.aspect_ratio || '未设置'}</p>
+                    </div>
+                    <span className="text-[var(--ink-3)] opacity-70 flex items-center gap-1 text-xs">
+                      <Lock className="w-3.5 h-3.5" /> 已锁定
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-4 p-4 rounded-xl bg-[var(--panel-2)]/50 border border-[var(--border)]">
+                    <div className="w-9 h-9 rounded-lg bg-[var(--accent-soft)] flex items-center justify-center flex-shrink-0">
+                      <FileText className="w-5 h-5 text-[var(--accent)]" />
+                    </div>
+                    <div className="flex-1">
+                      <p className="text-xs font-medium text-[var(--ink-3)] mb-0.5">输入模式</p>
+                      <p className="text-sm font-medium text-[var(--ink-1)]">
+                        {currentProject.input_mode === 'one_liner' ? '一句话创意'
+                          : currentProject.input_mode === 'outline' ? '故事大纲'
+                          : currentProject.input_mode === 'novel' ? '小说文本'
+                          : '未设置'}
+                      </p>
+                    </div>
+                  </div>
+                </div>
               )}
             </Card>
           </Tabs.Content>

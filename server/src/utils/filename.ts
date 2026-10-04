@@ -45,17 +45,6 @@ export function sanitizeFileName(input: string): string | null {
 }
 
 /**
- * 校验解析后的路径确实位于 baseDir 内（防止 resolve 后逃逸）。
- */
-export function isPathInside(baseDir: string, targetPath: string): boolean {
-  const sep = process.platform === 'win32' ? '\\' : '/';
-  const resolvedBase = baseDir.endsWith(sep) ? baseDir : baseDir + sep;
-  const normBase = baseDir.normalize();
-  const normTarget = targetPath.normalize();
-  return normTarget === normBase || normTarget.startsWith(resolvedBase);
-}
-
-/**
  * 校验项目/资源 ID 格式（路由 :id 用于拼文件路径时必须通过）。
  */
 export function isValidResourceId(id: string): boolean {

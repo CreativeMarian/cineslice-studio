@@ -12,12 +12,21 @@ import {
   CharacterOutfitDAO,
 } from '../models';
 import { createError, asyncHandler } from '../middleware/errorHandler';
+import { ErrorCodes } from '../errors';
 import { validateBody } from '../middleware/validate';
 import { imageUpload } from '../middleware/upload';
 import { aiProxy } from '../services/aiProxy';
 import { buildCharacterExtractPrompt } from '../services/prompts/characterExtract';
 import { buildSceneExtractPrompt } from '../services/prompts/sceneExtract';
-import { buildKeyframePrompt, buildCharacterConceptPrompt, buildSceneConceptPrompt } from '../services/prompts/keyframe';
+import { buildKeyframePrompt, buildSceneConceptPrompt } from '../services/prompts/keyframe';
+import {
+  buildCharacterConceptPromptWithIdentity,
+  normalizeIdentityLock,
+  normalizeWardrobe,
+  buildWardrobeJson,
+  normalizeSpatialLayout,
+  normalizeLighting,
+} from '../services/promptBuilder';
 import { characterExpressionService } from '../services/characterExpressionService';
 import { parseAiJsonOrThrow } from '../utils/aiJsonParser';
 import type { Database, CharacterOutfit } from '../types';
@@ -34,11 +43,11 @@ function getDb(req: Request): Database {
  */
 function requirePropOwnership(db: Database, req: Request, propId: string): void {
   const prop = ScriptPropDAO.getById(db, propId);
-  if (!prop) throw createError(404, 'NOT_FOUND', '道具不存在');
+  if (!prop) throw createError(404, ErrorCodes.NOT_FOUND, '道具不存在');
   const episode = NovelEpisodeDAO.getById(db, prop.episode_id);
-  if (!episode) throw createError(404, 'NOT_FOUND', '剧集不存在');
+  if (!episode) throw createError(404, ErrorCodes.NOT_FOUND, '剧集不存在');
   const project = ProjectDAO.getByIdAndUser(db, episode.project_id, req.user.id);
-  if (!project) throw createError(404, 'NOT_FOUND', '道具不存在');
+  if (!project) throw createError(404, ErrorCodes.NOT_FOUND, '道具不存在');
 }
 
 const extractSchema = z.object({
@@ -62,6 +71,9 @@ const updateCharacterSchema = z.object({
   visual_description: z.string().optional(),
   selected_image_index: z.number().int().optional(),
   voice_profile: z.string().optional(), // 音色档案 JSON：{ voice, speed }
+  // P0-1 身份锁：跨镜一致的关键特征（JSON 字符串，不可二次描述）
+  identity_lock: z.string().optional(),
+  wardrobe: z.string().optional(),     // 服装列表（JSON 字符串：{id,name,description,color,scene_id,is_default}[]）
 });
 
 const updateSceneSchema = z.object({
@@ -71,6 +83,9 @@ const updateSceneSchema = z.object({
   atmosphere: z.string().optional(),
   description: z.string().optional(),
   selected_image_index: z.number().int().optional(),
+  // P1-2 空间坐标 + 灯光体系（JSON 字符串）
+  spatial_layout: z.string().optional(),
+  lighting: z.string().optional(),
 });
 
 // ============ 角色 ============
@@ -79,7 +94,7 @@ const updateSceneSchema = z.object({
 router.post('/episodes/:id/characters/extract', validateBody(extractSchema), asyncHandler(async (req: Request, res: Response) => {
   const db = getDb(req);
   const episode = NovelEpisodeDAO.getByIdAndUser(db, req.params.id, req.user.id);
-  if (!episode) throw createError(404, 'NOT_FOUND', '剧集不存在');
+  if (!episode) throw createError(404, ErrorCodes.NOT_FOUND, '剧集不存在');
 
   const { provider, modelName } = req.body;
   // 优先使用加料后的剧本（更详细、角色描述更丰富），没有加料则用原始剧本
@@ -129,33 +144,50 @@ router.post('/episodes/:id/characters/extract', validateBody(extractSchema), asy
       c.voice_prompt || c.voicePrompt || c.音色提示词
     ));
   } catch (err) {
-    throw createError(502, 'AI_CALL_FAILED', (err as Error).message);
+    throw createError(502, ErrorCodes.AI_CALL_FAILED, (err as Error).message);
   }
 
-  // 删除旧角色
-  const old = ScriptCharacterDAO.listByEpisode(db, episode.id);
-  for (const c of old) ScriptCharacterDAO.delete(db, c.id);
+  // P2-1: 删除旧角色 + 批量创建新角色必须在同一事务内：
+  // 中途失败（如唯一索引冲突）自动回滚，避免"旧角色已删、新角色半建"的脏状态
+  const created = db.transaction(() => {
+    const old = ScriptCharacterDAO.listByEpisode(db, episode.id);
+    for (const c of old) ScriptCharacterDAO.delete(db, c.id);
 
-  const created = ScriptCharacterDAO.batchCreate(db, characters.map((c: any) => {
-    const characterProfile = c.character_profile || c.characterProfile || c.人物画像 || c.description || c.desc || c.描述 || c.简介 || c.characterDescription || '';
-    const visualPrompt = c.visual_prompt || c.visualPrompt || c.形象提示词 || c.visual_description || c.visualDescription || c.visual || c.appearance || c.外貌描述 || c.形象描述 || c.visualDesc || '';
-    const voicePrompt = c.voice_prompt || c.voicePrompt || c.音色提示词 || c.voice_description || c.voiceDescription || '';
-    return {
-      user_id: req.user.id,
-      episode_id: episode.id,
-      name: c.name || c.characterName || c.character_name || c.角色名 || c.姓名 || '未命名',
-      gender: c.gender || c.sex || c.性别 || 'other',
-      role_type: c.roleType || c.role || c.role_type || c.角色类型 || c.类型 || 'supporting',
-      // 兼容旧字段：description 用 character_profile 填充
-      description: characterProfile,
-      // 兼容旧字段：visual_description 用 visual_prompt 填充
-      visual_description: visualPrompt,
-      // shuohao 新字段
-      character_profile: characterProfile || null,
-      visual_prompt: visualPrompt || null,
-      voice_prompt: voicePrompt || null,
-    };
-  }));
+    // P0-1：场景名 → 场景ID 映射（wardrobe.scene_name 解析为 scene_id；场景未提取时全部置 null 通用服装）
+    const sceneList = ScriptSceneDAO.listByEpisode(db, episode.id);
+    const sceneNameToId: Record<string, string> = {};
+    for (const sc of sceneList) {
+      if (sc.name) sceneNameToId[sc.name] = sc.id;
+    }
+
+    return ScriptCharacterDAO.batchCreate(db, characters.map((c: any) => {
+      const characterProfile = c.character_profile || c.characterProfile || c.人物画像 || c.description || c.desc || c.描述 || c.简介 || c.characterDescription || '';
+      const visualPrompt = c.visual_prompt || c.visualPrompt || c.形象提示词 || c.visual_description || c.visualDescription || c.visual || c.appearance || c.外貌描述 || c.形象描述 || c.visualDesc || '';
+      const voicePrompt = c.voice_prompt || c.voicePrompt || c.音色提示词 || c.voice_description || c.voiceDescription || '';
+      // P0-1 身份锁：AI 返回 identity_lock → 归一化 JSON（空则 null）
+      const identityLock = normalizeIdentityLock(c.identity_lock || c.identityLock || c.身份锁 || null);
+      // P0-1 服装：AI 返回 wardrobe → 归一化 + scene_id 解析（空则 null）
+      const wardrobeItems = normalizeWardrobe(c.wardrobe || c.wardrobeList || c.服装 || c.outfits || []);
+      return {
+        user_id: req.user.id,
+        episode_id: episode.id,
+        name: c.name || c.characterName || c.character_name || c.角色名 || c.姓名 || '未命名',
+        gender: c.gender || c.sex || c.性别 || 'other',
+        role_type: c.roleType || c.role || c.role_type || c.角色类型 || c.类型 || 'supporting',
+        // 兼容旧字段：description 用 character_profile 填充
+        description: characterProfile,
+        // 兼容旧字段：visual_description 用 visual_prompt 填充
+        visual_description: visualPrompt,
+        // shuohao 新字段
+        character_profile: characterProfile || null,
+        visual_prompt: visualPrompt || null,
+        voice_prompt: voicePrompt || null,
+        // P0-1 身份锁 + 服装
+        identity_lock: identityLock ? JSON.stringify(identityLock) : undefined,
+        wardrobe: buildWardrobeJson(wardrobeItems, sceneNameToId) || undefined,
+      };
+    }));
+  })();
 
   res.json({ success: true, data: created });
 }));
@@ -163,6 +195,9 @@ router.post('/episodes/:id/characters/extract', validateBody(extractSchema), asy
 // 角色列表
 router.get('/episodes/:id/characters', asyncHandler(async (req: Request, res: Response) => {
   const db = getDb(req);
+  // P2修复(IDOR): 校验剧集归属
+  const episode = NovelEpisodeDAO.getByIdAndUser(db, req.params.id, req.user.id);
+  if (!episode) throw createError(404, ErrorCodes.NOT_FOUND, '剧集不存在');
   const characters = ScriptCharacterDAO.listByEpisode(db, req.params.id);
   res.json({ success: true, data: characters });
 }));
@@ -171,7 +206,7 @@ router.get('/episodes/:id/characters', asyncHandler(async (req: Request, res: Re
 router.get('/characters/:id', asyncHandler(async (req: Request, res: Response) => {
   const db = getDb(req);
   const character = ScriptCharacterDAO.getByIdAndUser(db, req.params.id, req.user.id);
-  if (!character) throw createError(404, 'NOT_FOUND', '角色不存在');
+  if (!character) throw createError(404, ErrorCodes.NOT_FOUND, '角色不存在');
   res.json({ success: true, data: character });
 }));
 
@@ -179,7 +214,7 @@ router.get('/characters/:id', asyncHandler(async (req: Request, res: Response) =
 router.put('/characters/:id', validateBody(updateCharacterSchema), asyncHandler(async (req: Request, res: Response) => {
   const db = getDb(req);
   const character = ScriptCharacterDAO.getByIdAndUser(db, req.params.id, req.user.id);
-  if (!character) throw createError(404, 'NOT_FOUND', '角色不存在');
+  if (!character) throw createError(404, ErrorCodes.NOT_FOUND, '角色不存在');
   const updated = ScriptCharacterDAO.update(db, req.params.id, req.body);
   res.json({ success: true, data: updated });
 }));
@@ -188,23 +223,20 @@ router.put('/characters/:id', validateBody(updateCharacterSchema), asyncHandler(
 router.post('/characters/:id/generate-image', validateBody(generateImageSchema), asyncHandler(async (req: Request, res: Response) => {
   const db = getDb(req);
   const character = ScriptCharacterDAO.getByIdAndUser(db, req.params.id, req.user.id);
-  if (!character) throw createError(404, 'NOT_FOUND', '角色不存在');
+  if (!character) throw createError(404, ErrorCodes.NOT_FOUND, '角色不存在');
 
   const episode = NovelEpisodeDAO.getById(db, character.episode_id);
   const { provider, modelName, count, referenceImageUrl, prompt: customPrompt } = req.body;
 
-  // 描述为空时的兜底：用角色名+性别+类型生成默认描述
-  const visualDesc = character.visual_description && character.visual_description.trim()
-    ? character.visual_description
-    : `${character.name}，${character.gender === 'male' ? '男性' : character.gender === 'female' ? '女性' : '人物'}，${character.role_type === 'protagonist' ? '主角形象，气质突出' : character.role_type === 'antagonist' ? '反派形象，气场强烈' : '配角形象，特征鲜明'}，详细的面部特征和服装设计`;
-
   // 使用自定义提示词或极简概念图提示词
+  // P0-1: 默认提示词使用身份锁（不含服装——锚点图只锁定面容/体型/发型，服装由 wardrobe 分场景控制）
+  const project = episode ? (ProjectDAO.getById(db, episode.project_id) || null) : null;
   let prompt, negativePrompt;
   if (customPrompt && customPrompt.trim()) {
     prompt = customPrompt;
     negativePrompt = undefined;
   } else {
-    prompt = buildCharacterConceptPrompt(character.name, visualDesc);
+    prompt = buildCharacterConceptPromptWithIdentity(character, project);
     negativePrompt = undefined;
   }
 
@@ -243,7 +275,7 @@ router.post('/characters/:id/generate-image', validateBody(generateImageSchema),
 router.post('/characters/:id/generate-four-view', validateBody(generateImageSchema), asyncHandler(async (req: Request, res: Response) => {
   const db = getDb(req);
   const character = ScriptCharacterDAO.getByIdAndUser(db, req.params.id, req.user.id);
-  if (!character) throw createError(404, 'NOT_FOUND', '角色不存在');
+  if (!character) throw createError(404, ErrorCodes.NOT_FOUND, '角色不存在');
 
   const episode = NovelEpisodeDAO.getById(db, character.episode_id);
   const { provider, modelName, referenceImageUrl, prompt: customPrompt } = req.body;
@@ -295,7 +327,7 @@ router.post('/characters/:id/generate-four-view', validateBody(generateImageSche
 router.delete('/characters/:id/four-view-images', asyncHandler(async (req: Request, res: Response) => {
   const db = getDb(req);
   const character = ScriptCharacterDAO.getByIdAndUser(db, req.params.id, req.user.id);
-  if (!character) throw createError(404, 'NOT_FOUND', '角色不存在');
+  if (!character) throw createError(404, ErrorCodes.NOT_FOUND, '角色不存在');
 
   const updatedCharacter = ScriptCharacterDAO.update(db, character.id, { four_view_images: JSON.stringify([]) });
   res.json({ success: true, data: updatedCharacter });
@@ -305,7 +337,7 @@ router.delete('/characters/:id/four-view-images', asyncHandler(async (req: Reque
 router.post('/characters/:id/generate-expressions', validateBody(generateImageSchema), asyncHandler(async (req: Request, res: Response) => {
   const db = getDb(req);
   const character = ScriptCharacterDAO.getByIdAndUser(db, req.params.id, req.user.id);
-  if (!character) throw createError(404, 'NOT_FOUND', '角色不存在');
+  if (!character) throw createError(404, ErrorCodes.NOT_FOUND, '角色不存在');
 
   const episode = NovelEpisodeDAO.getById(db, character.episode_id);
   const { provider, modelName } = req.body;
@@ -322,8 +354,8 @@ router.post('/characters/:id/generate-expressions', validateBody(generateImageSc
 router.post('/characters/:id/upload-reference', imageUpload.single('file'), asyncHandler(async (req: Request, res: Response) => {
   const db = getDb(req);
   const character = ScriptCharacterDAO.getByIdAndUser(db, req.params.id, req.user.id);
-  if (!character) throw createError(404, 'NOT_FOUND', '角色不存在');
-  if (!req.file) throw createError(400, 'VALIDATION_ERROR', '请上传图片');
+  if (!character) throw createError(404, ErrorCodes.NOT_FOUND, '角色不存在');
+  if (!req.file) throw createError(400, ErrorCodes.VALIDATION_ERROR, '请上传图片');
 
   const urlPath = `/uploads/${character.episode_id}/${req.file.filename}`;
   ScriptCharacterDAO.update(db, character.id, { reference_image_url: urlPath });
@@ -334,12 +366,12 @@ router.post('/characters/:id/upload-reference', imageUpload.single('file'), asyn
 router.delete('/characters/:id/images/:index', asyncHandler(async (req: Request, res: Response) => {
   const db = getDb(req);
   const character = ScriptCharacterDAO.getByIdAndUser(db, req.params.id, req.user.id);
-  if (!character) throw createError(404, 'NOT_FOUND', '角色不存在');
+  if (!character) throw createError(404, ErrorCodes.NOT_FOUND, '角色不存在');
 
   const index = parseInt(req.params.index, 10);
   const images = Array.isArray(character.concept_images) ? character.concept_images : [];
   if (index < 0 || index >= images.length) {
-    throw createError(400, 'INVALID_INDEX', '图片索引无效');
+    throw createError(400, ErrorCodes.INVALID_INDEX, '图片索引无效');
   }
 
   const newImages = images.filter((_, i) => i !== index);
@@ -359,7 +391,7 @@ router.delete('/characters/:id/images/:index', asyncHandler(async (req: Request,
 router.delete('/characters/:id', asyncHandler(async (req: Request, res: Response) => {
   const db = getDb(req);
   const character = ScriptCharacterDAO.getByIdAndUser(db, req.params.id, req.user.id);
-  if (!character) throw createError(404, 'NOT_FOUND', '角色不存在');
+  if (!character) throw createError(404, ErrorCodes.NOT_FOUND, '角色不存在');
   ScriptCharacterDAO.delete(db, req.params.id);
   res.json({ success: true, data: { message: '角色已删除' } });
 }));
@@ -381,13 +413,13 @@ const outfitUpdateSchema = z.object({
 /** 校验造型归属：造型 → 角色 → 剧集 → 项目 → 用户 */
 function requireOutfitOwnership(db: Database, req: Request, outfitId: string): CharacterOutfit {
   const outfit = CharacterOutfitDAO.getById(db, outfitId);
-  if (!outfit) throw createError(404, 'NOT_FOUND', '造型不存在');
+  if (!outfit) throw createError(404, ErrorCodes.NOT_FOUND, '造型不存在');
   const character = ScriptCharacterDAO.getById(db, outfit.character_id);
-  if (!character) throw createError(404, 'NOT_FOUND', '造型不存在');
+  if (!character) throw createError(404, ErrorCodes.NOT_FOUND, '造型不存在');
   const episode = NovelEpisodeDAO.getById(db, character.episode_id);
-  if (!episode) throw createError(404, 'NOT_FOUND', '造型不存在');
+  if (!episode) throw createError(404, ErrorCodes.NOT_FOUND, '造型不存在');
   const project = ProjectDAO.getByIdAndUser(db, episode.project_id, req.user.id);
-  if (!project) throw createError(404, 'NOT_FOUND', '造型不存在');
+  if (!project) throw createError(404, ErrorCodes.NOT_FOUND, '造型不存在');
   return outfit;
 }
 
@@ -395,7 +427,7 @@ function requireOutfitOwnership(db: Database, req: Request, outfitId: string): C
 router.get('/characters/:id/outfits', asyncHandler(async (req: Request, res: Response) => {
   const db = getDb(req);
   const character = ScriptCharacterDAO.getByIdAndUser(db, req.params.id, req.user.id);
-  if (!character) throw createError(404, 'NOT_FOUND', '角色不存在');
+  if (!character) throw createError(404, ErrorCodes.NOT_FOUND, '角色不存在');
   const outfits = CharacterOutfitDAO.listByCharacter(db, character.id);
   res.json({ success: true, data: outfits });
 }));
@@ -404,7 +436,7 @@ router.get('/characters/:id/outfits', asyncHandler(async (req: Request, res: Res
 router.post('/characters/:id/outfits', validateBody(outfitCreateSchema), asyncHandler(async (req: Request, res: Response) => {
   const db = getDb(req);
   const character = ScriptCharacterDAO.getByIdAndUser(db, req.params.id, req.user.id);
-  if (!character) throw createError(404, 'NOT_FOUND', '角色不存在');
+  if (!character) throw createError(404, ErrorCodes.NOT_FOUND, '角色不存在');
   const existing = CharacterOutfitDAO.listByCharacter(db, character.id);
   const outfit = CharacterOutfitDAO.create(db, {
     user_id: req.user.id,
@@ -484,7 +516,7 @@ router.post('/outfits/:id/generate-image', validateBody(generateImageSchema), as
 router.post('/episodes/:id/scenes/extract', validateBody(extractSchema), asyncHandler(async (req: Request, res: Response) => {
   const db = getDb(req);
   const episode = NovelEpisodeDAO.getByIdAndUser(db, req.params.id, req.user.id);
-  if (!episode) throw createError(404, 'NOT_FOUND', '剧集不存在');
+  if (!episode) throw createError(404, ErrorCodes.NOT_FOUND, '剧集不存在');
 
   const { provider, modelName } = req.body;
   // 优先使用加料后的剧本
@@ -532,7 +564,7 @@ router.post('/episodes/:id/scenes/extract', validateBody(extractSchema), asyncHa
       s.consistency_anchor || s.consistencyAnchor || s.一致性锚点
     ));
   } catch (err) {
-    throw createError(502, 'AI_CALL_FAILED', (err as Error).message);
+    throw createError(502, ErrorCodes.AI_CALL_FAILED, (err as Error).message);
   }
 
   // 数组/对象值安全序列化为字符串，避免 SQLite "Too many parameter values" 错误
@@ -542,10 +574,12 @@ router.post('/episodes/:id/scenes/extract', validateBody(extractSchema), asyncHa
     try { return JSON.stringify(v); } catch { return String(v); }
   };
 
-  const old = ScriptSceneDAO.listByEpisode(db, episode.id);
-  for (const s of old) ScriptSceneDAO.delete(db, s.id);
+  // P2-1: 删除旧场景 + 批量创建新场景必须在同一事务内（中途失败自动回滚，避免脏状态）
+  const created = db.transaction(() => {
+    const old = ScriptSceneDAO.listByEpisode(db, episode.id);
+    for (const s of old) ScriptSceneDAO.delete(db, s.id);
 
-  const created = ScriptSceneDAO.batchCreate(db, scenes.map((s: any) => ({
+    return ScriptSceneDAO.batchCreate(db, scenes.map((s: any) => ({
     user_id: req.user.id,
     episode_id: episode.id,
     name: String(s.name || s.sceneName || s.scene_name || s.场景名 || s.名称 || '未命名场景'),
@@ -557,7 +591,17 @@ router.post('/episodes/:id/scenes/extract', validateBody(extractSchema), asyncHa
     consistency_anchor: toStr(s.consistency_anchor || s.consistencyAnchor || s.一致性锚点),
     lighting_variants: toStr(s.lighting_variants || s.lightingVariants || s.光照变体),
     scale_reference: toStr(s.scale_reference || s.scaleReference || s.尺度参照),
-  })));
+    // P1-2 空间坐标 + 灯光体系（AI 输出 → 归一化 JSON）
+    spatial_layout: (() => {
+      const layout = normalizeSpatialLayout(s.spatial_layout || s.spatialLayout || s.空间布局 || s.layout || []);
+      return layout.length > 0 ? JSON.stringify(layout) : undefined;
+    })(),
+    lighting: (() => {
+      const lighting = normalizeLighting(s.lighting || s.lighting_config || s.lightingConfig || s.灯光配置 || null);
+      return lighting ? JSON.stringify(lighting) : undefined;
+    })(),
+    })));
+  })();
 
   res.json({ success: true, data: created });
 }));
@@ -565,6 +609,9 @@ router.post('/episodes/:id/scenes/extract', validateBody(extractSchema), asyncHa
 // 场景列表
 router.get('/episodes/:id/scenes', asyncHandler(async (req: Request, res: Response) => {
   const db = getDb(req);
+  // P2修复(IDOR): 校验剧集归属
+  const episode = NovelEpisodeDAO.getByIdAndUser(db, req.params.id, req.user.id);
+  if (!episode) throw createError(404, ErrorCodes.NOT_FOUND, '剧集不存在');
   const scenes = ScriptSceneDAO.listByEpisode(db, req.params.id);
   res.json({ success: true, data: scenes });
 }));
@@ -573,7 +620,7 @@ router.get('/episodes/:id/scenes', asyncHandler(async (req: Request, res: Respon
 router.get('/scenes/:id', asyncHandler(async (req: Request, res: Response) => {
   const db = getDb(req);
   const scene = ScriptSceneDAO.getByIdAndUser(db, req.params.id, req.user.id);
-  if (!scene) throw createError(404, 'NOT_FOUND', '场景不存在');
+  if (!scene) throw createError(404, ErrorCodes.NOT_FOUND, '场景不存在');
   res.json({ success: true, data: scene });
 }));
 
@@ -581,7 +628,7 @@ router.get('/scenes/:id', asyncHandler(async (req: Request, res: Response) => {
 router.put('/scenes/:id', validateBody(updateSceneSchema), asyncHandler(async (req: Request, res: Response) => {
   const db = getDb(req);
   const scene = ScriptSceneDAO.getByIdAndUser(db, req.params.id, req.user.id);
-  if (!scene) throw createError(404, 'NOT_FOUND', '场景不存在');
+  if (!scene) throw createError(404, ErrorCodes.NOT_FOUND, '场景不存在');
   const updated = ScriptSceneDAO.update(db, req.params.id, req.body);
   res.json({ success: true, data: updated });
 }));
@@ -590,7 +637,7 @@ router.put('/scenes/:id', validateBody(updateSceneSchema), asyncHandler(async (r
 router.post('/scenes/:id/generate-image', validateBody(generateImageSchema), asyncHandler(async (req: Request, res: Response) => {
   const db = getDb(req);
   const scene = ScriptSceneDAO.getByIdAndUser(db, req.params.id, req.user.id);
-  if (!scene) throw createError(404, 'NOT_FOUND', '场景不存在');
+  if (!scene) throw createError(404, ErrorCodes.NOT_FOUND, '场景不存在');
 
   const episode = NovelEpisodeDAO.getById(db, scene.episode_id);
   const { provider, modelName, count, prompt: customPrompt } = req.body;
@@ -642,12 +689,12 @@ router.post('/scenes/:id/generate-image', validateBody(generateImageSchema), asy
 router.delete('/scenes/:id/images/:index', asyncHandler(async (req: Request, res: Response) => {
   const db = getDb(req);
   const scene = ScriptSceneDAO.getByIdAndUser(db, req.params.id, req.user.id);
-  if (!scene) throw createError(404, 'NOT_FOUND', '场景不存在');
+  if (!scene) throw createError(404, ErrorCodes.NOT_FOUND, '场景不存在');
 
   const index = parseInt(req.params.index, 10);
   const images = Array.isArray(scene.concept_images) ? scene.concept_images : [];
   if (index < 0 || index >= images.length) {
-    throw createError(400, 'INVALID_INDEX', '图片索引无效');
+    throw createError(400, ErrorCodes.INVALID_INDEX, '图片索引无效');
   }
 
   const newImages = images.filter((_, i) => i !== index);
@@ -667,7 +714,7 @@ router.delete('/scenes/:id/images/:index', asyncHandler(async (req: Request, res
 router.delete('/scenes/:id', asyncHandler(async (req: Request, res: Response) => {
   const db = getDb(req);
   const scene = ScriptSceneDAO.getByIdAndUser(db, req.params.id, req.user.id);
-  if (!scene) throw createError(404, 'NOT_FOUND', '场景不存在');
+  if (!scene) throw createError(404, ErrorCodes.NOT_FOUND, '场景不存在');
   ScriptSceneDAO.delete(db, req.params.id);
   res.json({ success: true, data: { message: '场景已删除' } });
 }));
@@ -678,7 +725,7 @@ router.delete('/scenes/:id', asyncHandler(async (req: Request, res: Response) =>
 router.post('/episodes/:id/props/extract', validateBody(extractSchema), asyncHandler(async (req: Request, res: Response) => {
   const db = getDb(req);
   const episode = NovelEpisodeDAO.getByIdAndUser(db, req.params.id, req.user.id);
-  if (!episode) throw createError(404, 'NOT_FOUND', '剧集不存在');
+  if (!episode) throw createError(404, ErrorCodes.NOT_FOUND, '剧集不存在');
 
   const { provider, modelName } = req.body;
   // 优先使用加料后的剧本
@@ -741,7 +788,7 @@ ${scriptForExtract}
     }
     props = props.filter((p: any) => p && (p.name || p.propName || p.prop_name || p.道具名 || p.名称 || p.description || p.desc || p.描述));
   } catch (err) {
-    throw createError(502, 'AI_CALL_FAILED', (err as Error).message);
+    throw createError(502, ErrorCodes.AI_CALL_FAILED, (err as Error).message);
   }
 
   // 删除旧道具
@@ -764,17 +811,42 @@ ${scriptForExtract}
 
 router.get('/episodes/:id/props', asyncHandler(async (req: Request, res: Response) => {
   const db = getDb(req);
+  // P2修复(IDOR): 校验剧集归属
+  const episode = NovelEpisodeDAO.getByIdAndUser(db, req.params.id, req.user.id);
+  if (!episode) throw createError(404, ErrorCodes.NOT_FOUND, '剧集不存在');
   const props = ScriptPropDAO.listByEpisode(db, req.params.id);
   res.json({ success: true, data: props });
 }));
 
-router.post('/episodes/:id/props', asyncHandler(async (req: Request, res: Response) => {
+// P0-3: 新建道具 — 剧集归属校验 + 显式 schema（禁止 passthrough 写入未知字段）
+const createPropSchema = z.object({
+  name: z.string().min(1),
+  description: z.string().optional(),
+  visual_prompt: z.string().optional(),
+  category: z.string().optional(),
+});
+
+router.post('/episodes/:id/props', validateBody(createPropSchema), asyncHandler(async (req: Request, res: Response) => {
   const db = getDb(req);
-  const prop = ScriptPropDAO.create(db, { user_id: req.user.id, episode_id: req.params.id, ...req.body });
+  // P0-3: 校验剧集归属（防 IDOR：不能向他人剧集写入道具）
+  const episode = NovelEpisodeDAO.getByIdAndUser(db, req.params.id, req.user.id);
+  if (!episode) throw createError(404, ErrorCodes.NOT_FOUND, '剧集不存在');
+  const prop = ScriptPropDAO.create(db, { user_id: req.user.id, episode_id: episode.id, ...req.body });
   res.json({ success: true, data: prop });
 }));
 
-router.put('/props/:id', asyncHandler(async (req: Request, res: Response) => {
+// P0-2: 道具更新校验（参考 updateCharacterSchema 写法，显式声明可写字段）
+const updatePropSchema = z.object({
+  name: z.string().optional(),
+  category: z.string().optional(),
+  description: z.string().optional(),
+  keywords: z.string().optional(),
+  visual_prompt: z.string().optional(),
+  is_clue: z.number().int().min(0).max(1).optional(),
+  is_narrative: z.number().int().min(0).max(1).optional(),
+});
+
+router.put('/props/:id', validateBody(updatePropSchema), asyncHandler(async (req: Request, res: Response) => {
   const db = getDb(req);
   requirePropOwnership(db, req, req.params.id);
   const prop = ScriptPropDAO.update(db, req.params.id, req.body);
@@ -792,7 +864,7 @@ router.delete('/props/:id', asyncHandler(async (req: Request, res: Response) => 
 router.post('/props/:id/generate-image', validateBody(generateImageSchema), asyncHandler(async (req: Request, res: Response) => {
   const db = getDb(req);
   const prop = ScriptPropDAO.getById(db, req.params.id);
-  if (!prop || prop.user_id !== req.user.id) throw createError(404, 'NOT_FOUND', '道具不存在');
+  if (!prop || prop.user_id !== req.user.id) throw createError(404, ErrorCodes.NOT_FOUND, '道具不存在');
 
   const episode = NovelEpisodeDAO.getById(db, prop.episode_id);
   const { provider, modelName, count, referenceImageUrl, prompt: customPrompt } = req.body;
@@ -846,21 +918,22 @@ router.post('/props/:id/generate-image', validateBody(generateImageSchema), asyn
 router.delete('/props/:id/images/:index', asyncHandler(async (req: Request, res: Response) => {
   const db = getDb(req);
   const prop = ScriptPropDAO.getById(db, req.params.id);
-  if (!prop || prop.user_id !== req.user.id) throw createError(404, 'NOT_FOUND', '道具不存在');
+  if (!prop || prop.user_id !== req.user.id) throw createError(404, ErrorCodes.NOT_FOUND, '道具不存在');
 
   const index = parseInt(req.params.index, 10);
   const images = Array.isArray(prop.concept_images) ? prop.concept_images : [];
-  if (index < 0 || index >= images.length) throw createError(400, 'INVALID_INDEX', '图片索引无效');
+  if (index < 0 || index >= images.length) throw createError(400, ErrorCodes.INVALID_INDEX, '图片索引无效');
 
   const newImages = images.filter((_: any, i: number) => i !== index);
-  const newSelectedIndex = (prop as any).selected_image_index >= newImages.length
+  const currentSelected = prop.selected_image_index ?? 0;
+  const newSelectedIndex = currentSelected >= newImages.length
     ? Math.max(0, newImages.length - 1)
-    : (prop as any).selected_image_index;
+    : currentSelected;
 
   ScriptPropDAO.update(db, prop.id, {
     concept_images: JSON.stringify(newImages),
     selected_image_index: newSelectedIndex,
-  } as any);
+  });
 
   res.json({ success: true, data: { message: '图片已删除', remaining: newImages.length } });
 }));

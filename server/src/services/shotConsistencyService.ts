@@ -10,7 +10,7 @@
 import fs from 'fs';
 import path from 'path';
 import { execFileSync } from 'child_process';
-import type { Database, Shot, ShotKeyframe } from '../types';
+import type { Database, Shot, ShotKeyframe, ScriptCharacter, WardrobeItem } from '../types';
 import {
   ShotKeyframeDAO,
   ShotDAO,
@@ -24,7 +24,9 @@ import {
 import { projectStorage } from './projectStorage';
 import { buildKeyframePrompt } from './prompts/keyframe';
 import { aiProxy } from './aiProxy';
-import { characterExpressionService, type ExpressionKey } from './characterExpressionService';
+import { characterExpressionService } from './characterExpressionService';
+import { resolveBlockingCharacterIds } from './promptBuilder';
+
 
 /** 解析镜头角色 ID 列表（兼容 JSON 与逗号分隔） */
 export function parseShotCharacterIds(shot: Shot): string[] {
@@ -104,7 +106,153 @@ export function buildShotSceneMap(
   return sceneMap;
 }
 
-/** 解析概念图 JSON 数组，返回图片 URL 列表 */
+// ═══════════════════════════════════════════════════════════════
+// P0-5: 分镜资产关联（普通分镜与加料分镜共用）
+// 输入镜头列表（兼容 AI 直出字段与加料 storyboard 字段），
+// 输出每镜的 characters_in_shot / scene_id / blocking / character_outfits
+// ═══════════════════════════════════════════════════════════════
+
+export interface ShotAssetInput {
+  sceneName?: string | null;
+  actionDescription?: string | null;
+  charactersInShot?: string[] | null;
+  blocking?: Array<{ character_name?: string; characterName?: string; position?: string; facing?: string; action?: string }> | null;
+  characterOutfits?: Record<string, string> | null;
+}
+
+export interface ShotAssetAssociation {
+  /** characters_in_shot JSON 字符串（角色名数组） */
+  characters_in_shot: string | null;
+  /** 场景 ID（sceneName 匹配/创建后解析） */
+  scene_id: string | null;
+  /** blocking JSON 字符串（character_id 引用，未匹配保留 character_name） */
+  blocking: string | null;
+  /** character_outfits JSON 字符串（{"角色名":"造型名"}，按场景匹配服装） */
+  character_outfits: string | null;
+}
+
+/** 从镜头文本匹配已有场景名（仅匹配已存在场景，避免 buildShotSceneMap 创建垃圾场景） */
+export function matchSceneNameFromText(text: string, scenes: Array<{ name: string | null }>): string | null {
+  if (!text || !scenes || scenes.length === 0) return null;
+  const normalize = (n: string): string => n.replace(/场景|室内|室外|外景|内景|【|】/g, '').trim();
+  // 精确场景名优先
+  for (const sc of scenes) {
+    if (sc.name && text.includes(sc.name)) return sc.name;
+  }
+  // 归一化包含匹配（与 buildShotSceneMap 同一规则）
+  const norm = normalize(text);
+  if (!norm) return null;
+  for (const sc of scenes) {
+    const eNorm = sc.name ? normalize(sc.name) : '';
+    if (eNorm && norm.includes(eNorm)) return sc.name;
+  }
+  return null;
+}
+
+/** 按场景匹配角色服装：scene_id 匹配 → 默认服装 → 第一套；无服装返回 null */
+function matchOutfitNameByScene(character: ScriptCharacter, sceneId: string): string | null {
+  let wardrobe: WardrobeItem[] = [];
+  try {
+    const parsed = character.wardrobe ? JSON.parse(character.wardrobe) : null;
+    if (Array.isArray(parsed)) wardrobe = parsed;
+  } catch { /* 解析失败按无服装处理 */ }
+  if (wardrobe.length === 0) return null;
+  const byScene = wardrobe.find(w => w.scene_id && w.scene_id === sceneId);
+  if (byScene?.name) return byScene.name;
+  const def = wardrobe.find(w => w.is_default === 1);
+  if (def?.name) return def.name;
+  return wardrobe[0]?.name || null;
+}
+
+/** 从文本按角色名提取出场角色（镜头未显式标记时兜底） */
+function extractCharacterNamesFromText(text: string, charNames: string[]): string[] {
+  if (!text || charNames.length === 0) return [];
+  const found: string[] = [];
+  for (const name of charNames) {
+    if (name && name.length >= 2 && text.includes(name) && !found.includes(name)) found.push(name);
+  }
+  return found;
+}
+
+const BLOCKING_POSITION_KEYWORDS = [
+  '画面左侧', '画面右侧', '画面中央', '画面中间', '画面中心',
+  '左侧', '右侧', '中央', '中间', '前景', '背景', '居中',
+];
+
+/**
+ * 构建分镜资产关联（与普通分镜生成路径同一套逻辑，供加料分镜落库复用）：
+ * 1. sceneName → buildShotSceneMap 关联/创建场景 → scene_id
+ * 2. characters_in_shot：显式列表优先，否则从动作描述文本提取角色名
+ * 3. blocking：resolveBlockingCharacterIds（显式 blocking 缺失时按已识别角色生成基础调度）
+ * 4. character_outfits：按场景匹配服装
+ */
+export function buildShotAssetAssociations(
+  db: Database,
+  userId: string,
+  episodeId: string,
+  shots: ShotAssetInput[],
+): ShotAssetAssociation[] {
+  // 1. 场景关联（与普通分镜同一链路：sceneName → 匹配/创建 script_scenes）
+  const sceneMap = buildShotSceneMap(db, userId, episodeId, shots as Array<{ sceneName?: string | null; actionDescription?: string }>);
+
+  // 2. 角色名 → ID 映射
+  const episodeCharacters = ScriptCharacterDAO.listByEpisode(db, episodeId);
+  const charNameToId: Record<string, string> = {};
+  const charNames: string[] = [];
+  for (const ec of episodeCharacters) {
+    if (ec.name) {
+      charNameToId[ec.name] = ec.id;
+      charNames.push(ec.name);
+    }
+  }
+
+  return shots.map((s) => {
+    // characters_in_shot：显式列表优先（含空数组——AI 明确返回空则不兜底），否则从文本提取
+    let charNamesInShot: string[] = [];
+    if (Array.isArray(s.charactersInShot)) {
+      charNamesInShot = s.charactersInShot.filter((n): n is string => typeof n === 'string' && n.trim().length > 0);
+    } else {
+      charNamesInShot = extractCharacterNamesFromText(s.actionDescription || '', charNames);
+    }
+
+    // blocking：显式 blocking 优先；缺失时按已识别角色生成基础调度（位置关键词提炼 + 兜底）
+    let rawBlocking = Array.isArray(s.blocking) ? s.blocking : [];
+    if (rawBlocking.length === 0 && charNamesInShot.length > 0) {
+      const text = s.actionDescription || '';
+      const pos = BLOCKING_POSITION_KEYWORDS.find(k => text.includes(k)) || '画面中';
+      rawBlocking = charNamesInShot.map(name => ({ character_name: name, position: pos, facing: '镜头', action: '' }));
+    }
+    const blocking = resolveBlockingCharacterIds(rawBlocking, charNameToId);
+
+    // scene_id：sceneName → sceneMap
+    const sceneId = s.sceneName ? sceneMap.get(String(s.sceneName).trim()) || null : null;
+
+    // character_outfits：显式调度优先（AI 返回），否则按场景匹配服装
+    let outfits: Record<string, string> = {};
+    if (s.characterOutfits && typeof s.characterOutfits === 'object' && Object.keys(s.characterOutfits).length > 0) {
+      outfits = s.characterOutfits;
+    } else if (sceneId) {
+      for (const ec of episodeCharacters) {
+        if (!ec.name || !charNamesInShot.includes(ec.name)) continue;
+        const outfitName = matchOutfitNameByScene(ec, sceneId);
+        if (outfitName) outfits[ec.name] = outfitName;
+      }
+    }
+
+    return {
+      characters_in_shot: charNamesInShot.length > 0 ? JSON.stringify(charNamesInShot) : null,
+      scene_id: sceneId,
+      blocking: blocking.length > 0 ? JSON.stringify(blocking) : null,
+      character_outfits: Object.keys(outfits).length > 0 ? JSON.stringify(outfits) : null,
+    };
+  });
+}
+
+/**
+ * 解析概念图 JSON 数组，返回图片 URL 列表
+ * @param raw 概念图字段：JSON 字符串 / 已解析数组 / 单 URL 字符串
+ * @returns 图片 URL 数组（无有效图时为空数组）
+ */
 export function parseConceptImages(raw: string | null | any[]): string[] {
   if (Array.isArray(raw)) {
     return raw.map((img: any) => (typeof img === 'string' ? img : img?.url)).filter(Boolean);
@@ -280,12 +428,6 @@ export interface ResolvedLastFrame {
 }
 
 /**
- * 解析镜头视频的尾帧（首尾帧插值）：
- * 1. 优先使用镜头自身的显式尾帧（frame_type='end'，用户手动生成）
- * 2. 否则若 shot.use_next_first_frame=1，取下一镜的首帧作为尾帧（VideoClaw 方案）
- *    镜头间画面硬衔接，解决"不连戏"，同时大幅减少视频落点抽卡
- */
-/**
  * 上一镜成品视频 URL（用于 H3 ref_videos 视频续写，锁定跨镜人物/场景延续）。
  * 无上一镜/无已完成视频时返回 null。
  */
@@ -362,10 +504,10 @@ export function collectExpressionReferenceImages(db: Database, shot: Shot): stri
 
   if (chars.length === 0) return refs;
 
-  // 2. 分析镜头情绪（优先 emotion 字段，否则从动作描述/台词推断）
+  // 2. 分析镜头情绪（优先 emotion 字段（AI 动态注入，非表列），否则从动作描述/台词推断）
   const moodText = [
-    (shot as any).emotion,
-    (shot as any).mood,
+    (shot as Shot & { emotion?: string | null }).emotion,
+    shot.mood,
     shot.action_description,
     shot.dialogue,
   ].filter(Boolean).join(' ');
@@ -375,11 +517,11 @@ export function collectExpressionReferenceImages(db: Database, shot: Shot): stri
 
   // 3. 从各角色的 expression_images 字段取对应表情图
   for (const char of chars) {
-    if (!char || !(char as any).expression_images) continue;
+    if (!char || !char.expression_images) continue;
     try {
-      const expressions: Record<string, string> = typeof (char as any).expression_images === 'string'
-        ? JSON.parse((char as any).expression_images)
-        : (char as any).expression_images;
+      const expressions: Record<string, string> = typeof char.expression_images === 'string'
+        ? JSON.parse(char.expression_images)
+        : char.expression_images;
       const exprImg = expressions[expressionKey];
       if (exprImg && !refs.includes(exprImg)) {
         refs.push(exprImg);
@@ -395,6 +537,16 @@ export function collectExpressionReferenceImages(db: Database, shot: Shot): stri
   return refs;
 }
 
+/**
+ * 解析镜头视频的尾帧（首尾帧插值，供视频生成 end_frame 参数使用）：
+ * 1. 优先使用镜头自身的显式尾帧（frame_type='end' 手动生成 / 'last' 批量关键帧镜头结尾画面）
+ * 2. 否则若 shot.use_next_first_frame=1，取下一镜的首帧作为尾帧（VideoClaw 方案）
+ *    镜头间画面硬衔接，解决"不连戏"，同时大幅减少视频落点抽卡
+ * @param db 数据库实例
+ * @param shot 当前镜头
+ * @param shots 同集全部镜头（按 shot_number 升序）
+ * @returns 尾帧信息（keyframeId/imageUrl/source）；无可用尾帧时返回 null
+ */
 export function resolveLastFrameForShot(
   db: Database,
   shot: Shot,
@@ -646,7 +798,8 @@ export function calculateShotReadiness(
   let hasSceneRef = true;
   if (shot.scene_id) {
     const scene = ScriptSceneDAO.getById(db, shot.scene_id);
-    hasSceneRef = !!(scene && (scene as any).concept_image_url);
+    // P1-8: 字段名修正——script_scenes 表字段为 concept_images（DAO 已解析为数组），旧代码 concept_image_url 永远取不到
+    hasSceneRef = !!(scene && Array.isArray(scene.concept_images) && scene.concept_images.length > 0);
     if (!hasSceneRef) {
       issues.push(`缺少场景参考图（${scene?.name || '未知场景'}）`);
     }

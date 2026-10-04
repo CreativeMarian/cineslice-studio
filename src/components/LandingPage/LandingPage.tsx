@@ -1,12 +1,17 @@
 import { useEffect, useRef } from 'react';
+import { VISUAL_STYLES } from '../../constants';
 
-const styles = [
-  { name: '动漫风格', desc: '日系动漫，赛璐璐着色，清晰线条', tags: ['二次元', '漫剧'], featured: false },
-  { name: '国风风格', desc: '中国风，水墨渲染，传统配色', tags: ['古风', '仙侠'], featured: false },
-  { name: '现代风格', desc: '现代都市，写实渲染，时尚色调', tags: ['都市', '职场'], featured: false },
-  { name: '科幻风格', desc: '赛博朋克，霓虹灯光，未来感', tags: ['科幻', '赛博朋克'], featured: false },
-  { name: '电影级写实', desc: 'cinematic，高细节，电影感光影', tags: ['剧情片', '推荐'], featured: true },
-];
+// P2-前端7: 风格预设与项目向导共用同一常量列表（6种：3D漫剧/写实/古风/赛博朋克/日系动漫/美式漫画）
+const STYLE_META: Record<string, { desc: string; tags: string[]; featured?: boolean }> = {
+  '3D漫剧': { desc: '三维渲染，PBR 材质，电影级光照', tags: ['3D', '漫剧'], featured: true },
+  '写实': { desc: '真人电影质感，高细节，真实光影', tags: ['写实', '电影感'] },
+  '古风': { desc: '中国风，水墨渲染，传统配色', tags: ['古风', '仙侠'] },
+  '赛博朋克': { desc: '赛博朋克，霓虹灯光，未来感', tags: ['科幻', '赛博朋克'] },
+  '日系动漫': { desc: '日系动漫，赛璐璐着色，清晰线条', tags: ['二次元', '动漫'] },
+  '美式漫画': { desc: '美漫风格，粗线条，高对比上色', tags: ['美式', '漫画'] },
+};
+
+const styles = VISUAL_STYLES.map((name) => ({ name, ...(STYLE_META[name] || { desc: '', tags: [] }) }));
 
 const workflow = [
   { step: 1, title: '小说上传与解析', desc: '上传 .txt/.md 小说，自动识别章节' },
@@ -122,7 +127,7 @@ export function LandingPage() {
             {[
               { num: '9', label: '步全流程自动化' },
               { num: '20+', label: 'AI 模型支持' },
-              { num: '5', label: '种风格预设' },
+              { num: '6', label: '种风格预设' },
               { num: '7', label: '维度剧本分析' },
             ].map((s, i) => (
               <div key={i} className="bg-[var(--card-bg)] border border-[var(--border)] rounded-2xl p-6 shadow-[var(--shadow-card)]">
@@ -143,7 +148,7 @@ export function LandingPage() {
           </div>
           <div className="grid md:grid-cols-3 gap-8">
             {[
-              { title: '多种风格预设', desc: '内置 5 种专业风格，一键应用全片。动漫、国风、现代、科幻、电影级写实，选一个就够了。', tags: ['动漫', '国风', '现代', '科幻', '电影级'], icon: '🎨' },
+              { title: '多种风格预设', desc: '内置 6 种专业风格，一键应用全片。3D漫剧、写实、古风、赛博朋克、日系动漫、美式漫画，选一个就够了。', tags: ['3D漫剧', '写实', '古风', '赛博朋克', '日系动漫', '美式漫画'], icon: '🎨' },
               { title: '多模型自由选择', desc: '支持 20+ 家 AI 模型，文本、图像、视频、音频都有多家可选。你用自己的 API Key，费用直接付给厂商。', tags: ['DeepSeek', '豆包', 'Seedream', 'Seedance'], icon: '🤖' },
               { title: 'AI 个性化推荐', desc: '不只是执行命令，AI 会智能推荐。风格推荐、提示词推荐、音色推荐、时长推荐，越用越懂你。', tags: ['风格推荐', '提示词', '音色', '时长', '模型'], icon: '✨' },
             ].map((f, i) => (
@@ -195,10 +200,10 @@ export function LandingPage() {
       <section id="styles" className="py-24 relative">
         <div className="max-w-7xl mx-auto px-6">
           <div className="text-center mb-16 reveal opacity-0 translate-y-8">
-            <h2 className="font-bold text-4xl md:text-5xl text-[var(--ink-1)] mb-4">5 种专业风格预设</h2>
+            <h2 className="font-bold text-4xl md:text-5xl text-[var(--ink-1)] mb-4">6 种专业风格预设</h2>
             <p className="text-xl text-[var(--ink-2)]">选一个风格，全片自动统一，不用自己调参数</p>
           </div>
-          <div className="grid md:grid-cols-2 lg:grid-cols-5 gap-6">
+          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
             {styles.map((s, i) => (
               <div key={i} className={`bg-[var(--card-bg)] border border-[var(--border)] rounded-3xl overflow-hidden reveal opacity-0 translate-y-8 hover:-translate-y-2 transition-all duration-300 shadow-[var(--shadow-card)] hover:shadow-[var(--shadow-float)] ${s.featured ? 'border-[var(--accent)]/40' : ''}`} style={{ transitionDelay: `${i * 0.05}s` }}>
                 <div className={`h-40 bg-gradient-to-br ${s.featured ? 'from-[var(--accent-soft)] to-[var(--panel-3)]' : 'from-[var(--panel-2)] to-[var(--panel-3)]'} flex items-center justify-center relative`}>

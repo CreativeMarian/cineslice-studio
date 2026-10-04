@@ -6,7 +6,7 @@
 
 import type { Database, NovelEpisode, ScriptCharacter, ScriptScene, ScriptProp, Shot } from '../../types';
 import { NovelChapterDAO } from '../../models/novelChapter';
-import { ShotDAO, parseCharactersInShot } from '../../models/shot';
+import { parseCharactersInShot } from '../../models/shot';
 
 // ═══ 编号映射 ═══
 export interface IdMaps {
@@ -110,7 +110,7 @@ export function groupShotsByScene(shots: Shot[], maps: IdMaps): Array<{ sceneId:
 
 // ═══ script.json ═══
 export function buildScriptJson(
-  db: Database,
+  _db: Database,
   episode: NovelEpisode,
   shots: Shot[],
   maps: IdMaps

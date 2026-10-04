@@ -1,9 +1,10 @@
 import { useState } from 'react';
-import { Image as ImageIcon, RefreshCw, Trash2, Sparkles } from 'lucide-react';
-import { Button, Modal, Textarea } from '../ui';
+import { Image as ImageIcon, RefreshCw, Trash2, Sparkles, ZoomIn } from 'lucide-react';
+import { Button, Modal, Textarea, ImageModal } from '../ui';
 import { characterService, sceneService, propService } from '../../services/assetService';
 import { useDefaultModels } from '../../hooks/useDefaultModels';
 import { useUIStore } from '../../stores/useUIStore';
+import { showApiError } from '../../utils/error';
 import { parseModelKey } from '../../types/model';
 import { cn } from '../../utils';
 
@@ -54,6 +55,7 @@ export function ConceptImageGenerator({
   const { showToast } = useUIStore();
   const { getDefaultModel } = useDefaultModels();
   const [modalOpen, setModalOpen] = useState(false);
+  const [previewOpen, setPreviewOpen] = useState(false);
   const [prompt, setPrompt] = useState(defaultPrompt);
   const [isGenerating, setIsGenerating] = useState(false);
 
@@ -111,9 +113,8 @@ export function ConceptImageGenerator({
           setModalOpen(false);
         }
       }
-    } catch (err: any) {
-      const errorMsg = err?.response?.data?.message || err?.message || '概念图生成失败';
-      showToast(errorMsg, 'error');
+    } catch (err: unknown) {
+      showApiError(showToast, err, '概念图生成失败');
       console.error('[ConceptImageGenerator] 生成失败:', err);
     } finally {
       setIsGenerating(false);
@@ -126,11 +127,24 @@ export function ConceptImageGenerator({
       <div className="relative overflow-hidden rounded-[var(--radius-card)] border border-[var(--border)] bg-[var(--panel-2)] group">
         <div className={cn('w-full', ASPECT_CLASS[aspectRatio])}>
           {currentImage ? (
-            <img
-              src={currentImage}
-              alt={title}
-              className="w-full h-full object-cover"
-            />
+            // P2-6: 点击图片放大预览（ImageModal，支持 Esc 关闭）
+            <button
+              type="button"
+              onClick={() => setPreviewOpen(true)}
+              className="block w-full h-full group/img relative"
+              title="点击放大预览"
+            >
+              <img
+                src={currentImage}
+                alt={title}
+                className="w-full h-full object-cover"
+              />
+              <span className="absolute inset-0 flex items-center justify-center bg-black/0 opacity-0 group-hover/img:opacity-100 transition-opacity">
+                <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-black/50 backdrop-blur-sm text-white text-xs">
+                  <ZoomIn className="w-3.5 h-3.5" /> 点击放大
+                </span>
+              </span>
+            </button>
           ) : (
             <div className="w-full h-full flex flex-col items-center justify-center gap-3 bg-gradient-to-br from-[var(--panel-2)] to-[var(--panel-3)]">
               <ImageIcon className="w-10 h-10 text-[var(--ink-3)]" />
@@ -152,7 +166,11 @@ export function ConceptImageGenerator({
                 <RefreshCw className="w-3.5 h-3.5" />
               </button>
               <button
-                onClick={() => onDeleted?.(safeIndex)}
+                onClick={() => {
+                  // 删除为不可逆操作，先确认再执行（与角色/场景/分镜删除保持一致）
+                  if (!window.confirm(`确定删除当前${title}吗？删除后可通过生成重新创建。`)) return;
+                  onDeleted?.(safeIndex);
+                }}
                 className="w-7 h-7 rounded-lg bg-red-500/70 backdrop-blur-sm flex items-center justify-center text-white hover:bg-red-500 transition-colors"
                 title="删除当前图片"
               >
@@ -214,6 +232,16 @@ export function ConceptImageGenerator({
           </p>
         </div>
       </Modal>
+
+      {/* 点击放大预览 */}
+      {currentImage && (
+        <ImageModal
+          open={previewOpen}
+          onClose={() => setPreviewOpen(false)}
+          imageUrl={currentImage}
+          title={`${title} · 第 ${safeIndex + 1} 张`}
+        />
+      )}
     </div>
   );
 }

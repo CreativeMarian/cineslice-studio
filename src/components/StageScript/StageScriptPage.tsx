@@ -18,6 +18,8 @@ import { useUIStore } from '../../stores/useUIStore';
 import { projectService } from '../../services/projectService';
 import { shotService } from '../../services/shotService';
 import { useDefaultModels } from '../../hooks/useDefaultModels';
+import { showApiError, getResponseErrorMessage } from '../../utils/error';
+import { SCRIPT_MAX_LENGTH, SCRIPT_WARN_THRESHOLD } from '../../constants';
 import { TIME_OF_DAY_LABELS } from '../../utils';
 import type { Episode } from '../../types';
 
@@ -194,9 +196,8 @@ export function StageScriptPage() {
         setContent(newContent);
         showToast('台词已更新并保存', 'success');
       }
-    } catch (err: any) {
-      const errorMsg = err?.response?.data?.message || err?.message || '保存失败';
-      showToast(errorMsg, 'error');
+    } catch (err: unknown) {
+      showApiError(showToast, err, '保存失败');
     }
   };
 
@@ -256,9 +257,8 @@ export function StageScriptPage() {
         });
         showToast('剧本已重新生成', 'success');
       }
-    } catch (err: any) {
-      const errorMsg = err?.response?.data?.message || err?.message || '重新生成失败';
-      showToast(errorMsg, 'error');
+    } catch (err: unknown) {
+      showApiError(showToast, err, '重新生成失败');
     } finally {
       setIsRegenerating(false);
     }
@@ -267,6 +267,11 @@ export function StageScriptPage() {
   // 确认并进入导演台：自动生成分镜，成功后跳转
   const handleConfirm = async () => {
     if (!currentEpisode) return;
+    // P2-前端3: 空剧本禁止进入导演台
+    if (!hasScript) {
+      showToast('请先编写或生成剧本', 'warning');
+      return;
+    }
     const modelKey = getDefaultModel('text');
     if (!modelKey) {
       showToast('请先在模型配置中添加文本模型', 'error');
@@ -289,11 +294,10 @@ export function StageScriptPage() {
         showToast(`已生成 ${res.data.length} 个分镜，进入导演台`, 'success');
         navigate(`/project/${id}/director`);
       } else {
-        showToast(res.error?.message || '分镜生成失败', 'error');
+        showToast(getResponseErrorMessage(res, '分镜生成失败'), 'error');
       }
-    } catch (err: any) {
-      const errorMsg = err?.response?.data?.message || err?.message || '分镜生成失败';
-      showToast(errorMsg, 'error');
+    } catch (err: unknown) {
+      showApiError(showToast, err, '分镜生成失败');
     } finally {
       setIsGeneratingShots(false);
     }
@@ -313,6 +317,16 @@ export function StageScriptPage() {
     }
   };
 
+  /** P1-24: 台词 inline 编辑提示行（含全文字数统计，接近 200000 上限时显示警告色） */
+  const renderEditHint = () => (
+    <p className="text-[10px] text-[var(--ink-3)] mt-1 flex items-center gap-3 flex-wrap">
+      <span>Ctrl+Enter 保存 · Esc 取消</span>
+      <span className={content.length > SCRIPT_WARN_THRESHOLD ? 'text-[var(--color-warning)] font-medium' : ''}>
+        剧本 {content.length}/{SCRIPT_MAX_LENGTH} 字
+      </span>
+    </p>
+  );
+
   const renderDialogueRow = (beat: DialogueBeat) => {
     const isEditing = editingLine === beat.lineIndex;
     return (
@@ -329,10 +343,11 @@ export function StageScriptPage() {
               onBlur={commitEdit}
               onKeyDown={handleEditKeyDown}
               rows={2}
+              maxLength={SCRIPT_MAX_LENGTH}
               className="text-xs"
               placeholder="编辑台词..."
             />
-            <p className="text-[10px] text-[var(--ink-3)] mt-1">Ctrl+Enter 保存 · Esc 取消</p>
+            {renderEditHint()}
           </div>
         ) : (
           <span
@@ -390,7 +405,7 @@ export function StageScriptPage() {
               size="md"
               leftIcon={isGeneratingShots ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Clapperboard className="w-4 h-4" />}
               onClick={handleConfirm}
-              disabled={isGeneratingShots || isRegenerating}
+              disabled={isGeneratingShots || isRegenerating || !hasScript}
             >
               {isGeneratingShots ? '生成分镜中...' : '确认并进入导演台'}
             </Button>
@@ -589,10 +604,11 @@ export function StageScriptPage() {
                                   onBlur={commitEdit}
                                   onKeyDown={handleEditKeyDown}
                                   rows={2}
+                                  maxLength={SCRIPT_MAX_LENGTH}
                                   className="text-xs"
                                   placeholder="编辑台词..."
                                 />
-                                <p className="text-[10px] text-[var(--ink-3)] mt-1">Ctrl+Enter 保存 · Esc 取消</p>
+                                {renderEditHint()}
                               </div>
                             ) : (
                               <span

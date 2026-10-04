@@ -11,7 +11,7 @@ import { decodeFilename, isValidResourceId } from '../utils/filename';
 const config = getConfig();
 
 const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
+  destination: (req, _file, cb) => {
     // 路由参数为 :id（如 /api/projects/:id/novel/upload），兼容 projectId
     // ID 会拼进磁盘路径，必须校验格式，阻断 %2e%2e%2f 等 URL 编码穿越
     const rawId = req.params.id || req.params.projectId || '';
@@ -25,7 +25,7 @@ const storage = multer.diskStorage({
     }
     cb(null, dir);
   },
-  filename: (req, file, cb) => {
+  filename: (_req, file, cb) => {
     // 修复 Windows 下中文文件名编码问题（multer 以 latin1 解析文件名）
     const originalName = decodeFilename(file.originalname);
     const safeName = originalName.replace(/[^\w.\-\u4e00-\u9fa5]/g, '_');
@@ -37,7 +37,7 @@ const storage = multer.diskStorage({
 export const novelUpload = multer({
   storage,
   limits: { fileSize: 10 * 1024 * 1024 },
-  fileFilter: (req, file, cb) => {
+  fileFilter: (_req, file, cb) => {
     const allowed = ['.txt', '.md'];
     const ext = path.extname(file.originalname).toLowerCase();
     if (allowed.includes(ext) || file.mimetype === 'text/plain' || file.mimetype === 'text/markdown') {
@@ -52,7 +52,7 @@ export const novelUpload = multer({
 export const imageUpload = multer({
   storage,
   limits: { fileSize: 10 * 1024 * 1024 },
-  fileFilter: (req, file, cb) => {
+  fileFilter: (_req, file, cb) => {
     const allowed = ['.png', '.jpg', '.jpeg', '.webp', '.gif'];
     const ext = path.extname(file.originalname).toLowerCase();
     if (allowed.includes(ext) || file.mimetype.startsWith('image/')) {
@@ -67,7 +67,7 @@ export const imageUpload = multer({
 export const zipUpload = multer({
   storage,
   limits: { fileSize: 100 * 1024 * 1024 },
-  fileFilter: (req, file, cb) => {
+  fileFilter: (_req, file, cb) => {
     const ext = path.extname(file.originalname).toLowerCase();
     if (ext === '.zip' || file.mimetype === 'application/zip' || file.mimetype === 'application/x-zip-compressed') {
       cb(null, true);

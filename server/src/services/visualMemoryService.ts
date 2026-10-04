@@ -186,7 +186,7 @@ export interface RetrievedReferences {
 export function retrieveReferenceImages(
   db: Database,
   projectId: string,
-  episodeId: string,
+  _episodeId: string,
   shot: Shot,
   maxPerEntity: number = 2,
   maxRecent: number = 3

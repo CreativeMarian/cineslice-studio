@@ -1,11 +1,11 @@
 // 阶段6：分镜生成
 // v2.0 - 场景关联（scene_id 落库）+ 角色资产上下文注入 + 修复 shot_type 列不存在 bug + 道具落库
 import type { Database } from '../../../types';
-import { NovelEpisodeDAO, ShotDAO, ScriptCharacterDAO, ScriptSceneDAO, ScriptPropDAO, ProjectDAO } from '../../../models';
+import { NovelEpisodeDAO, ShotDAO, ScriptCharacterDAO, ScriptSceneDAO, ScriptPropDAO, ProjectDAO, SegmentDAO } from '../../../models';
 import { aiProxy } from '../../aiProxy';
 import { buildShotGenerationPrompt } from '../../prompts/shotGeneration';
 import { parseShotListArray } from '../../../utils/aiJsonParser';
-import { buildShotSceneMap } from '../../shotConsistencyService';
+import { buildShotAssetAssociations, matchSceneNameFromText } from '../../shotConsistencyService';
 import type { AutoPipelineTask } from '../types';
 import { getFirstModel, withRetry } from '../helpers';
 import { applyStageRules } from '../../stageSkills';
@@ -13,9 +13,10 @@ import { runStageGates } from '../../stageSkills';
 import { runNativeGates } from '../../stageSkills/nativeGates';
 import { episodeEnrichService } from '../../episodeEnrichService';
 import { projectMemoryService } from '../../projectMemoryService';
+import { PHASE_NAMES } from '../../../constants';
 
 /** 从段级 h3Prompt 中按 [镜头N] 切出单镜提示词段落（加料重构分镜专用） */
-function splitSegmentPromptByShot(h3Prompt: string, shotIndex: number, shotCount: number): string {
+function splitSegmentPromptByShot(h3Prompt: string, shotIndex: number, _shotCount: number): string {
   if (!h3Prompt) return '';
   const re = /\[(?:镜头|Shot)\s*(\d+)\]/g;
   const matches: Array<{ num: number; start: number }> = [];
@@ -46,14 +47,25 @@ export async function stageShots(db: Database, task: AutoPipelineTask): Promise<
   if (first.enrich_status === 'approved' && storedEnrich?.storyboard?.shots?.length) {
     console.log(`[AutoPipeline] 分镜阶段使用加料重构结果：${storedEnrich.meta.skillName}，${storedEnrich.storyboard.shots.length}镜`);
     const en = storedEnrich.storyboard;
-    const PHASE_NAMES = ['开场引入', '矛盾升级', '高潮爆发', '收束悬念'];
     const total = en.shots.length;
+
+    // P0-5: 加料分镜落库时执行与普通分镜相同的资产关联
+    // （角色提取 → characters_in_shot；场景匹配 → scene_id；调度解析 → blocking；场景匹配服装 → character_outfits）
+    const existingScenes = ScriptSceneDAO.listByEpisode(db, first.id);
+    const assetInput = en.shots.map(sh => ({
+      sceneName: matchSceneNameFromText([sh.action, sh.frame, sh.line].filter(Boolean).join(' '), existingScenes),
+      actionDescription: sh.action || sh.frame || '',
+    }));
+    const assetAssociations = buildShotAssetAssociations(db, task.userId, first.id, assetInput);
+
     const created = db.transaction(() => {
+      // P1-19: 分镜重建时在同一事务内先级联删除旧 segments（避免孤儿段）
+      SegmentDAO.deleteByEpisode(db, first.id);
       const old = ShotDAO.listByEpisode(db, first.id);
       for (const s of old) ShotDAO.delete(db, s.id);
       const seen = new Set<number>();
       let nextNum = 1;
-      const rows = en.shots.map((sh) => {
+      const rows = en.shots.map((sh, idx) => {
         let num = sh.shot || 0;
         while (seen.has(num)) num = 10000 + nextNum++;
         seen.add(num);
@@ -63,6 +75,7 @@ export async function stageShots(db: Database, task: AutoPipelineTask): Promise<
           const m = sh.line.match(/^([\u4e00-\u9fa5A-Za-z0-9·]{2,10})[：:]\s*(.+)$/);
           dialogue = m ? m[2] : sh.line;
         }
+        const assoc = assetAssociations[idx];
         const shotRow = ShotDAO.create(db, {
           user_id: task.userId,
           episode_id: first.id,
@@ -72,11 +85,16 @@ export async function stageShots(db: Database, task: AutoPipelineTask): Promise<
           dialogue,
           camera_movement: sh.camera || 'static',
           grid_position: '5',
-          duration_seconds: sh.seconds || 5,
+          // P1-12: duration 入库 clamp [3,15]
+          duration_seconds: Math.max(3, Math.min(15, sh.seconds || 5)),
           notes: `加料重构分镜（${storedEnrich.meta.skillName}）`,
           phase: phaseNum,
           phase_name: PHASE_NAMES[phaseNum - 1],
           first_frame_description: sh.frame || null,
+          characters_in_shot: assoc.characters_in_shot ?? undefined,
+          scene_id: assoc.scene_id ?? undefined,
+          blocking: assoc.blocking ?? null,
+          character_outfits: assoc.character_outfits ?? undefined,
         });
         ShotDAO.update(db, shotRow.id, {
           video_prompt: splitSegmentPromptByShot(en.h3Prompt, sh.shot || num, total),
@@ -153,6 +171,8 @@ export async function stageShots(db: Database, task: AutoPipelineTask): Promise<
   // 删除旧镜头 + 创建新镜头在同一事务内：分镜子表（关键帧/视频区间）是
   // ON DELETE CASCADE，插入中途失败（如镜头号重复触发唯一索引）会丢失全部旧分镜
   const created = db.transaction(() => {
+    // P1-19: 分镜重建时在同一事务内先级联删除旧 segments（避免孤儿段）
+    SegmentDAO.deleteByEpisode(db, first.id);
     const old = ShotDAO.listByEpisode(db, first.id);
     for (const s of old) ShotDAO.delete(db, s.id);
 
@@ -167,7 +187,6 @@ export async function stageShots(db: Database, task: AutoPipelineTask): Promise<
     });
 
     // 阶段兜底：AI 未返回 phase 时，按镜头序号均分到 4 个阶段
-    const PHASE_NAMES = ['开场引入', '矛盾升级', '高潮爆发', '收束悬念'];
     const totalCount = finalList.length;
     finalList.forEach((s: any, idx: number) => {
       if (s.phase === undefined || s.phase === null) {
@@ -177,31 +196,43 @@ export async function stageShots(db: Database, task: AutoPipelineTask): Promise<
       }
     });
 
-    // 场景关联：sceneName → 匹配/创建 script_scenes → scene_id 落库（场景参考图链路）
-    const sceneMap = buildShotSceneMap(db, task.userId, first.id, finalList);
-
-    return ShotDAO.batchCreate(db, finalList.map((s: any) => ({
-      user_id: task.userId,
-      episode_id: first.id,
-      shot_number: s.shotNumber,
-      shot_size: s.shotSize || s.shot_size || 'medium',
-      camera_movement: s.cameraMovement || s.camera_movement || 'static',
-      action_description: s.actionDescription || s.action_description || '',
-      dialogue: s.dialogue || '',
-      duration_seconds: s.durationSeconds || s.duration_seconds || shotDuration,
-      characters_in_shot: s.charactersInShot ? JSON.stringify(s.charactersInShot) : null,
-      props_in_shot: s.propsInShot ? JSON.stringify(s.propsInShot) : null,
-      scene_id: s.sceneName ? sceneMap.get(String(s.sceneName).trim()) : undefined,
-      subject: s.subject || null,
-      lighting: s.lighting || null,
-      mood: s.mood || null,
-      transition: s.transition || 'cut',
-      pace: s.pace || 'normal',
-      character_outfits: s.characterOutfits ? JSON.stringify(s.characterOutfits) : null,
-      phase: s.phase ?? null,
-      phase_name: s.phaseName || null,
-      segment_id: s.segmentId ?? null,
+    // P0-5/P1-10: 资产关联（场景/角色/调度/服装）统一走 buildShotAssetAssociations——
+    // 与加料分镜路径共用同一逻辑；blocking 未匹配角色 ID 时保留 character_name（不再丢弃）
+    const assetAssociations = buildShotAssetAssociations(db, task.userId, first.id, finalList.map((s: any) => ({
+      sceneName: s.sceneName || s.scene_name || null,
+      actionDescription: s.actionDescription || s.action_description || '',
+      charactersInShot: Array.isArray(s.charactersInShot) ? s.charactersInShot : null,
+      blocking: Array.isArray(s.blocking) ? s.blocking : null,
+      characterOutfits: (s.characterOutfits && typeof s.characterOutfits === 'object') ? s.characterOutfits : null,
     })));
+
+    return ShotDAO.batchCreate(db, finalList.map((s: any, idx: number) => {
+      const assoc = assetAssociations[idx];
+      return {
+        user_id: task.userId,
+        episode_id: first.id,
+        shot_number: s.shotNumber,
+        shot_size: s.shotSize || s.shot_size || 'medium',
+        camera_movement: s.cameraMovement || s.camera_movement || 'static',
+        action_description: s.actionDescription || s.action_description || '',
+        dialogue: s.dialogue || '',
+        // P1-12: duration 入库 clamp [3,15]
+        duration_seconds: Math.max(3, Math.min(15, s.durationSeconds || s.duration_seconds || shotDuration)),
+        characters_in_shot: assoc.characters_in_shot,
+        props_in_shot: s.propsInShot ? JSON.stringify(s.propsInShot) : null,
+        scene_id: assoc.scene_id ?? undefined,
+        blocking: assoc.blocking,
+        subject: s.subject || null,
+        lighting: s.lighting || null,
+        mood: s.mood || null,
+        transition: s.transition || 'cut',
+        pace: s.pace || 'normal',
+        character_outfits: assoc.character_outfits,
+        phase: s.phase ?? null,
+        phase_name: s.phaseName || null,
+        segment_id: s.segmentId ?? null,
+      };
+    }));
   })();
 
   task.stageProgress['shots'] = `生成 ${created.length} 个镜头`;
@@ -295,6 +326,17 @@ function normalizeShotValueSafe(shot: any): any {
   for (const k of ['charactersInShot', 'propsInShot']) {
     if (out[k] && typeof out[k] === 'string') out[k] = String(out[k]).split(/[,，、]/).map((x: string) => x.trim()).filter(Boolean);
   }
+  // blocking 调度数组：项内 snake_case → camelCase（保留原始字段，兼容读取方）
+  if (Array.isArray(out.blocking)) {
+    out.blocking = out.blocking
+      .filter((b: any) => b && typeof b === 'object')
+      .map((b: any) => {
+        const nb: any = { ...b };
+        if (nb.character_name !== undefined && nb.characterName === undefined) nb.characterName = nb.character_name;
+        if (nb.character_name === undefined && nb.characterName !== undefined) nb.character_name = nb.characterName;
+        return nb;
+      });
+  }
   if (!out.subject && Array.isArray(out.charactersInShot) && out.charactersInShot.length > 0) out.subject = out.charactersInShot[0];
   return out;
 }
@@ -327,17 +369,29 @@ function buildSplitPrompt(shot: any, prev: any, next: any): string {
 async function fixLongDialogueShots(db: Database, task: AutoPipelineTask, episodeId: string, shotDuration: number): Promise<{ fixed: number; failed: number }> {
   const model = getFirstModel(db, task.userId, 'text');
   if (!model) return { fixed: 0, failed: 0 };
-  const shots = ShotDAO.listByEpisode(db, episodeId);
-  const over = shots.filter((s) => {
-    const d = s.dialogue || '';
-    if (!d.trim()) return false;
-    return dialogueNeedSeconds(d) > (s.duration_seconds || shotDuration) + 0.5;
-  });
-  if (over.length === 0) return { fixed: 0, failed: 0 };
+
+  // 先按当前数据找出需要拆分的镜头 id（拆分过程中 shot_number 会变化，id 是稳定标识）
+  const initialShots = ShotDAO.listByEpisode(db, episodeId);
+  const overIds = initialShots
+    .filter((s) => {
+      const d = s.dialogue || '';
+      if (!d.trim()) return false;
+      return dialogueNeedSeconds(d) > (s.duration_seconds || shotDuration) + 0.5;
+    })
+    .map(s => s.id);
+  if (overIds.length === 0) return { fixed: 0, failed: 0 };
 
   let fixed = 0, failed = 0;
-  for (const shot of over) {
+  for (const shotId of overIds) {
+    // 供 catch 日志引用镜头号（try 内 const shot 无法在 catch 作用域访问）
+    let shotForLog: (typeof initialShots)[number] | null = null;
     try {
+      // P1-11: 每轮迭代重新拉取最新镜头列表 —— 前一轮拆镜插入会改变 shot_number 分布，
+      // 若继续用循环开始前捕获的旧数组，后续镜头 prev/next 与后移逻辑会错位，触发唯一索引冲突
+      const shots = ShotDAO.listByEpisode(db, episodeId);
+      const shot = shots.find((s) => s.id === shotId);
+      if (!shot) continue; // 该镜头已被前一轮删除/合并，跳过
+      shotForLog = shot;
       const idx = shots.findIndex((s) => s.id === shot.id);
       const prev = idx > 0 ? shots[idx - 1] : null;
       const next = idx < shots.length - 1 ? shots[idx + 1] : null;
@@ -372,6 +426,8 @@ async function fixLongDialogueShots(db: Database, task: AutoPipelineTask, episod
             duration_seconds: shotDuration,
             characters_in_shot: s.charactersInShot ? JSON.stringify(s.charactersInShot) : (shot.characters_in_shot ? JSON.stringify(shot.characters_in_shot) : undefined),
             props_in_shot: s.propsInShot ? JSON.stringify(s.propsInShot) : (shot.props_in_shot ? JSON.stringify(shot.props_in_shot) : undefined),
+            // P1-11: 拆出的新镜头从原镜复制 blocking（JSON 深拷贝）与 characters_in_shot（上方已复制），保证调度一致
+            blocking: shot.blocking ? JSON.stringify(JSON.parse(shot.blocking)) : null,
             subject: s.subject || shot.subject || undefined,
             lighting: s.lighting || shot.lighting || undefined,
             mood: s.mood || shot.mood || undefined,
@@ -388,7 +444,7 @@ async function fixLongDialogueShots(db: Database, task: AutoPipelineTask, episod
       console.log(`[AutoPipeline] 镜头${shot.shot_number} 拆成 ${insertCount} 镜`);
       fixed++;
     } catch (e: any) {
-      console.warn(`[AutoPipeline] 拆镜失败（镜头${shot.shot_number}）:`, e.message);
+      console.warn(`[AutoPipeline] 拆镜失败（镜头${shotForLog?.shot_number ?? shotId}）:`, e.message);
       failed++;
     }
   }

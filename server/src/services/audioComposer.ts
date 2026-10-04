@@ -9,6 +9,7 @@ import fs from 'fs';
 import { promisify } from 'util';
 import { projectStorage } from './projectStorage';
 import { sanitizeFileName } from '../utils/filename';
+import { getFfmpegPath } from '../utils/ffmpeg';
 
 const execFileAsync = promisify(execFile);
 
@@ -30,30 +31,7 @@ export interface AudioComposeResult {
   error?: string;
 }
 
-/** 获取 ffmpeg 路径 */
-function getFfmpegPath(): string {
-  try {
-    // ffmpeg-static 为可选依赖，缺失时降级到系统 ffmpeg
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const ffmpegStatic = require('ffmpeg-static');
-    if (ffmpegStatic && typeof ffmpegStatic === 'string' && fs.existsSync(ffmpegStatic)) {
-      return ffmpegStatic;
-    }
-  } catch {
-    // ffmpeg-static 未安装
-  }
-  return 'ffmpeg';
-}
-
-/** 检查 ffmpeg 是否可用 */
-export async function checkFfmpegAvailable(): Promise<boolean> {
-  try {
-    await execFileAsync(getFfmpegPath(), ['-version'], { timeout: 5000 });
-    return true;
-  } catch {
-    return false;
-  }
-}
+// ============ ffmpeg 工具（getFfmpegPath / checkFfmpegAvailable 已抽取至 utils/ffmpeg.ts） ============
 
 /**
  * 获取音频文件时长（秒），通过解析 ffmpeg -i 的 stderr 输出

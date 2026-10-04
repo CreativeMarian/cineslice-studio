@@ -65,6 +65,24 @@ export const NovelEpisodeDAO = {
     db.prepare('DELETE FROM novel_episodes WHERE id = ?').run(id);
   },
 
+  /**
+   * 删除单集及其子资源（P2-2）。
+   * 有 ON DELETE CASCADE 外键的表（shots/keyframes/角色/场景/道具/字幕等）由数据库自动级联；
+   * 以下表无外键约束，必须先手动清理，否则删除剧集后残留孤儿数据：
+   *   - segments / shot_audio / script_analysis / visual_memory（episode_id 关联）
+   *   - character_outfits（经 script_characters 间接关联）
+   *   - render_logs（episode_id 为 SET NULL 外键，一并清除）
+   */
+  deleteCascade(db: Database, id: string): void {
+    db.prepare(`DELETE FROM character_outfits WHERE character_id IN (SELECT id FROM script_characters WHERE episode_id = ?)`).run(id);
+    db.prepare(`DELETE FROM shot_audio WHERE episode_id = ?`).run(id);
+    db.prepare('DELETE FROM segments WHERE episode_id = ?').run(id);
+    db.prepare('DELETE FROM script_analysis WHERE episode_id = ?').run(id);
+    db.prepare('DELETE FROM visual_memory WHERE episode_id = ?').run(id);
+    db.prepare('DELETE FROM render_logs WHERE episode_id = ?').run(id);
+    this.delete(db, id);
+  },
+
   getMaxEpisodeNumber(db: Database, projectId: string): number {
     const result = db.prepare('SELECT MAX(episode_number) as max FROM novel_episodes WHERE project_id = ?').get(projectId) as { max: number | null };
     return result.max || 0;

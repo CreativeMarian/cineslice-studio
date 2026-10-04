@@ -88,16 +88,15 @@ export function CustomModelModal({ isOpen, onClose, onSave, defaultType = 'text'
 
   // 保存模型配置
   const handleSave = useCallback(async () => {
+    setError('');
 
-  setError('');
+    const validationError = validateForm();
+    if (validationError) {
+      setError(validationError);
+      return;
+    }
 
-  const validationError = validateForm();
-  if (validationError) {
-    setError(validationError);
-    return;
-  }
-
-  setIsSaving(true);
+    setIsSaving(true);
   try {
     // 构建 config JSON，包含成本估算和适用场景
     const configObj: Record<string, unknown> = {};
@@ -121,8 +120,8 @@ export function CustomModelModal({ isOpen, onClose, onSave, defaultType = 'text'
     });
 
     onClose();
-  } catch (err: any) {
-    setError(err?.message || '保存失败，请重试');
+  } catch (err: unknown) {
+    setError(err instanceof Error ? err.message : '保存失败，请重试');
   } finally {
     setIsSaving(false);
   }
@@ -278,9 +277,10 @@ export function CustomModelModal({ isOpen, onClose, onSave, defaultType = 'text'
             });
             setTestStatus('success');
             setTestMessage(`连接成功！生成测试图片成功`);
-          } catch (imgErr: any) {
+          } catch (imgErr: unknown) {
             // 如果是认证错误，说明连接失败
-            if (imgErr?.status === 401 || imgErr?.status === 403) {
+            const sdkImgErr = imgErr as { status?: number };
+            if (sdkImgErr?.status === 401 || sdkImgErr?.status === 403) {
               throw imgErr;
             }
             // 其他错误可能是模型不支持，但连接是通的
@@ -300,10 +300,12 @@ export function CustomModelModal({ isOpen, onClose, onSave, defaultType = 'text'
           setTestMessage('连接成功！（该接口可能不支持 models.list，请保存后实际使用验证）');
         }
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       setTestStatus('error');
-      const errorMsg = err?.message || err?.error?.message || '未知错误';
-      const errorStatus = err?.status || '';
+      // OpenAI SDK 错误对象：优先取 error.message，其次顶层 message
+      const sdkErr = err as { message?: string; error?: { message?: string }; status?: number };
+      const errorMsg = sdkErr?.error?.message || sdkErr?.message || '未知错误';
+      const errorStatus = sdkErr?.status || '';
       setTestMessage(`连接失败${errorStatus ? ` (HTTP ${errorStatus})` : ''}: ${errorMsg}`);
     }
   }, [modelName, apiKey, endpointUrl, selectedTypes, validateForm]);
@@ -509,6 +511,7 @@ export function CustomModelModal({ isOpen, onClose, onSave, defaultType = 'text'
                   label="文本 (元/千token)"
                   type="number"
                   step="0.0001"
+                  min={0}
                   placeholder="0.001"
                   value={costPer1kTokens}
                   onChange={(e) => setCostPer1kTokens(e.target.value)}
@@ -519,6 +522,7 @@ export function CustomModelModal({ isOpen, onClose, onSave, defaultType = 'text'
                   label="图片 (元/张)"
                   type="number"
                   step="0.01"
+                  min={0}
                   placeholder="0.02"
                   value={costPerImage}
                   onChange={(e) => setCostPerImage(e.target.value)}
@@ -529,6 +533,7 @@ export function CustomModelModal({ isOpen, onClose, onSave, defaultType = 'text'
                   label="视频 (元/条)"
                   type="number"
                   step="0.1"
+                  min={0}
                   placeholder="0.5"
                   value={costPerVideo}
                   onChange={(e) => setCostPerVideo(e.target.value)}
@@ -539,6 +544,7 @@ export function CustomModelModal({ isOpen, onClose, onSave, defaultType = 'text'
                   label="音频 (元/秒)"
                   type="number"
                   step="0.0001"
+                  min={0}
                   placeholder="0.0002"
                   value={costPerSecond}
                   onChange={(e) => setCostPerSecond(e.target.value)}

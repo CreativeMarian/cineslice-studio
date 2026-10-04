@@ -8,13 +8,18 @@ import {
   ProjectDAO,
   NovelChapterDAO,
   NovelEpisodeDAO,
+  ModelRegistryDAO,
+  UserPreferenceDAO,
 } from '../models';
 import { createError, asyncHandler } from '../middleware/errorHandler';
+import { ErrorCodes } from '../errors';
 import { validateBody } from '../middleware/validate';
 import { novelUpload } from '../middleware/upload';
 import { parseNovel } from '../services/novelParser';
 import { projectStorage } from '../services/projectStorage';
 import { decodeFilename } from '../utils/filename';
+import { rewriteScriptByMode, splitScriptToEpisodes } from '../services/scriptRewriter';
+import type { ScriptRewriteOptions } from '../services/scriptRewriter';
 import {
   detectMaxEpisodeMark,
   calcBatchSize,
@@ -67,6 +72,10 @@ const createProjectSchema = z.object({
   language: z.string().optional(),
   mode: z.enum(['auto', 'semi-auto']).optional(),
   style_description: z.string().optional(),
+  // P0 身份锁：创建时锁定，不可编辑
+  visual_style: z.string().optional(),
+  aspect_ratio: z.string().optional(),
+  input_mode: z.enum(['one_liner', 'outline', 'novel']).optional(),
 });
 
 const updateProjectSchema = z.object({
@@ -102,11 +111,114 @@ router.post('/', validateBody(createProjectSchema), asyncHandler(async (req: Req
   res.json({ success: true, data: project });
 }));
 
+// ============ 输入模式创建项目（一句话创意/大纲/小说 → 剧本 → 项目+剧集） ============
+
+const fromInputSchema = z.object({
+  input_mode: z.enum(['one_liner', 'outline', 'novel']),
+  content: z.string().min(1).max(200000),
+  title: z.string().min(1).max(200).optional(),
+  visual_style: z.string().optional(),
+  aspect_ratio: z.string().optional(),
+  target_episodes: z.number().int().min(1).max(50).optional(),
+  provider: z.string().optional(),
+  modelName: z.string().optional(),
+  style: z.string().optional(),
+  pacing: z.string().optional(),
+});
+
+/** 解析文本模型：body 指定 > 用户默认文本模型 > 已注册文本模型（首个） */
+function resolveTextModel(
+  db: Database,
+  userId: string,
+  provider?: string,
+  modelName?: string,
+): { provider: string; modelName: string } {
+  if (provider && modelName) return { provider, modelName };
+  try {
+    const pref = UserPreferenceDAO.getByUser(db, userId);
+    const key = pref?.default_text_model;
+    if (key && key.includes(':')) {
+      const [p, m] = key.split(':');
+      if (p && m) return { provider: p, modelName: m };
+    }
+  } catch { /* 忽略 */ }
+  const models = ModelRegistryDAO.listByUserAndType(db, userId, 'text');
+  if (models.length === 0) {
+    throw createError(400, ErrorCodes.MODEL_NOT_CONFIGURED, '请先配置文本模型，或在请求中指定 provider/modelName');
+  }
+  return { provider: models[0].provider, modelName: models[0].model_name };
+}
+
+// /api/projects/from-input：接受 {input_mode, content, title, visual_style, aspect_ratio}，
+// 调用 scriptRewriter 生成标准短剧剧本后创建项目 + 剧集
+router.post('/from-input', validateBody(fromInputSchema), asyncHandler(async (req: Request, res: Response) => {
+  const db = getDb(req);
+  const { input_mode, content, title, visual_style, aspect_ratio, target_episodes, provider, modelName, style, pacing } = req.body;
+
+  const model = resolveTextModel(db, req.user.id, provider, modelName);
+  const rewriteOptions: ScriptRewriteOptions = {
+    db,
+    userId: req.user.id,
+    provider: model.provider,
+    modelName: model.modelName,
+    targetEpisodes: target_episodes,
+    style,
+    pacing,
+  };
+
+  // 按输入模式改写为标准短剧剧本
+  const script = await rewriteScriptByMode(input_mode, content, rewriteOptions);
+
+  // P1-23: AI 返回空剧本时直接抛 400，不创建项目（避免空项目/空剧集污染列表）
+  if (!script || !String(script).trim()) {
+    throw createError(400, 'EMPTY_SCRIPT', 'AI 生成的剧本为空，请重试或调整输入');
+  }
+
+  // 拆分为剧集并创建
+  const episodes = splitScriptToEpisodes(script);
+  if (episodes.length === 0) {
+    throw createError(400, 'EMPTY_SCRIPT', 'AI 生成的剧本为空，请重试或调整输入');
+  }
+
+  // 创建项目（锁定字段：visual_style / aspect_ratio / input_mode 创建后不可编辑）
+  const project = ProjectDAO.create(db, {
+    user_id: req.user.id,
+    title: title || '未命名项目',
+    mode: 'semi-auto',
+    pipeline_step: 'script',
+    visual_style: visual_style || null,
+    aspect_ratio: aspect_ratio || null,
+    input_mode,
+  });
+
+  const createdEpisodes = db.transaction(() => {
+    return episodes.map((ep, idx) => NovelEpisodeDAO.create(db, {
+      user_id: req.user.id,
+      project_id: project.id,
+      episode_number: idx + 1,
+      title: ep.title || `第${idx + 1}集`,
+      script_content: ep.content,
+      text_model_used: `${model.provider}/${model.modelName}`,
+    }));
+  })();
+
+  console.log(`[FromInput] mode=${input_mode} 创建项目 ${project.id}，剧集 ${createdEpisodes.length} 集`);
+  // P1-14: 响应附带 script 字段（首集剧本全文），供前端直接使用
+  res.json({
+    success: true,
+    data: {
+      project,
+      episodes: createdEpisodes,
+      script: createdEpisodes.length > 0 ? createdEpisodes[0].script_content : '',
+    },
+  });
+}));
+
 // 项目详情
 router.get('/:id', asyncHandler(async (req: Request, res: Response) => {
   const db = getDb(req);
   const project = ProjectDAO.getByIdAndUser(db, req.params.id, req.user.id);
-  if (!project) throw createError(404, 'NOT_FOUND', '项目不存在');
+  if (!project) throw createError(404, ErrorCodes.NOT_FOUND, '项目不存在');
   res.json({ success: true, data: project });
 }));
 
@@ -114,7 +226,7 @@ router.get('/:id', asyncHandler(async (req: Request, res: Response) => {
 router.put('/:id', validateBody(updateProjectSchema), asyncHandler(async (req: Request, res: Response) => {
   const db = getDb(req);
   const project = ProjectDAO.getByIdAndUser(db, req.params.id, req.user.id);
-  if (!project) throw createError(404, 'NOT_FOUND', '项目不存在');
+  if (!project) throw createError(404, ErrorCodes.NOT_FOUND, '项目不存在');
   const updated = ProjectDAO.update(db, req.params.id, req.body);
   res.json({ success: true, data: updated });
 }));
@@ -123,7 +235,7 @@ router.put('/:id', validateBody(updateProjectSchema), asyncHandler(async (req: R
 router.delete('/:id', asyncHandler(async (req: Request, res: Response) => {
   const db = getDb(req);
   const project = ProjectDAO.getByIdAndUser(db, req.params.id, req.user.id);
-  if (!project) throw createError(404, 'NOT_FOUND', '项目不存在');
+  if (!project) throw createError(404, ErrorCodes.NOT_FOUND, '项目不存在');
   ProjectDAO.softDelete(db, req.params.id);
   res.json({ success: true, data: { message: '项目已移入回收站' } });
 }));
@@ -132,7 +244,7 @@ router.delete('/:id', asyncHandler(async (req: Request, res: Response) => {
 router.post('/:id/restore', asyncHandler(async (req: Request, res: Response) => {
   const db = getDb(req);
   const project = ProjectDAO.getByIdAndUser(db, req.params.id, req.user.id);
-  if (!project) throw createError(404, 'NOT_FOUND', '项目不存在');
+  if (!project) throw createError(404, ErrorCodes.NOT_FOUND, '项目不存在');
   ProjectDAO.restore(db, req.params.id);
   res.json({ success: true, data: { message: '项目已恢复' } });
 }));
@@ -141,7 +253,7 @@ router.post('/:id/restore', asyncHandler(async (req: Request, res: Response) => 
 router.delete('/:id/permanent', asyncHandler(async (req: Request, res: Response) => {
   const db = getDb(req);
   const project = ProjectDAO.getByIdAndUser(db, req.params.id, req.user.id);
-  if (!project) throw createError(404, 'NOT_FOUND', '项目不存在');
+  if (!project) throw createError(404, ErrorCodes.NOT_FOUND, '项目不存在');
   ProjectDAO.deleteCascade(db, req.params.id);
 
   // 清理磁盘上的项目资产目录（data/{projectId} 与 uploads/{projectId}）
@@ -162,10 +274,10 @@ router.delete('/:id/permanent', asyncHandler(async (req: Request, res: Response)
 router.post('/:id/novel/upload', novelUpload.single('file'), asyncHandler(async (req: Request, res: Response) => {
   const db = getDb(req);
   const project = ProjectDAO.getByIdAndUser(db, req.params.id, req.user.id);
-  if (!project) throw createError(404, 'NOT_FOUND', '项目不存在');
+  if (!project) throw createError(404, ErrorCodes.NOT_FOUND, '项目不存在');
   if (!req.file) {
     console.error('[NovelUpload] req.file 为 undefined，可能是 multipart 解析失败');
-    throw createError(400, 'VALIDATION_ERROR', '未收到上传文件，请检查文件格式后重试');
+    throw createError(400, ErrorCodes.VALIDATION_ERROR, '未收到上传文件，请检查文件格式后重试');
   }
 
   console.log(`[NovelUpload] 收到文件: originalname="${req.file.originalname}", size=${req.file.size}, path=${req.file.path}`);
@@ -228,13 +340,21 @@ router.get('/:id/chapters', asyncHandler(async (req: Request, res: Response) => 
   res.json({ success: true, data: chapters });
 }));
 
+// 更新章节（P0-2: 显式 schema，禁止 passthrough 写入未知字段）
+const updateChapterSchema = z.object({
+  title: z.string().optional(),
+  content: z.string().optional(),
+  order: z.number().optional(),
+  summary: z.string().optional(),
+});
+
 // 更新章节
-router.put('/:id/chapters/:cid', asyncHandler(async (req: Request, res: Response) => {
+router.put('/:id/chapters/:cid', validateBody(updateChapterSchema), asyncHandler(async (req: Request, res: Response) => {
   const db = getDb(req);
   const project = ProjectDAO.getByIdAndUser(db, req.params.id, req.user.id);
-  if (!project) throw createError(404, 'NOT_FOUND', '项目不存在');
+  if (!project) throw createError(404, ErrorCodes.NOT_FOUND, '项目不存在');
   const chapter = NovelChapterDAO.getById(db, req.params.cid);
-  if (!chapter || chapter.project_id !== req.params.id) throw createError(404, 'NOT_FOUND', '章节不存在');
+  if (!chapter || chapter.project_id !== req.params.id) throw createError(404, ErrorCodes.NOT_FOUND, '章节不存在');
   const updated = NovelChapterDAO.update(db, req.params.cid, req.body);
   res.json({ success: true, data: updated });
 }));
@@ -243,13 +363,18 @@ router.put('/:id/chapters/:cid', asyncHandler(async (req: Request, res: Response
 router.post('/:id/chapters/merge', asyncHandler(async (req: Request, res: Response) => {
   const db = getDb(req);
   const project = ProjectDAO.getByIdAndUser(db, req.params.id, req.user.id);
-  if (!project) throw createError(404, 'NOT_FOUND', '项目不存在');
+  if (!project) throw createError(404, ErrorCodes.NOT_FOUND, '项目不存在');
   const { chapterIds } = req.body;
   if (!Array.isArray(chapterIds) || chapterIds.length < 2) {
-    throw createError(400, 'VALIDATION_ERROR', '至少选择2个章节');
+    throw createError(400, ErrorCodes.VALIDATION_ERROR, '至少选择2个章节');
   }
   const chapters = NovelChapterDAO.getByIds(db, chapterIds);
-  if (chapters.length === 0) throw createError(404, 'NOT_FOUND', '章节不存在');
+  // P0-4: 所有待合并章节必须存在且属于当前项目（防跨项目/跨用户合并）
+  if (chapters.length === 0 || chapters.length !== chapterIds.length) {
+    throw createError(404, ErrorCodes.NOT_FOUND, '章节不存在');
+  }
+  const foreignChapter = chapters.find(c => c.project_id !== req.params.id);
+  if (foreignChapter) throw createError(404, ErrorCodes.NOT_FOUND, '章节不存在');
 
   const mergedContent = chapters.map(c => c.content).join('\n\n');
   const first = chapters[0];
@@ -270,13 +395,13 @@ router.post('/:id/chapters/merge', asyncHandler(async (req: Request, res: Respon
 router.post('/:id/chapters/:cid/split', asyncHandler(async (req: Request, res: Response) => {
   const db = getDb(req);
   const project = ProjectDAO.getByIdAndUser(db, req.params.id, req.user.id);
-  if (!project) throw createError(404, 'NOT_FOUND', '项目不存在');
+  if (!project) throw createError(404, ErrorCodes.NOT_FOUND, '项目不存在');
   const chapter = NovelChapterDAO.getById(db, req.params.cid);
-  if (!chapter || chapter.project_id !== req.params.id) throw createError(404, 'NOT_FOUND', '章节不存在');
+  if (!chapter || chapter.project_id !== req.params.id) throw createError(404, ErrorCodes.NOT_FOUND, '章节不存在');
 
   const { splitPosition } = req.body;
   if (typeof splitPosition !== 'number' || splitPosition <= 0 || splitPosition >= chapter.content.length) {
-    throw createError(400, 'VALIDATION_ERROR', '拆分位置无效');
+    throw createError(400, ErrorCodes.VALIDATION_ERROR, '拆分位置无效');
   }
 
   const firstContent = chapter.content.substring(0, splitPosition);
@@ -329,14 +454,14 @@ function normalizeChapterRange(raw: any, episodeNum: number): string {
 router.post('/:id/episodes/generate', validateBody(generateEpisodesSchema), asyncHandler(async (req: Request, res: Response) => {
   const db = getDb(req);
   const project = ProjectDAO.getByIdAndUser(db, req.params.id, req.user.id);
-  if (!project) throw createError(404, 'NOT_FOUND', '项目不存在');
+  if (!project) throw createError(404, ErrorCodes.NOT_FOUND, '项目不存在');
 
   const { chapter_ids, provider, modelName, episodes_count, style, stream } = req.body;
   const chapters = chapter_ids && chapter_ids.length > 0
     ? NovelChapterDAO.getByIds(db, chapter_ids)
     : NovelChapterDAO.listByProject(db, req.params.id);
 
-  if (chapters.length === 0) throw createError(400, 'VALIDATION_ERROR', '没有可生成的章节内容');
+  if (chapters.length === 0) throw createError(400, ErrorCodes.VALIDATION_ERROR, '没有可生成的章节内容');
 
   const novelContent = chapters.map(c => `【${c.title}】\n${c.content}`).join('\n\n');
   const totalChars = chapters.reduce((sum, c) => sum + (c.content || '').length, 0);
@@ -403,7 +528,7 @@ router.post('/:id/episodes/generate', validateBody(generateEpisodesSchema), asyn
     // 若先删后插中途失败（如 AI 返回重复集号触发唯一索引），旧分镜将永久丢失
     const created = db.transaction(() => {
       const oldEpisodes = NovelEpisodeDAO.listByProject(db, req.params.id);
-      for (const ep of oldEpisodes) NovelEpisodeDAO.delete(db, ep.id);
+      for (const ep of oldEpisodes) NovelEpisodeDAO.deleteCascade(db, ep.id);
 
       // AI 可能返回重复集号（uq_novel_episodes_proj_num 唯一约束），先顺序去重
       const seen = new Set<number>();
@@ -428,7 +553,7 @@ router.post('/:id/episodes/generate', validateBody(generateEpisodesSchema), asyn
     })();
 
     if (created.length === 0) {
-      throw createError(502, 'AI_CALL_FAILED', 'AI 未能生成任何剧集，请重试或更换模型');
+      throw createError(502, ErrorCodes.AI_CALL_FAILED, 'AI 未能生成任何剧集，请重试或更换模型');
     }
 
     // 按 episode_number 排序
@@ -468,14 +593,14 @@ const batchDeleteSchema = z.object({
 router.post('/:id/episodes/batch-delete', validateBody(batchDeleteSchema), asyncHandler(async (req: Request, res: Response) => {
   const db = getDb(req);
   const project = ProjectDAO.getByIdAndUser(db, req.params.id, req.user.id);
-  if (!project) throw createError(404, 'NOT_FOUND', '项目不存在');
+  if (!project) throw createError(404, ErrorCodes.NOT_FOUND, '项目不存在');
 
   const { episode_ids } = req.body;
   let deleted = 0;
   for (const epId of episode_ids) {
     const episode = NovelEpisodeDAO.getByIdAndUser(db, epId, req.user.id);
     if (episode && episode.project_id === req.params.id) {
-      NovelEpisodeDAO.delete(db, epId);
+      NovelEpisodeDAO.deleteCascade(db, epId);
       deleted++;
     }
   }

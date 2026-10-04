@@ -9,6 +9,7 @@ import {
   Image as ImageIcon,
   RefreshCw,
   Wand2,
+  Trash2,
 } from 'lucide-react';
 import { Tabs, Button, Card, EmptyState, Badge, Modal, Input, Select, Textarea } from '../ui';
 import { SectionHeader, EpisodeSelector } from '../common';
@@ -16,6 +17,7 @@ import { useProjectStore } from '../../stores/useProjectStore';
 import { useUIStore } from '../../stores/useUIStore';
 import { sceneService, propService } from '../../services/assetService';
 import { useDefaultModels } from '../../hooks/useDefaultModels';
+import { showApiError, getResponseErrorMessage } from '../../utils/error';
 import { parseModelKey } from '../../types/model';
 import { TIME_OF_DAY_LABELS } from '../../utils';
 import type { Scene, Prop, PropCategory } from '../../types';
@@ -49,7 +51,6 @@ export function StageArt() {
     setScenes,
     currentEpisodeId,
     episodes,
-    setCurrentEpisode,
   } = useProjectStore();
   const { showToast } = useUIStore();
   const { getDefaultModel } = useDefaultModels();
@@ -119,9 +120,8 @@ export function StageArt() {
           showToast(`成功提取 ${res.data.length} 个道具。下一步：进入道具详情标记线索道具`, 'success');
         }
       }
-    } catch (err: any) {
-      const errorMsg = err?.response?.data?.message || err?.message || '提取失败，请检查模型配置';
-      showToast(errorMsg, 'error');
+    } catch (err: unknown) {
+      showApiError(showToast, err, '提取失败，请检查模型配置');
     } finally {
       setIsExtracting(false);
     }
@@ -155,17 +155,15 @@ export function StageArt() {
         setAddPropOpen(false);
         showToast(`道具「${res.data.name}」已添加`, 'success');
       }
-    } catch (err: any) {
-      const errorMsg = err?.response?.data?.message || err?.message || '添加失败';
-      showToast(errorMsg, 'error');
+    } catch (err: unknown) {
+      showApiError(showToast, err, '添加失败');
     } finally {
       setIsAddingProp(false);
     }
   };
 
   // 无概念图时：直接用默认图像模型 + 默认提示词生成（不弹配置面板）
-  const handleGenerateSceneImage = async (scene: Scene) => {
-    const modelKey = getDefaultModel('image');
+  const handleGenerateSceneImage = async (scene: Scene) => {    const modelKey = getDefaultModel('image');
     if (!modelKey) {
       showToast('请先在设置中配置默认图像模型', 'error');
       return;
@@ -185,15 +183,30 @@ export function StageArt() {
         setScenes(current.map((s) => (s.id === updated.id ? updated : s)));
         showToast('场景概念图生成成功', 'success');
       }
-    } catch (err: any) {
-      const errorMsg = err?.response?.data?.message || err?.message || '场景概念图生成失败';
-      showToast(errorMsg, 'error');
+    } catch (err: unknown) {
+      showApiError(showToast, err, '场景概念图生成失败');
     } finally {
       setGeneratingSceneImages((prev) => {
         const next = new Set(prev);
         next.delete(scene.id);
         return next;
       });
+    }
+  };
+
+  /** P2-18: 删除场景成功后刷新场景列表 */
+  const handleDeleteScene = async (scene: Scene) => {
+    if (!window.confirm(`确定删除场景「${scene.name}」吗？此操作会同时删除其概念图，且不可恢复。`)) return;
+    try {
+      const res = await sceneService.delete(scene.id);
+      if (res.success) {
+        showToast(`场景「${scene.name}」已删除`, 'success');
+        if (currentEpisodeId) useProjectStore.getState().loadScenes(currentEpisodeId);
+      } else {
+        showToast(getResponseErrorMessage(res, '删除场景失败'), 'error');
+      }
+    } catch (err: unknown) {
+      showApiError(showToast, err, '删除场景失败');
     }
   };
 
@@ -319,6 +332,17 @@ export function StageArt() {
                         </div>
                       )}
                       <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent pointer-events-none" />
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDeleteScene(scene);
+                        }}
+                        className="absolute top-2 right-2 p-1.5 rounded-lg bg-black/50 text-white/80 hover:text-red-400 hover:bg-black/70 transition-colors"
+                        title="删除场景"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
                       <div className="absolute bottom-3 left-3 right-3 flex items-center justify-between gap-2">
                         <h4 className="font-semibold text-white font-[var(--font-display)] truncate">
                           {scene.name}

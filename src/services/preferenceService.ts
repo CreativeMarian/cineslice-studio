@@ -1,4 +1,5 @@
 import apiClient from './apiClient';
+import { API_PATHS } from '../constants/api';
 
 export interface UserPreferences {
   id: string;
@@ -16,7 +17,7 @@ export interface UserPreferences {
 }
 
 export const preferenceService = {
-  get: () => apiClient.get<unknown, { success: boolean; data: UserPreferences }>('/preferences'),
+  get: () => apiClient.get<unknown, { success: boolean; data: UserPreferences }>(API_PATHS.preferences),
   update: (data: Partial<UserPreferences>) =>
-    apiClient.put<unknown, { success: boolean; data: UserPreferences }>('/preferences', data),
+    apiClient.put<unknown, { success: boolean; data: UserPreferences }>(API_PATHS.preferences, data),
 };

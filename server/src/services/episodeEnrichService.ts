@@ -174,7 +174,7 @@ function containsFuzzy(list: string[], needle: string): boolean {
   return list.some(item => normalize(item).includes(n) || n.includes(normalize(item)));
 }
 
-function diffTable(original: string[], enriched: string[], label: string): EnrichTableStatus {
+function diffTable(original: string[], enriched: string[], _label: string): EnrichTableStatus {
   const missing = original.filter(o => !containsFuzzy(enriched, o));
   const added = enriched.filter(e => !containsFuzzy(original, e));
   return {

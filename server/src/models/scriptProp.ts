@@ -4,12 +4,11 @@
 
 import type { Database, ScriptProp } from '../types';
 import { generateId, now } from './index';
+import { safeJsonParse } from '../utils/json';
 
 /** 统一解析 concept_images 字段（字符串 → 数组） */
 function parseConceptImages(result: any): void {
-  if (typeof result.concept_images === 'string') {
-    try { result.concept_images = JSON.parse(result.concept_images); } catch { result.concept_images = []; }
-  }
+  if (typeof result.concept_images === 'string') result.concept_images = safeJsonParse(result.concept_images, []);
   if (!Array.isArray(result.concept_images)) result.concept_images = [];
   if (result.concept_images === null) result.concept_images = [];
 }

@@ -96,8 +96,8 @@ export function ModelCard({ meta, config, defaultExpanded = false }: ModelCardPr
         supports_audio: supportsAudio,
       });
       showToast('配置已保存', 'success');
-    } catch (err: any) {
-      showToast(`保存失败: ${err.message}`, 'error');
+    } catch (err: unknown) {
+      showToast(`保存失败: ${err instanceof Error ? err.message : '未知错误'}`, 'error');
     }
   };
 
@@ -118,9 +118,9 @@ export function ModelCard({ meta, config, defaultExpanded = false }: ModelCardPr
         const errorMsg = result?.error || '连接失败';
         showToast(errorMsg, 'error');
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       setTestResult('error');
-      showToast(`测试失败: ${err.message}`, 'error');
+      showToast(`测试失败: ${err instanceof Error ? err.message : '未知错误'}`, 'error');
     } finally {
       setIsTesting(false);
     }
@@ -131,8 +131,8 @@ export function ModelCard({ meta, config, defaultExpanded = false }: ModelCardPr
     try {
       await deleteConfig(config.id);
       showToast('配置已删除', 'success');
-    } catch (err: any) {
-      showToast(`删除失败: ${err.message}`, 'error');
+    } catch (err: unknown) {
+      showToast(`删除失败: ${err instanceof Error ? err.message : '未知错误'}`, 'error');
     }
   };
 
@@ -154,9 +154,9 @@ export function ModelCard({ meta, config, defaultExpanded = false }: ModelCardPr
       await setDefault(config.id);
       setConfirmSwitch(false);
       showToast('已设为默认模型', 'success');
-    } catch (err: any) {
+    } catch (err: unknown) {
       setConfirmSwitch(false);
-      showToast(`设置失败: ${err.message}`, 'error');
+      showToast(`设置失败: ${err instanceof Error ? err.message : '未知错误'}`, 'error');
     }
   };
 

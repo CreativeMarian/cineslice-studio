@@ -8,6 +8,7 @@ import { useProjectStore } from '../../stores/useProjectStore';
 import { useUIStore } from '../../stores/useUIStore';
 import { characterService } from '../../services/assetService';
 import { useDefaultModels } from '../../hooks/useDefaultModels';
+import { showApiError, getResponseErrorMessage } from '../../utils/error';
 import { parseModelKey } from '../../types/model';
 import { generateId } from '../../utils';
 import type { Character } from '../../types';
@@ -55,12 +56,10 @@ export function StageCharacters() {
         setCharacters(res.data);
         showToast(`成功提取 ${res.data.length} 个角色，点击卡片查看详情并生成概念图`, 'success');
       } else {
-        const errMsg = (res as any)?.error?.message || '提取失败，请重试';
-        showToast(errMsg, 'error');
+        showToast(getResponseErrorMessage(res, '提取失败，请重试'), 'error');
       }
-    } catch (err: any) {
-      const errMsg = err?.response?.data?.message || err?.message || '提取角色失败，请检查模型配置';
-      showToast(errMsg, 'error');
+    } catch (err: unknown) {
+      showApiError(showToast, err, '提取角色失败，请检查模型配置');
     } finally {
       setIsExtracting(false);
     }
@@ -99,6 +98,27 @@ export function StageCharacters() {
   const handleSelect = (character: Character) => {
     if (!id) return;
     navigate(`/project/${id}/character/${character.id}`);
+  };
+
+  /** P2-17: 删除角色成功后刷新角色列表 */
+  const handleDeleteCharacter = async (character: Character) => {
+    if (!window.confirm(`确定删除角色「${character.name}」吗？此操作不可恢复。`)) return;
+    if (character.id.startsWith('local_')) {
+      setCharacters(characters.filter((c) => c.id !== character.id));
+      showToast(`角色「${character.name}」已删除（本地）`, 'success');
+      return;
+    }
+    try {
+      const res = await characterService.delete(character.id);
+      if (res.success) {
+        showToast(`角色「${character.name}」已删除`, 'success');
+        if (currentEpisodeId) loadCharacters(currentEpisodeId);
+      } else {
+        showToast(getResponseErrorMessage(res, '删除角色失败'), 'error');
+      }
+    } catch (err: unknown) {
+      showApiError(showToast, err, '删除角色失败');
+    }
   };
 
   if (!currentEpisodeId) {
@@ -181,6 +201,7 @@ export function StageCharacters() {
               key={character.id}
               character={character}
               onSelect={handleSelect}
+              onDelete={handleDeleteCharacter}
             />
           ))}
         </div>

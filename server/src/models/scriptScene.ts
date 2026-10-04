@@ -3,29 +3,30 @@
 
 import type { Database, ScriptScene } from '../types';
 import { generateId, now } from './index';
+import { safeJsonParse } from '../utils/json';
 
 // 解析场景数据：将 JSON 字符串字段转为数组
 function parseScene(row: any): ScriptScene {
   if (!row) return row;
   const result = { ...row };
-  if (typeof result.concept_images === 'string') {
-    try { result.concept_images = JSON.parse(result.concept_images); } catch { result.concept_images = []; }
-  }
+  if (typeof result.concept_images === 'string') result.concept_images = safeJsonParse(result.concept_images, []);
   if (result.concept_images === null) result.concept_images = [];
+  if (result.spatial_layout === undefined) result.spatial_layout = null;
+  if (result.lighting === undefined) result.lighting = null;
   return result;
 }
 
 export const ScriptSceneDAO = {
-  create(db: Database, data: { user_id: string; episode_id: string; name: string; location?: string; time_of_day?: string; atmosphere?: string; description?: string; visual_prompt?: string; lighting_variants?: string; scale_reference?: string; consistency_anchor?: string }): ScriptScene {
+  create(db: Database, data: { user_id: string; episode_id: string; name: string; location?: string; time_of_day?: string; atmosphere?: string; description?: string; visual_prompt?: string; lighting_variants?: string; scale_reference?: string; consistency_anchor?: string; spatial_layout?: string; lighting?: string }): ScriptScene {
     const id = generateId('scene');
     db.prepare(`
-      INSERT INTO script_scenes (id, user_id, episode_id, name, location, time_of_day, atmosphere, description, visual_prompt, lighting_variants, scale_reference, consistency_anchor, selected_image_index, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)
-    `).run(id, data.user_id, data.episode_id, data.name, data.location || '', data.time_of_day || 'day', data.atmosphere || '', data.description || '', data.visual_prompt || null, data.lighting_variants || null, data.scale_reference || null, data.consistency_anchor || null, now(), now());
+      INSERT INTO script_scenes (id, user_id, episode_id, name, location, time_of_day, atmosphere, description, visual_prompt, lighting_variants, scale_reference, consistency_anchor, selected_image_index, spatial_layout, lighting, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?)
+    `).run(id, data.user_id, data.episode_id, data.name, data.location || '', data.time_of_day || 'day', data.atmosphere || '', data.description || '', data.visual_prompt || null, data.lighting_variants || null, data.scale_reference || null, data.consistency_anchor || null, data.spatial_layout || null, data.lighting || null, now(), now());
     return this.getById(db, id)!;
   },
 
-  batchCreate(db: Database, scenes: Array<{ user_id: string; episode_id: string; name: string; location?: string; time_of_day?: string; atmosphere?: string; description?: string; visual_prompt?: string; lighting_variants?: string; scale_reference?: string; consistency_anchor?: string }>): ScriptScene[] {
+  batchCreate(db: Database, scenes: Array<{ user_id: string; episode_id: string; name: string; location?: string; time_of_day?: string; atmosphere?: string; description?: string; visual_prompt?: string; lighting_variants?: string; scale_reference?: string; consistency_anchor?: string; spatial_layout?: string; lighting?: string }>): ScriptScene[] {
     const results: ScriptScene[] = [];
     const transaction = db.transaction(() => {
       for (const s of scenes) {

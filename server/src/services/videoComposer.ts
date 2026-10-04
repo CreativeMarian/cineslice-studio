@@ -17,9 +17,11 @@ import {
 import { projectStorage } from './projectStorage';
 import { dubVideo, muteVideo, type DubOptions } from './dubbingService';
 import { UserPreferenceDAO } from '../models';
-import { getConfig } from '../config/env';
 import { createError as createHttpError } from '../middleware/errorHandler';
 import { sanitizeFileName } from '../utils/filename';
+import { checkFfmpegAvailable, getFfmpegPath, resolveVideoPathFromUrl } from '../utils/ffmpeg';
+import { PHASE_NAMES } from '../constants';
+export { checkFfmpegAvailable };
 
 const execFileAsync = promisify(execFile);
 
@@ -41,6 +43,8 @@ export interface ComposeOptions {
 export interface ComposeResult {
   taskId: string;
   status: 'processing' | 'completed' | 'failed';
+  /** 发起合成的用户 ID（用于 /compose/:taskId 归属校验） */
+  userId?: string;
   /** 到达终态的时间（用于内存任务表的 TTL 清理） */
   completedAt?: string;
   outputUrl?: string;
@@ -104,39 +108,8 @@ function persistComposeLog(
   }
 }
 
-/** 阶段名称（与分镜生成提示词保持一致） */
-export const PHASE_NAMES = ['开场引入', '矛盾升级', '高潮爆发', '收束悬念'];
-
-/**
- * 获取 ffmpeg 可执行文件路径
- * 优先使用 ffmpeg-static，其次使用系统 PATH 中的 ffmpeg
- */
-function getFfmpegPath(): string {
-  try {
-    // 尝试 ffmpeg-static（可选依赖，缺失时降级到系统 ffmpeg）
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const ffmpegStatic = require('ffmpeg-static');
-    if (ffmpegStatic && typeof ffmpegStatic === 'string' && fs.existsSync(ffmpegStatic)) {
-      return ffmpegStatic;
-    }
-  } catch {
-    // ffmpeg-static 未安装，继续尝试系统 ffmpeg
-  }
-  return 'ffmpeg'; // 依赖系统 PATH
-}
-
-/**
- * 检查 ffmpeg 是否可用
- */
-export async function checkFfmpegAvailable(): Promise<boolean> {
-  try {
-    const ffmpeg = getFfmpegPath();
-    await execFileAsync(ffmpeg, ['-version'], { timeout: 5000 });
-    return true;
-  } catch {
-    return false;
-  }
-}
+// ============ ffmpeg 工具（getFfmpegPath / checkFfmpegAvailable / resolveVideoPathFromUrl 已抽取至 utils/ffmpeg.ts） ============
+// normalizeClip 的缩放策略（-s 硬裁）与 segmentService 的 normalizeClipForConcat（scale+pad 补边）不同，保留各自实现
 
 
 /**
@@ -189,31 +162,6 @@ function collectVideoClips(
   }
 
   return clips;
-}
-
-/**
- * 从 URL 解析本地路径（使用项目存储配置）
- */
-function resolveVideoPathFromUrl(videoUrl: string): string | null {
-  if (!videoUrl) return null;
-  try {
-    if (videoUrl.startsWith('/data/')) {
-      const local = projectStorage.toLocalPath(videoUrl);
-      return fs.existsSync(local) ? local : null;
-    }
-    if (videoUrl.startsWith('/uploads/')) {
-      // uploads 目录从 env 获取
-      const cfg = getConfig();
-      const local = path.resolve(cfg.uploadDir, videoUrl.replace(/^\/uploads\//, ''));
-      return fs.existsSync(local) ? local : null;
-    }
-    if (path.isAbsolute(videoUrl) && fs.existsSync(videoUrl)) {
-      return videoUrl;
-    }
-  } catch {
-    // ignore
-  }
-  return null;
 }
 
 /**
@@ -491,6 +439,7 @@ export async function composePhase(
   if (!ffmpegAvailable) {
     const result: ComposeResult = {
       taskId, status: 'failed',
+      userId,
       error: 'ffmpeg 未安装，请安装 ffmpeg 或 ffmpeg-static 后重试',
       totalClips: 0, completedClips: 0,
     };
@@ -504,6 +453,7 @@ export async function composePhase(
   if (validClips.length === 0) {
     const result: ComposeResult = {
       taskId, status: 'failed',
+      userId,
       error: `阶段${phase}没有可用的视频片段，请先生成该阶段的分镜视频`,
       totalClips: clips.length, completedClips: 0,
     };
@@ -513,6 +463,7 @@ export async function composePhase(
 
   const taskResult: ComposeResult = {
     taskId, status: 'processing',
+    userId,
     totalClips: clips.length, completedClips: 0, progress: 0,
   };
   composeTasks.set(taskId, taskResult);
@@ -593,6 +544,7 @@ export async function composeEpisode(
     const result: ComposeResult = {
       taskId,
       status: 'failed',
+      userId,
       error: 'ffmpeg 未安装，请安装 ffmpeg 或 ffmpeg-static 后重试',
       totalClips: 0,
       completedClips: 0,
@@ -603,7 +555,7 @@ export async function composeEpisode(
 
   // 两级合成模式：先阶段后整集
   if (options.byPhase) {
-    return composeEpisodeByPhase(db, episode, taskId, options);
+    return composeEpisodeByPhase(db, episode, taskId, userId, options);
   }
 
   const clips = collectVideoClips(db, episodeId);
@@ -613,6 +565,7 @@ export async function composeEpisode(
     const result: ComposeResult = {
       taskId,
       status: 'failed',
+      userId,
       error: '没有可用的视频片段，请先生成分镜视频',
       totalClips: clips.length,
       completedClips: 0,
@@ -625,6 +578,7 @@ export async function composeEpisode(
   const taskResult: ComposeResult = {
     taskId,
     status: 'processing',
+    userId,
     totalClips: clips.length,
     completedClips: 0,
     progress: 0,
@@ -677,11 +631,13 @@ function composeEpisodeByPhase(
   db: Database,
   episode: any,
   taskId: string,
+  userId: string,
   options: ComposeOptions,
 ): ComposeResult {
   const taskResult: ComposeResult = {
     taskId,
     status: 'processing',
+    userId,
     totalClips: 4,
     completedClips: 0,
     progress: 0,

@@ -6,6 +6,7 @@ import { z } from 'zod';
 import { createError, asyncHandler } from '../middleware/errorHandler';
 import { validateBody } from '../middleware/validate';
 import { composeEpisode, composePhase, getComposeStatus, getLatestCompose, checkFfmpegAvailable } from '../services/videoComposer';
+import { NovelEpisodeDAO } from '../models';
 import type { Database } from '../types';
 
 const router = Router();
@@ -45,12 +46,17 @@ router.post('/episodes/:id/compose', validateBody(composeSchema), asyncHandler(a
 router.get('/compose/:taskId', asyncHandler(async (req: Request, res: Response) => {
   const result = getComposeStatus(req.params.taskId);
   if (!result) throw createError(404, 'NOT_FOUND', '合成任务不存在');
+  // P2修复(IDOR): 校验任务归属（旧任务未记录 userId 时放行，仅防新任务的跨用户读取）
+  if (result.userId && result.userId !== req.user.id) throw createError(404, 'NOT_FOUND', '合成任务不存在');
   res.json({ success: true, data: result });
 }));
 
 // 查询某集最近一次合成结果（持久化记录优先，跨重启可恢复）
 router.get('/episodes/:id/latest-compose', asyncHandler(async (req: Request, res: Response) => {
   const db = req.app.locals.db as Database;
+  // P2修复(IDOR): 校验剧集归属，防止跨用户读取他人合成结果
+  const episode = NovelEpisodeDAO.getByIdAndUser(db, req.params.id, req.user.id);
+  if (!episode) throw createError(404, 'NOT_FOUND', '剧集不存在');
   const result = getLatestCompose(db, req.params.id);
   res.json({ success: true, data: result });
 }));

@@ -22,7 +22,7 @@ export function createError(status: number, code: string, message: string): AppE
   return new AppError(status, code, message);
 }
 
-export function errorHandler(err: Error | AppError, req: Request, res: Response, _next: NextFunction) {
+export function errorHandler(err: Error | AppError, _req: Request, res: Response, _next: NextFunction) {
   if (err instanceof AppError) {
     console.error(`[ERROR ${err.status}] ${err.code}: ${err.message}`);
     return res.status(err.status).json({

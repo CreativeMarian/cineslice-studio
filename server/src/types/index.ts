@@ -65,6 +65,8 @@ export interface PipelineStatusData {
   last_updated: string;
 }
 
+export type InputMode = 'one_liner' | 'outline' | 'novel';
+
 export interface Project {
   id: string;
   user_id: string;
@@ -84,6 +86,11 @@ export interface Project {
   pipeline_status: string | null;
   style_description: string | null;
   model_preferences: string | null;
+  // P2-1: 项目级风格锁定（创建后不可改）
+  visual_style?: string | null;   // 视觉风格：3D漫剧/写实/古风/赛博朋克等
+  aspect_ratio?: string | null;   // 画面比例：16:9/9:16
+  // 新增：输入模式
+  input_mode?: InputMode | null;  // one_liner | outline | novel
   // shuohao 五段管线：大纲阶段产物（JSON 文本，NULL=未生成）
   adaptation_note?: string;      // 改编说明
   hook_list?: string;            // 爽点表 JSON
@@ -148,6 +155,27 @@ export interface ConceptImage {
   prompt: string;
 }
 
+// ============ P0-1: 身份锁 + 服装（身份与服装分离） ============
+
+export interface IdentityLock {
+  age: string;                    // 年龄（如"25岁"）
+  face_shape: string;             // 脸型（如"鹅蛋脸"）
+  hairstyle: string;              // 发型（如"黑色短发，刘海偏左"）
+  hair_color: string;             // 发色
+  body_type: string;              // 体型（如"中等身材，偏瘦"）
+  distinctive_features: string;   // 标志性特征（痣/疤/纹身/眼镜）
+  prohibitions: string;           // 禁忌（全片不可变的特征约束）
+}
+
+export interface WardrobeItem {
+  id: string;
+  name: string;                    // 服装名称（如"日常便装"）
+  description: string;             // 服装描述
+  color: string;                   // 主色调
+  scene_id?: string | null;        // 关联场景ID（null=通用）
+  is_default?: number;             // 是否默认服装
+}
+
 export interface ScriptCharacter {
   id: string;
   user_id: string;
@@ -182,6 +210,9 @@ export interface ScriptCharacter {
   visual_prompt?: string;          // 形象提示词（发型/发色/服装/体型/标志特征，用于出图）
   voice_prompt?: string;           // 音色提示词（年龄/音色/语速/情绪，用于TTS）
   detail_images?: string;          // 细节图 JSON 数组（手部特写/服装细节/标志性物品等）
+  // P0-1: 身份锁（全片不变）+ 服装列表（每场可换）
+  identity_lock?: string | null;   // JSON: IdentityLock
+  wardrobe?: string | null;        // JSON: WardrobeItem[]
   created_at: string;
   updated_at: string;
 }
@@ -288,6 +319,28 @@ export interface CharacterVariation {
 
 export type TimeOfDay = 'day' | 'night' | 'dawn' | 'dusk';
 
+// ============ P1-2: 空间坐标体系 ============
+
+export interface SpatialLayoutItem {
+  name: string;          // 家具/道具名称
+  position: string;      // 文字位置描述（如"画面左侧"）
+  x: number;             // 相对X坐标 0-1
+  y: number;             // 相对Y坐标 0-1
+}
+
+export interface LightSource {
+  position: string;      // 光源位置（如"画面左上方45度"）
+  color: string;         // 光源颜色（如"暖白色"）
+  intensity: string;     // 强度描述（如"柔和"、"强烈"）
+}
+
+export interface LightingConfig {
+  key_light: LightSource;    // 主光源
+  fill_light?: LightSource;  // 补光
+  rim_light?: LightSource;   // 轮廓光
+  ambient?: string;          // 环境光描述
+}
+
 export interface ScriptScene {
   id: string;
   user_id: string;
@@ -305,6 +358,9 @@ export interface ScriptScene {
   lighting_variants?: string;      // 光照变体 JSON {"day":"...","dusk":"...","night":"..."}
   scale_reference?: string;        // 尺度参照描述
   consistency_anchor?: string;     // 一致性锚点描述（最核心的不变特征）
+  // P1-2: 空间布局 + 灯光体系
+  spatial_layout?: string | null;  // JSON: SpatialLayoutItem[]
+  lighting?: string | null;        // JSON: LightingConfig
   created_at: string;
   updated_at: string;
 }
@@ -321,6 +377,7 @@ export interface ScriptProp {
   category: PropCategory;
   description: string;
   concept_images: string | null;
+  selected_image_index?: number;  // 当前选中的概念图索引（DB 默认 0）
   is_clue: number;      // 线索标记：跨镜头保持视觉连贯（ArcReel clue tracking）
   keywords: string;     // 关键词（逗号分隔），用于镜头匹配道具
   visual_prompt?: string;   // 道具形象提示词（用于出图）
@@ -344,6 +401,16 @@ export interface StoryParagraph {
 
 export type ShotSize = 'closeup' | 'medium' | 'wide' | 'extreme_wide';
 export type CameraMovement = 'static' | 'pan' | 'tilt' | 'dolly' | 'zoom';
+
+// ============ P0-2: 分镜角色调度 ============
+
+export interface BlockingItem {
+  character_id: string;    // 角色ID（引用式，不重复描述外貌）；未匹配时为空串
+  character_name?: string; // 角色名（character_id 未匹配到库内角色时保留原始名，供提示词回退）
+  position: string;        // 画面位置（如"画面左侧"）
+  facing: string;          // 朝向（如"右"、"镜头"）
+  action: string;          // 动作描述
+}
 
 export interface Shot {
   id: string;
@@ -375,6 +442,32 @@ export interface Shot {
   video_skill: string | null;   // 重构该成品时使用的提示词 Skill id（换模型时据此失效重跑重构）
   segment_id?: number;          // 所属段编号（每段≤15秒）
   frame_timestamps?: string;    // 分镜图时间戳 JSON
+  // P0-2: 角色调度（位置/朝向/动作），引用式不重复描述外貌
+  blocking?: string | null;     // JSON: BlockingItem[]
+  created_at: string;
+  updated_at: string;
+}
+
+// ============ P2-2: 分段（Segment） ============
+
+export type SegmentStatus = 'pending' | 'generating' | 'completed' | 'failed';
+
+export interface Segment {
+  id: string;
+  user_id: string;
+  project_id: string | null;
+  episode_id: string;
+  segment_number: number;
+  name: string;
+  start_shot_id: string | null;
+  end_shot_id: string | null;
+  start_shot_number: number | null;
+  end_shot_number: number | null;
+  duration_seconds: number;
+  status: SegmentStatus;
+  video_url: string | null;
+  video_model_used: string | null;
+  error_message: string | null;
   created_at: string;
   updated_at: string;
 }

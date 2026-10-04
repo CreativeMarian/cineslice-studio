@@ -141,7 +141,7 @@ export function Sidebar() {
           {!sidebarCollapsed && <span>模型配置</span>}
         </NavLink>
         <NavLink
-          to="/settings"
+          to={`/project/${id}/settings`}
           className={({ isActive }) =>
             cn(
               'flex items-center gap-3 px-3 py-2.5 rounded-[var(--radius-control)] text-sm font-medium transition-all duration-200',
@@ -151,10 +151,10 @@ export function Sidebar() {
               sidebarCollapsed && 'justify-center px-0'
             )
           }
-          title={sidebarCollapsed ? '设置' : undefined}
+          title={sidebarCollapsed ? '项目设置' : undefined}
         >
           <Settings className="w-5 h-5 flex-shrink-0" />
-          {!sidebarCollapsed && <span>设置</span>}
+          {!sidebarCollapsed && <span>项目设置</span>}
         </NavLink>
         <NavLink
           to="/"

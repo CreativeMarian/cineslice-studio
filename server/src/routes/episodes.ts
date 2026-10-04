@@ -10,10 +10,13 @@ import {
   ShotDAO,
   ShotKeyframeDAO,
   ShotVideoIntervalDAO,
+  UserPreferenceDAO,
 } from '../models';
 import { createError, asyncHandler } from '../middleware/errorHandler';
+import { ErrorCodes } from '../errors';
 import { validateBody } from '../middleware/validate';
 import { projectStorage } from '../services/projectStorage';
+import { assertProjectWritable } from '../services/autoPipeline/taskStore';
 import {
   regenerateEpisodeScript,
   polishEpisodeScript,
@@ -37,6 +40,13 @@ import { dubVideo } from '../services/dubbingService';
 import { exportEpisodeProductionPack } from '../services/exportProductionService';
 import { episodeEnrichService } from '../services/episodeEnrichService';
 import { consistencyCheckService } from '../services/consistencyCheckService';
+import {
+  aggregateSegments,
+  getSegmentsByEpisode,
+  generateSegmentVideo,
+  retrySegment,
+  composeEpisodeFromSegments,
+} from '../services/segmentService';
 import type { Database } from '../types';
 
 const router = Router();
@@ -45,9 +55,22 @@ function getDb(req: Request): Database {
   return req.app.locals.db as Database;
 }
 
+/** P2修复(IDOR): 剧集归属校验——剧集不存在或不属于当前用户时抛 404 */
+function assertEpisodeOwner(db: Database, episodeId: string, userId: string): void {
+  const episode = NovelEpisodeDAO.getByIdAndUser(db, episodeId, userId);
+  if (!episode) throw createError(404, ErrorCodes.NOT_FOUND, '剧集不存在');
+}
+
+/** P2修复(IDOR): 镜头归属校验——镜头不存在或不属于当前用户时抛 404 */
+function assertShotOwner(db: Database, shotId: string, userId: string): void {
+  const shot = ShotDAO.getByIdAndUser(db, shotId, userId);
+  if (!shot) throw createError(404, ErrorCodes.NOT_FOUND, '镜头不存在');
+}
+
 const updateEpisodeSchema = z.object({
   title: z.string().optional(),
-  script_content: z.string().optional(),
+  // P1-24: 剧本长度上限（防超大剧本撑爆上下文/存储）
+  script_content: z.string().max(200000).optional(),
   status: z.enum(['draft', 'generated', 'edited']).optional(),
 });
 
@@ -79,7 +102,7 @@ const generateKeyframesSchema = z.object({
 router.get('/episodes/:id', asyncHandler(async (req: Request, res: Response) => {
   const db = getDb(req);
   const episode = NovelEpisodeDAO.getByIdAndUser(db, req.params.id, req.user.id);
-  if (!episode) throw createError(404, 'NOT_FOUND', '剧集不存在');
+  if (!episode) throw createError(404, ErrorCodes.NOT_FOUND, '剧集不存在');
   res.json({ success: true, data: episode });
 }));
 
@@ -87,7 +110,7 @@ router.get('/episodes/:id', asyncHandler(async (req: Request, res: Response) => 
 router.put('/episodes/:id', validateBody(updateEpisodeSchema), asyncHandler(async (req: Request, res: Response) => {
   const db = getDb(req);
   const episode = NovelEpisodeDAO.getByIdAndUser(db, req.params.id, req.user.id);
-  if (!episode) throw createError(404, 'NOT_FOUND', '剧集不存在');
+  if (!episode) throw createError(404, ErrorCodes.NOT_FOUND, '剧集不存在');
   const updated = NovelEpisodeDAO.update(db, req.params.id, req.body);
   res.json({ success: true, data: updated });
 }));
@@ -114,8 +137,8 @@ router.post('/episodes/:id/polish', validateBody(polishSchema), asyncHandler(asy
 router.delete('/episodes/:id', asyncHandler(async (req: Request, res: Response) => {
   const db = getDb(req);
   const episode = NovelEpisodeDAO.getByIdAndUser(db, req.params.id, req.user.id);
-  if (!episode) throw createError(404, 'NOT_FOUND', '剧集不存在');
-  NovelEpisodeDAO.delete(db, req.params.id);
+  if (!episode) throw createError(404, ErrorCodes.NOT_FOUND, '剧集不存在');
+  NovelEpisodeDAO.deleteCascade(db, req.params.id);
   res.json({ success: true, data: { message: '剧集已删除' } });
 }));
 
@@ -125,9 +148,9 @@ router.delete('/episodes/:id', asyncHandler(async (req: Request, res: Response) 
 router.get('/projects/:projectId/episodes/:episodeId/export', asyncHandler(async (req: Request, res: Response) => {
   const db = getDb(req);
   const project = ProjectDAO.getByIdAndUser(db, req.params.projectId, req.user.id);
-  if (!project) throw createError(404, 'NOT_FOUND', '项目不存在');
+  if (!project) throw createError(404, ErrorCodes.NOT_FOUND, '项目不存在');
   const episode = NovelEpisodeDAO.getByIdAndUser(db, req.params.episodeId, req.user.id);
-  if (!episode || episode.project_id !== project.id) throw createError(404, 'NOT_FOUND', '剧集不存在');
+  if (!episode || episode.project_id !== project.id) throw createError(404, ErrorCodes.NOT_FOUND, '剧集不存在');
 
   const epLabel = String(episode.episode_number).padStart(2, '0');
   const zipPath = path.resolve(process.cwd(), 'outputs', `production-pack-${epLabel}.zip`);
@@ -152,6 +175,8 @@ router.post('/episodes/:id/shots/generate', validateBody(generateShotsSchema), a
 // 镜头列表
 router.get('/episodes/:id/shots', asyncHandler(async (req: Request, res: Response) => {
   const db = getDb(req);
+  // P2修复(IDOR): 校验剧集归属
+  assertEpisodeOwner(db, req.params.id, req.user.id);
   const shots = ShotDAO.listByEpisode(db, req.params.id);
   res.json({ success: true, data: shots });
 }));
@@ -159,6 +184,8 @@ router.get('/episodes/:id/shots', asyncHandler(async (req: Request, res: Respons
 // P1-2: 镜头就绪状态（批量计算每个镜头的参考完整性）
 router.get('/episodes/:id/shots/readiness', asyncHandler(async (req: Request, res: Response) => {
   const db = getDb(req);
+  // P2修复(IDOR): 校验剧集归属
+  assertEpisodeOwner(db, req.params.id, req.user.id);
   const readiness = calculateAllShotsReadiness(db, req.params.id);
   res.json({ success: true, data: readiness });
 }));
@@ -166,6 +193,8 @@ router.get('/episodes/:id/shots/readiness', asyncHandler(async (req: Request, re
 // P1-1: 一致性评分报告
 router.get('/episodes/:id/consistency-report', asyncHandler(async (req: Request, res: Response) => {
   const db = getDb(req);
+  // P2修复(IDOR): 校验剧集归属
+  assertEpisodeOwner(db, req.params.id, req.user.id);
   const report = await consistencyCheckService.generateEpisodeConsistencyReport(db, req.user.id, req.params.id);
   res.json({ success: true, data: report });
 }));
@@ -174,7 +203,7 @@ router.get('/episodes/:id/consistency-report', asyncHandler(async (req: Request,
 router.get('/shots/:id', asyncHandler(async (req: Request, res: Response) => {
   const db = getDb(req);
   const shot = ShotDAO.getByIdAndUser(db, req.params.id, req.user.id);
-  if (!shot) throw createError(404, 'NOT_FOUND', '镜头不存在');
+  if (!shot) throw createError(404, ErrorCodes.NOT_FOUND, '镜头不存在');
   res.json({ success: true, data: shot });
 }));
 
@@ -182,7 +211,10 @@ router.get('/shots/:id', asyncHandler(async (req: Request, res: Response) => {
 router.delete('/shots/:id', asyncHandler(async (req: Request, res: Response) => {
   const db = getDb(req);
   const shot = ShotDAO.getByIdAndUser(db, req.params.id, req.user.id);
-  if (!shot) throw createError(404, 'NOT_FOUND', '镜头不存在');
+  if (!shot) throw createError(404, ErrorCodes.NOT_FOUND, '镜头不存在');
+  // P1-16: 项目级写锁——全自动流水线运行中禁止删除分镜（返回 409）
+  const episode = NovelEpisodeDAO.getById(db, shot.episode_id);
+  if (episode) assertProjectWritable(db, episode.project_id);
   ShotDAO.delete(db, req.params.id);
   res.json({ success: true, data: { message: '镜头已删除' } });
 }));
@@ -191,7 +223,7 @@ router.delete('/shots/:id', asyncHandler(async (req: Request, res: Response) => 
 router.delete('/episodes/:id/shots', asyncHandler(async (req: Request, res: Response) => {
   const db = getDb(req);
   const episode = NovelEpisodeDAO.getByIdAndUser(db, req.params.id, req.user.id);
-  if (!episode) throw createError(404, 'NOT_FOUND', '剧集不存在');
+  if (!episode) throw createError(404, ErrorCodes.NOT_FOUND, '剧集不存在');
   const shots = ShotDAO.listByEpisode(db, episode.id);
   const count = shots.length;
   db.transaction(() => {
@@ -218,6 +250,8 @@ router.post('/shots/:id/keyframes/generate', validateBody(generateKeyframesSchem
 // 关键帧列表
 router.get('/shots/:id/keyframes', asyncHandler(async (req: Request, res: Response) => {
   const db = getDb(req);
+  // P2修复(IDOR): 校验镜头归属
+  assertShotOwner(db, req.params.id, req.user.id);
   const keyframes = ShotKeyframeDAO.listByShot(db, req.params.id);
   res.json({ success: true, data: keyframes });
 }));
@@ -242,7 +276,7 @@ const candidatesSchema = z.object({
 router.post('/shots/:id/keyframes/candidates', validateBody(candidatesSchema), asyncHandler(async (req: Request, res: Response) => {
   const db = getDb(req);
   const shot = ShotDAO.getByIdAndUser(db, req.params.id, req.user.id);
-  if (!shot) throw createError(404, 'NOT_FOUND', '镜头不存在');
+  if (!shot) throw createError(404, ErrorCodes.NOT_FOUND, '镜头不存在');
   const candidates = await generateKeyframeCandidates(db, req.user.id, shot, {
     provider: req.body.provider,
     modelName: req.body.modelName,
@@ -256,7 +290,7 @@ router.post('/shots/:id/keyframes/candidates', validateBody(candidatesSchema), a
 router.post('/keyframes/:id/select', asyncHandler(async (req: Request, res: Response) => {
   const db = getDb(req);
   const updated = selectCandidateAsFirst(db, req.user.id, req.params.id);
-  if (!updated) throw createError(404, 'NOT_FOUND', '关键帧不存在');
+  if (!updated) throw createError(404, ErrorCodes.NOT_FOUND, '关键帧不存在');
   res.json({ success: true, data: updated });
 }));
 
@@ -264,7 +298,7 @@ router.post('/keyframes/:id/select', asyncHandler(async (req: Request, res: Resp
 router.post('/shots/:id/keyframes/endframe', validateBody(regenerateSchema), asyncHandler(async (req: Request, res: Response) => {
   const db = getDb(req);
   const shot = ShotDAO.getByIdAndUser(db, req.params.id, req.user.id);
-  if (!shot) throw createError(404, 'NOT_FOUND', '镜头不存在');
+  if (!shot) throw createError(404, ErrorCodes.NOT_FOUND, '镜头不存在');
   const kf = await generateEndFrameForShot(db, req.user.id, shot, {
     provider: req.body.provider,
     modelName: req.body.modelName,
@@ -274,6 +308,7 @@ router.post('/shots/:id/keyframes/endframe', validateBody(regenerateSchema), asy
 }));
 
 // 更新镜头（如：首尾帧衔接开关 use_next_first_frame）
+// P0-1：去掉 .passthrough()，显式声明全部可写字段（含 blocking 等新字段），拒绝未知列名注入
 const updateShotSchema = z.object({
   shot_number: z.number().int().min(1).optional(),
   scene_id: z.string().nullable().optional(),
@@ -287,11 +322,23 @@ const updateShotSchema = z.object({
   characters_in_shot: z.array(z.string()).optional(),
   props_in_shot: z.array(z.string()).optional(),
   use_next_first_frame: z.number().int().min(0).max(1).optional(),
-}).passthrough();
+  notes: z.string().nullable().optional(),
+  lighting: z.string().nullable().optional(),
+  mood: z.string().nullable().optional(),
+  transition: z.string().nullable().optional(),
+  pace: z.string().nullable().optional(),
+  character_outfits: z.string().nullable().optional(),
+  blocking: z.string().nullable().optional(),
+  first_frame_description: z.string().nullable().optional(),
+  last_frame_description: z.string().nullable().optional(),
+});
 router.put('/shots/:id', validateBody(updateShotSchema), asyncHandler(async (req: Request, res: Response) => {
   const db = getDb(req);
   const shot = ShotDAO.getByIdAndUser(db, req.params.id, req.user.id);
-  if (!shot) throw createError(404, 'NOT_FOUND', '镜头不存在');
+  if (!shot) throw createError(404, ErrorCodes.NOT_FOUND, '镜头不存在');
+  // P1-16: 项目级写锁——全自动流水线运行中禁止人工修改分镜（返回 409）
+  const episode = NovelEpisodeDAO.getById(db, shot.episode_id);
+  if (episode) assertProjectWritable(db, episode.project_id);
   const updated = ShotDAO.update(db, req.params.id, req.body);
   res.json({ success: true, data: updated });
 }));
@@ -300,7 +347,7 @@ router.put('/shots/:id', validateBody(updateShotSchema), asyncHandler(async (req
 router.delete('/keyframes/:id', asyncHandler(async (req: Request, res: Response) => {
   const db = getDb(req);
   const keyframe = ShotKeyframeDAO.getByIdAndUser(db, req.params.id, req.user.id);
-  if (!keyframe) throw createError(404, 'NOT_FOUND', '关键帧不存在');
+  if (!keyframe) throw createError(404, ErrorCodes.NOT_FOUND, '关键帧不存在');
   ShotKeyframeDAO.delete(db, req.params.id);
   res.json({ success: true, data: { message: '关键帧已删除' } });
 }));
@@ -345,19 +392,19 @@ router.post('/shots/:id/dub', asyncHandler(async (req: Request, res: Response) =
   const db = getDb(req);
   const shot = ShotDAO.getById(db, req.params.id);
   if (!shot || shot.user_id !== req.user.id) {
-    throw createError(404, 'NOT_FOUND', '分镜不存在');
+    throw createError(404, ErrorCodes.NOT_FOUND, '分镜不存在');
   }
   const videos = ShotVideoIntervalDAO.listByShot(db, req.params.id)
     .filter((v: any) => v.status === 'completed' && v.video_url)
     .sort((a: any, b: any) => new Date(b.completed_at || 0).getTime() - new Date(a.completed_at || 0).getTime());
   if (!videos.length) {
-    throw createError(409, 'CONFLICT', '该镜头暂无已完成视频，请先生成视频');
+    throw createError(409, ErrorCodes.CONFLICT, '该镜头暂无已完成视频，请先生成视频');
   }
   const localPath = projectStorage.toLocalPath(videos[0].video_url || '');
   const projectDir = path.dirname(localPath);
   const result = await dubVideo(localPath, shot.dialogue, projectDir);
   if (!result) {
-    throw createError(409, 'CONFLICT', '该镜头没有台词，无需配音');
+    throw createError(409, ErrorCodes.CONFLICT, '该镜头没有台词，无需配音');
   }
   res.json({ success: true, data: result });
 }));
@@ -372,6 +419,8 @@ router.get('/videos/:id/status', asyncHandler(async (req: Request, res: Response
 // 获取镜头的视频列表
 router.get('/shots/:id/videos', asyncHandler(async (req: Request, res: Response) => {
   const db = getDb(req);
+  // P2修复(IDOR): 校验镜头归属
+  assertShotOwner(db, req.params.id, req.user.id);
   const videos = ShotVideoIntervalDAO.listByShot(db, req.params.id);
   res.json({ success: true, data: videos });
 }));
@@ -381,7 +430,7 @@ router.delete('/videos/:id', asyncHandler(async (req: Request, res: Response) =>
   const db = getDb(req);
   const video = ShotVideoIntervalDAO.getById(db, req.params.id);
   if (!video || video.user_id !== req.user.id) {
-    throw createError(404, 'NOT_FOUND', '视频不存在');
+    throw createError(404, ErrorCodes.NOT_FOUND, '视频不存在');
   }
   // 删除本地视频文件（如果存在）
   if (video.video_url && video.video_url.startsWith('/')) {
@@ -493,7 +542,7 @@ router.post('/episodes/:id/enrich', validateBody(enrichSchema), asyncHandler(asy
 router.get('/episodes/:id/enrich', asyncHandler(async (req: Request, res: Response) => {
   const db = getDb(req);
   const episode = NovelEpisodeDAO.getByIdAndUser(db, req.params.id, req.user.id);
-  if (!episode) throw createError(404, 'NOT_FOUND', '剧集不存在');
+  if (!episode) throw createError(404, ErrorCodes.NOT_FOUND, '剧集不存在');
   const result = episodeEnrichService.parseStored(episode);
   res.json({ success: true, data: { result, status: episode.enrich_status, skill: episode.enriched_skill, model: episode.enriched_model, at: episode.enriched_at, feedback: episode.enrich_feedback, rejectCount: episode.enrich_reject_count } });
 }));
@@ -525,6 +574,8 @@ router.get('/episodes/:id/subtitles', asyncHandler(async (req: Request, res: Res
 // 获取剧集已完成视频片段数（导出页合成前检测用，真实数据）
 router.get('/episodes/:id/videos/count', asyncHandler(async (req: Request, res: Response) => {
   const db = getDb(req);
+  // P2修复(IDOR): 校验剧集归属
+  assertEpisodeOwner(db, req.params.id, req.user.id);
   const shots = ShotDAO.listByEpisode(db, req.params.id) as Array<{ id: string }>;
   let completed = 0;
   for (const s of shots) {
@@ -532,6 +583,78 @@ router.get('/episodes/:id/videos/count', asyncHandler(async (req: Request, res: 
       .filter((v: any) => v.status === 'completed' && v.video_url).length;
   }
   res.json({ success: true, data: { count: completed, totalShots: shots.length } });
+}));
+
+// ============ 分段（Segment）— P2-2：聚合 / 生成 / 重试 / 按段合成 ============
+
+// 段列表（GET 聚合查询：读取时刷新每段状态）
+router.get('/episodes/:id/segments', asyncHandler(async (req: Request, res: Response) => {
+  const db = getDb(req);
+  // P2-3: 归属校验——剧集不属于当前用户则抛 404（参考 POST /episodes/:id/segments 写法）
+  const episode = NovelEpisodeDAO.getByIdAndUser(db, req.params.id, req.user.id);
+  if (!episode) throw createError(404, ErrorCodes.NOT_FOUND, '剧集不存在');
+  const segments = getSegmentsByEpisode(db, req.params.id);
+  res.json({ success: true, data: segments });
+}));
+
+// 重新聚合（POST：幂等重建该集所有段）
+router.post('/episodes/:id/segments', asyncHandler(async (req: Request, res: Response) => {
+  const db = getDb(req);
+  const episode = NovelEpisodeDAO.getByIdAndUser(db, req.params.id, req.user.id);
+  if (!episode) throw createError(404, ErrorCodes.NOT_FOUND, '剧集不存在');
+  const segments = aggregateSegments(db, req.params.id, req.user.id, episode.project_id);
+  res.json({ success: true, data: segments });
+}));
+
+// 按段生成视频（聚合该段所有镜头的视频任务，可单独重试）
+const segmentVideoSchema = z.object({
+  provider: z.string().optional(),
+  modelName: z.string().optional(),
+  duration: z.number().min(1).max(15).optional(),
+  ratio: z.enum(['16:9', '9:16', '1:1', '4:3', '3:4', '21:9']).optional(),
+  resolution: z.enum(['720p', '1080p', '2k', '4k']).optional(),
+  subtitles: z.boolean().optional(),
+});
+router.post('/segments/:id/video', validateBody(segmentVideoSchema), asyncHandler(async (req: Request, res: Response) => {
+  const db = getDb(req);
+  let provider = req.body.provider;
+  let modelName = req.body.modelName;
+  // 未指定模型时回退到用户默认视频模型
+  if (!provider || !modelName) {
+    try {
+      const pref = UserPreferenceDAO.getByUser(db, req.user.id);
+      const key = pref?.default_video_model;
+      if (key && key.includes(':')) {
+        [provider, modelName] = key.split(':');
+      }
+    } catch { /* 忽略，交由 service 校验 */ }
+  }
+  if (!provider || !modelName) {
+    throw createError(400, ErrorCodes.MODEL_NOT_CONFIGURED, '请先配置默认视频模型，或在请求中指定 provider 和 modelName');
+  }
+  const segment = await generateSegmentVideo(db, req.user.id, req.params.id, {
+    provider,
+    modelName,
+    duration: req.body.duration,
+    ratio: req.body.ratio,
+    resolution: req.body.resolution,
+    subtitles: req.body.subtitles,
+  });
+  res.json({ success: true, data: segment });
+}));
+
+// 重试段视频生成（清理该段失败任务后重新提交；模型取段记录或用户默认）
+router.post('/segments/:id/retry', asyncHandler(async (req: Request, res: Response) => {
+  const db = getDb(req);
+  const segment = await retrySegment(db, req.user.id, req.params.id);
+  res.json({ success: true, data: segment });
+}));
+
+// 按段顺序 concat 所有段视频为最终成片
+router.post('/episodes/:id/compose-from-segments', asyncHandler(async (req: Request, res: Response) => {
+  const db = getDb(req);
+  const url = await composeEpisodeFromSegments(db, req.user.id, req.params.id);
+  res.json({ success: true, data: { video_url: url } });
 }));
 
 export default router;

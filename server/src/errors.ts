@@ -1,0 +1,19 @@
+// 标准错误码常量（P3-10）
+// 统一替代散落在服务/路由中的硬编码错误码字符串，便于维护与跨模块引用
+
+export const ErrorCodes = {
+  SHOT_NOT_FOUND: 'SHOT_NOT_FOUND',
+  SEGMENT_LOCKED: 'SEGMENT_LOCKED',
+  PROMPT_TOO_LONG: 'PROMPT_TOO_LONG',
+  MISSING_VIDEO: 'MISSING_VIDEO',
+  CONFLICT: 'CONFLICT',
+  NOT_FOUND: 'NOT_FOUND',
+  VALIDATION_ERROR: 'VALIDATION_ERROR',
+  MODEL_NOT_CONFIGURED: 'MODEL_NOT_CONFIGURED',
+  NO_VIDEO_CLIPS: 'NO_VIDEO_CLIPS',
+  AI_CALL_FAILED: 'AI_CALL_FAILED',
+  NO_KEYFRAME: 'NO_KEYFRAME',
+  INVALID_INDEX: 'INVALID_INDEX',
+} as const;
+
+export type ErrorCode = (typeof ErrorCodes)[keyof typeof ErrorCodes];

@@ -74,8 +74,8 @@ export function standardizeCharacterAnchor(character: ScriptCharacter): string {
  */
 export async function generateCharacterAnchors(
   db: Database,
-  userId: string,
-  projectId: string,
+  _userId: string,
+  _projectId: string,
   episodeId: string
 ): Promise<number> {
   const characters = ScriptCharacterDAO.listByEpisode(db, episodeId);
@@ -106,7 +106,7 @@ export async function generateCharacterAnchors(
  */
 export async function generateCharacterBible(
   db: Database,
-  userId: string,
+  _userId: string,
   projectId: string
 ): Promise<ProjectBible> {
   const episodes = NovelEpisodeDAO.listByProject(db, projectId);
@@ -162,7 +162,7 @@ export async function generateCharacterBible(
 
 export async function generateWorldSetting(
   db: Database,
-  userId: string,
+  _userId: string,
   projectId: string
 ): Promise<ProjectBible> {
   const episodes = NovelEpisodeDAO.listByProject(db, projectId);
@@ -196,7 +196,7 @@ export async function generateWorldSetting(
 
 export async function updateStorySummary(
   db: Database,
-  userId: string,
+  _userId: string,
   projectId: string,
   episodeId: string
 ): Promise<ProjectBible> {
@@ -235,7 +235,7 @@ export async function updateStorySummary(
 
 export async function detectForeshadows(
   db: Database,
-  userId: string,
+  _userId: string,
   projectId: string,
   episodeId: string
 ): Promise<StoryForeshadow[]> {

@@ -1,18 +1,19 @@
 // 阶段7：关键帧批量生成
-import type { Database } from '../../../types';
+import type { Database, ScriptCharacter, ScriptScene } from '../../../types';
 import {
   NovelEpisodeDAO,
   ShotDAO,
   ScriptCharacterDAO,
   ScriptSceneDAO,
   ShotKeyframeDAO,
+  ProjectDAO,
 } from '../../../models';
 import { aiProxy } from '../../aiProxy';
-import { buildKeyframePrompt } from '../../prompts/keyframe';
+import { buildFullKeyframePrompt } from '../../promptBuilder';
 import { collectShotReferenceImages } from '../../shotConsistencyService';
 import { parseCharactersInShot } from '../../../models/shot';
 import type { AutoPipelineTask } from '../types';
-import { getFirstModel, getProjectStyleDescription } from '../helpers';
+import { getFirstModel } from '../helpers';
 import { saveTask } from '../taskStore';
 import { visualMemoryService } from '../../visualMemoryService';
 
@@ -40,9 +41,6 @@ export async function stageKeyframes(db: Database, task: AutoPipelineTask): Prom
 
   // 预加载所有角色（避免循环内重复查询）
   const allCharacters = ScriptCharacterDAO.listByEpisode(db, first.id);
-
-  // 统一风格前缀（从项目风格描述读取，极简系统：一句话拼在提示词开头）
-  const styleDescription = getProjectStyleDescription(db, task.projectId);
 
   let generated = 0;
   let skipped = 0;
@@ -74,34 +72,27 @@ export async function stageKeyframes(db: Database, task: AutoPipelineTask): Prom
         }
       }
 
-      // 收集角色视觉描述（服装/面部/年龄/发型），与参考图形成双重约束，防止角色漂移
-      const characterVisualDescriptions: string[] = [];
-      for (const cid of characterIds) {
-        const c = allCharacters.find((x: any) => x.id === cid);
-        if (c) {
-          const visualDesc = c.visual_prompt || c.visual_description || c.description || '';
-          if (visualDesc) characterVisualDescriptions.push(`${c.name}：${visualDesc}`);
-        }
-      }
-      const characterDescBlock = characterVisualDescriptions.length > 0
-        ? `\n【出场角色形象 — 必须严格保持与参考图一致】\n${characterVisualDescriptions.join('\n')}\n以上角色的面容、发型、发色、服装、体型、年龄感必须与参考图完全一致，绝对不能更换人物形象。`
-        : '';
-
-      // 获取场景信息（场景参考图已由 collectShotReferenceImages 统一收集）
-
       // 收集一致性参考图：角色定妆照 + 场景概念图 + 道具图
       // 参考 ArcReel/BigBanana：每镜注入"当前角色+场景+道具"参考，显著降低人物/场景漂移
       const referenceImages = collectShotReferenceImages(db, shot);
 
       // ═══════════════════════════════════════════════════════════
-      // 关键帧提示词（v3.1）：首帧/尾帧画面描述 + 角色视觉描述（双重保障一致性）+ 风格前缀
-      // 画面描述优先取 frameSpecificDescription 字段，回退到动作弧【起始状态】/【结束状态】分段
-      // 一致性靠参考图 + 角色视觉描述文字双重约束
+      // 关键帧提示词（P0-1）：promptBuilder 模块化拼接
+      // 项目风格 + 身份锁定块(每角色) + 服装块(每角色) + 场景块(空间坐标/灯光) + 调度块 + 动作 + 禁令行
+      // 首帧/尾帧画面差异通过替换 shot.action_description 实现（优先 first/last_frame_description，回退动作弧分段）
+      // 一致性靠参考图 + 身份锁文字双重约束
       // ═══════════════════════════════════════════════════════════
+      // P1-12: 关键帧尺寸跟随项目画面比例（aspect_ratio='9:16' 时竖屏 1440x2560，否则横屏 2560x1440）
+      const project = ProjectDAO.getById(db, first.project_id) || null;
+      const keyframeSize = project?.aspect_ratio === '9:16' ? '1440x2560' : '2560x1440';
+      const shotCharacters: ScriptCharacter[] = characterIds
+        .map(cid => allCharacters.find((x: any) => x.id === cid) || allCharacters.find((x: any) => x.name === cid))
+        .filter((c): c is ScriptCharacter => !!c);
+      const sceneForPrompt: ScriptScene | null = shot.scene_id ? (ScriptSceneDAO.getById(db, shot.scene_id) || null) : null;
       const firstDesc = shot.first_frame_description || extractFrameDesc(shot.action_description, 'first') || shot.action_description || '';
       const lastDesc = shot.last_frame_description || extractFrameDesc(shot.action_description, 'last') || shot.action_description || '';
-      const finalFirstPrompt = buildKeyframePrompt(firstDesc + characterDescBlock, styleDescription || undefined);
-      const finalLastPrompt = buildKeyframePrompt(lastDesc + characterDescBlock, styleDescription || undefined);
+      const finalFirstPrompt = buildFullKeyframePrompt({ ...shot, action_description: firstDesc }, shotCharacters, sceneForPrompt, project);
+      const finalLastPrompt = buildFullKeyframePrompt({ ...shot, action_description: lastDesc }, shotCharacters, sceneForPrompt, project);
       const finalNegativePrompt: string | undefined = undefined;
 
       console.log(`[AutoPipeline] keyframe shot=${shot.shot_number} 提示词生成完成`);
@@ -133,7 +124,7 @@ export async function stageKeyframes(db: Database, task: AutoPipelineTask): Prom
           const imgResult = await aiProxy.generateImage({
             db, userId: task.userId, projectId: task.projectId,
             provider: model.provider, modelName: model.modelName,
-            prompt: effectivePrompt, negativePrompt: finalNegativePrompt, count: 1, size: '2560x1440',
+            prompt: effectivePrompt, negativePrompt: finalNegativePrompt, count: 1, size: keyframeSize,
             referenceImages: referenceImages.length > 0 ? referenceImages : undefined,
             saveSubDir: 'keyframes',
             skipCache: true, // 全自动流水线关键帧生成跳过缓存

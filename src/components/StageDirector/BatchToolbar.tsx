@@ -11,6 +11,8 @@ import { videoService } from '../../services/videoService';
 import { shotService } from '../../services/shotService';
 import { useStoredModelKey } from './useStoredModelKey';
 import apiClient from '../../services/apiClient';
+import { API_PATHS } from '../../constants/api';
+import { showApiError, getResponseErrorMessage } from '../../utils/error';
 
 interface BatchToolbarProps {
   /** 导出投产包：打开父级导出弹窗 */
@@ -27,7 +29,7 @@ async function resolveProjectShotDuration(
   if (episodeProjectId) {
     try {
       const res = await apiClient.get<unknown, { success?: boolean; data?: { default_shot_duration?: number } }>(
-        `/projects/${episodeProjectId}`
+        API_PATHS.project(episodeProjectId)
       );
       const d = res.data?.default_shot_duration;
       if (d && d >= 5 && d <= 60) return d;
@@ -120,8 +122,8 @@ export function BatchToolbar({ onExportPackage }: BatchToolbarProps) {
         if (failed > 0) {
           // 显示具体错误信息
           const errorDetails = results
-            .filter((r: any) => !r.success)
-            .map((r: any) => `镜头${r.shotId?.slice(-6) || ''}: ${r.error || '未知错误'}`)
+            .filter((r) => !r.success)
+            .map((r) => `镜头${r.shotId?.slice(-6) || ''}: ${r.error || '未知错误'}`)
             .join('; ');
           showToast(`批量生成：成功${success}个，失败${failed}个${skipNote}。${errorDetails}`, 'error');
         } else {
@@ -130,9 +132,8 @@ export function BatchToolbar({ onExportPackage }: BatchToolbarProps) {
         // 刷新所有镜头数据
         loadShots(currentEpisodeId);
       }
-    } catch (err: any) {
-      const errorMsg = err?.response?.data?.message || err?.message || '批量生成关键帧失败';
-      showToast(errorMsg, 'error');
+    } catch (err: unknown) {
+      showApiError(showToast, err, '批量生成关键帧失败');
       console.error('[BatchKeyframe] 批量生成失败:', err);
     } finally {
       setIsBatchGeneratingKeyframes(false);
@@ -173,15 +174,15 @@ export function BatchToolbar({ onExportPackage }: BatchToolbarProps) {
       if (res.success && res.data) {
         const skippedShots = res.data.skippedShots || [];
         if (skippedShots.length > 0) {
-          const reasons = skippedShots.map((s: any) => `镜头${s.shotId?.slice(-6) || ''}: ${s.reason}`).join('; ');
+          const reasons = skippedShots.map((s) => `镜头${s.shotId?.slice(-6) || ''}: ${s.reason}`).join('; ');
           showToast(`批量视频：成功${res.data.created}个，跳过${res.data.skipped}个（${reasons}）`, 'warning');
         } else {
           showToast(`批量视频任务已创建：${res.data.created}个成功`, 'success');
         }
         loadShots(currentEpisodeId);
       }
-    } catch {
-      showToast('批量生成视频失败', 'error');
+    } catch (err: unknown) {
+      showApiError(showToast, err, '批量生成视频失败');
     } finally {
       setIsBatchGeneratingVideos(false);
       setBatchProgress(null);
@@ -265,9 +266,8 @@ export function BatchToolbar({ onExportPackage }: BatchToolbarProps) {
         throw new Error('视频批量生成失败');
       }
       await loadShots(currentEpisodeId);
-    } catch (err: any) {
-      const errorMsg = err?.message || '一键生成失败';
-      showToast(errorMsg, 'error');
+    } catch (err: unknown) {
+      showApiError(showToast, err, '一键生成失败');
       console.error('[OneClickGenerate] 失败:', err);
     } finally {
       setIsOneClickGenerating(false);
@@ -290,10 +290,10 @@ export function BatchToolbar({ onExportPackage }: BatchToolbarProps) {
         showToast(`已清空 ${res.data?.deleted || shots.length} 个分镜`, 'success');
         loadShots(currentEpisodeId);
       } else {
-        showToast('清空失败', 'error');
+        showToast(getResponseErrorMessage(res, '清空失败'), 'error');
       }
-    } catch (err: any) {
-      showToast(err?.response?.data?.message || '清空失败', 'error');
+    } catch (err: unknown) {
+      showApiError(showToast, err, '清空失败');
     }
   };
 

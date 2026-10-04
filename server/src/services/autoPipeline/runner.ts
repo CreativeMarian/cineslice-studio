@@ -1,9 +1,10 @@
 // 全自动流水线调度器 v2.0：DAG 并行执行 + 幂等跳过 + 断点恢复 + 进度百分比
 // 执行计划（DAG）：
-//   novel → episodes → script → [characters ‖ scenes] → shots → [keyframes ‖ audio] → video → export
+//   novel → episodes → script → scenes → characters → shots → [keyframes ‖ audio] → video → export
 // 并行组内各阶段独立执行、独立失败不影响同组其他阶段；组间严格按依赖顺序。
+// P1-13: scenes 先于 characters 串行执行（角色阶段解析 wardrobe.scene_name→scene_id 时需要场景表已就绪）
 import type { Database } from '../../types';
-import { PipelineService, PIPELINE_STAGES } from '../pipelineService';
+import { PipelineService } from '../pipelineService';
 import type { AutoPipelineTask } from './types';
 import { tasks } from './state';
 import { isStageComplete, calculatePipelineProgress } from './helpers';
@@ -42,7 +43,8 @@ const EXECUTION_PLAN: Array<string | string[]> = [
   'novel',
   'episodes',
   'script',
-  ['characters', 'scenes'],   // 并行：都只依赖 script
+  'scenes',      // P1-13: scenes 先于 characters（角色阶段解析 wardrobe.scene_name→scene_id 时场景表已有数据）
+  'characters',  // 依赖 scenes
   'shots',
   ['keyframes', 'audio'],      // 并行：都只依赖 shots（audio 不需要关键帧）
   'video',                      // 依赖 keyframes

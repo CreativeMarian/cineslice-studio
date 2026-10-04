@@ -189,7 +189,7 @@ export async function generateEpisodeBatch(
   userId: string,
   provider: string,
   modelName: string,
-  style: string | undefined, // 保留签名兼容前端调用；极简系统下不再注入风格到剧集提示词
+  _style: string | undefined, // 保留签名兼容前端调用；极简系统下不再注入风格到剧集提示词
   novelContent: string,
   startEpisode: number,
   batchCount: number,
@@ -209,8 +209,7 @@ export async function generateEpisodeBatch(
       db, userId, provider, modelName,
       prompt: batchPrompt, responseFormat: 'json', maxTokens: 32000,
     });
-    const preview = result.content.length > 2000 ? result.content.slice(0, 2000) + '...[截断]' : result.content;
-    console.log(`[GenerateEpisodes] 批次 ${nums[0]}${nums.length > 1 ? '-' + nums[nums.length - 1] : ''} AI返回长度: ${result.content.length}, 预览: ${preview}`);
+    console.log(`[GenerateEpisodes] 批次 ${nums[0]}${nums.length > 1 ? '-' + nums[nums.length - 1] : ''} AI返回长度: ${result.content.length}`);
     return parseEpisodesData(result.content);
   };
 

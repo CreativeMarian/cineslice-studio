@@ -1,4 +1,5 @@
 import apiClient from './apiClient';
+import { API_PATHS } from '../constants/api';
 
 export interface ComposeOptions {
   transition?: 'none' | 'fade' | 'crossfade';
@@ -37,20 +38,20 @@ export interface ComposeResult {
 
 export const videoComposeService = {
   checkFfmpeg: () =>
-    apiClient.get<unknown, { success: boolean; data: { available: boolean } }>('/ffmpeg/status'),
+    apiClient.get<unknown, { success: boolean; data: { available: boolean } }>(API_PATHS.ffmpegStatus),
 
   compose: (episodeId: string, options?: ComposeOptions) =>
     apiClient.post<unknown, { success: boolean; data: ComposeResult }>(
-      `/episodes/${episodeId}/compose`,
+      API_PATHS.episodeCompose(episodeId),
       options || {}
     ),
 
   getStatus: (taskId: string) =>
-    apiClient.get<unknown, { success: boolean; data: ComposeResult }>(`/compose/${taskId}`),
+    apiClient.get<unknown, { success: boolean; data: ComposeResult }>(API_PATHS.composeTask(taskId)),
 
   /** 查询某集最近一次合成结果（持久化记录优先，跨重启可恢复） */
   getLatest: (episodeId: string) =>
     apiClient.get<unknown, { success: boolean; data: ComposeResult | null }>(
-      `/episodes/${episodeId}/latest-compose`
+      API_PATHS.episodeLatestCompose(episodeId)
     ),
 };

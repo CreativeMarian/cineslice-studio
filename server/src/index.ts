@@ -87,13 +87,17 @@ async function main() {
   app.locals.db = db;
 
   // 6. 中间件
-  app.use(cors());
+  // P0-1: CORS 限制为本地开发来源（默认 localhost 前端端口），可用环境变量 CORS_ORIGIN 覆盖（逗号分隔）
+  const corsOrigin = process.env.CORS_ORIGIN
+    ? process.env.CORS_ORIGIN.split(',').map(s => s.trim()).filter(Boolean)
+    : ['http://localhost:5173', 'http://127.0.0.1:5173', 'http://localhost:3000', 'http://127.0.0.1:3000'];
+  app.use(cors({ origin: corsOrigin }));
   app.use(compression());
   app.use(express.json({ limit: '10mb' }));
   app.use(express.urlencoded({ extended: true }));
 
   // 安全响应头（不引入 helmet 依赖，只设置与本项目兼容的头部）
-  app.use((req, res, next) => {
+  app.use((_req, res, next) => {
     res.set('X-Content-Type-Options', 'nosniff');
     res.set('X-Frame-Options', 'SAMEORIGIN');
     res.set('Referrer-Policy', 'strict-origin-when-cross-origin');
@@ -114,6 +118,7 @@ async function main() {
   });
 
   // 静态文件托管（/data 含项目图片等资源，但绝不能暴露 SQLite 数据库文件）
+  // P0-1: 静态托管移到鉴权中间件之后（见下方），未登录不可访问项目资源
   const blockSensitiveFiles: express.RequestHandler = (req, res, next) => {
     if (/\.(db|db-wal|db-shm|sqlite|sqlite3|wal|shm)$/i.test(req.path)) {
       return res.status(403).json({
@@ -123,8 +128,6 @@ async function main() {
     }
     next();
   };
-  app.use('/data', blockSensitiveFiles, express.static(config.dataDir));
-  app.use('/uploads', blockSensitiveFiles, express.static(config.uploadDir));
 
   // 健康检查（不需要认证）
   app.get('/api/health', (_req, res) => {
@@ -139,6 +142,10 @@ async function main() {
     }
     return authMiddleware(req, res, next);
   });
+
+  // P0-1: 静态资源托管置于鉴权中间件之后——未认证请求无法读取 /data、/uploads 下的项目文件
+  app.use('/data', blockSensitiveFiles, express.static(config.dataDir));
+  app.use('/uploads', blockSensitiveFiles, express.static(config.uploadDir));
 
   // 7.1 登录/注册限流（防暴力破解）
   const authRateLimit = rateLimit({ windowMs: 15 * 60 * 1000, max: 20 });
@@ -192,12 +199,18 @@ async function main() {
     console.log(`[CineSlice Studio] 端口 ${config.port} 被占用，已自动切换到 ${actualPort}`);
   }
 
+  // P0-1: 默认仅监听本机回环地址（127.0.0.1），避免 local 模式暴露到局域网；
+  //        需要局域网访问时显式设置环境变量 HOST=0.0.0.0
+  const listenHost = process.env.HOST || '127.0.0.1';
   const localIP = getLocalIP();
-  app.listen(actualPort, () => {
+  app.listen(actualPort, listenHost, () => {
     console.log('========================================');
     console.log(`[CineSlice Studio] 后端服务已启动`);
+    console.log(`[CineSlice Studio] 监听地址: ${listenHost}:${actualPort}`);
     console.log(`[CineSlice Studio] 本地访问: http://localhost:${actualPort}`);
-    console.log(`[CineSlice Studio] 局域网访问: http://${localIP}:${actualPort}`);
+    if (listenHost !== '127.0.0.1' && listenHost !== 'localhost') {
+      console.log(`[CineSlice Studio] 局域网访问: http://${localIP}:${actualPort}`);
+    }
     console.log(`[CineSlice Studio] 健康检查: http://localhost:${actualPort}/api/health`);
     console.log('========================================');
   });

@@ -106,6 +106,20 @@ export function cancel(db: Database, taskId: string): boolean {
   return false;
 }
 
+/**
+ * P1-16: 项目级写锁——autoPipeline 运行期间禁止人工修改/删除分镜等子资源。
+ * 有 running 的 autoPipeline 时抛 409（interrupted 可恢复任务不阻塞）。
+ */
+export function assertProjectWritable(db: Database, projectId: string): void {
+  const running = getCurrentRunningTask(db, projectId);
+  if (running && running.status === 'running') {
+    const err: any = new Error('全自动流水线运行中，请等待完成');
+    err.status = 409;
+    err.code = 'PIPELINE_RUNNING';
+    throw err;
+  }
+}
+
 /** 初始化：标记所有残留的 running 任务为 interrupted（可恢复） */
 export function init(db: Database): void {
   const count = AutoPipelineTaskDAO.markAllRunningAsInterrupted(db);

@@ -13,6 +13,7 @@ import type { Database, Shot } from '../types';
 import { ModelRegistryDAO, ScriptCharacterDAO, CharacterOutfitDAO } from '../models';
 import { aiProxy } from './aiProxy';
 import { projectStorage } from './projectStorage';
+import { getFfmpegPath } from '../utils/ffmpeg';
 
 const execFileAsync = promisify(execFile);
 
@@ -22,30 +23,6 @@ export const QUALITY_GATE_THRESHOLD = 70;
 /** 质量门总开关：QUALITY_GATE_ENABLED=0 可关闭 */
 export function isQualityGateEnabled(): boolean {
   return process.env.QUALITY_GATE_ENABLED !== '0';
-}
-
-/** 找 ffmpeg：ffmpeg-static 优先，否则系统 ffmpeg */
-export function getFfmpegPath(): string {
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const ffmpegStatic = require('ffmpeg-static');
-    if (ffmpegStatic && typeof ffmpegStatic === 'string' && fs.existsSync(ffmpegStatic)) {
-      return ffmpegStatic;
-    }
-  } catch {
-    // 继续降级
-  }
-  return 'ffmpeg';
-}
-
-/** 检查 ffmpeg 是否可用 */
-export async function isFfmpegAvailable(): Promise<boolean> {
-  try {
-    await execFileAsync(getFfmpegPath(), ['-version'], { timeout: 5000 });
-    return true;
-  } catch {
-    return false;
-  }
 }
 
 /** 获取用户配置的第一个 vision 类型模型（未配置返回 null，质量门静默跳过） */
