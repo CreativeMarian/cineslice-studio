@@ -292,7 +292,7 @@ export async function generateVideoForShot(
     shot_id: shot.id,
     start_frame_id: startFrameId,
     end_frame_id: resolvedEndFrameId || undefined,
-    duration_seconds: duration || 5,
+    duration_seconds: duration || shot.duration_seconds || 5,
     motion_prompt: finalMotionPrompt,
     video_model_used: `${provider}/${modelName}`,
   });
@@ -313,7 +313,7 @@ export async function generateVideoForShot(
       referenceImages: shotReferenceImages.length > 0 ? shotReferenceImages : undefined,
       referenceVideos: (() => { const u = resolvePreviousShotVideoUrl(db, shot); return u ? [u] : undefined; })(),
       motion: finalMotionPrompt || shot.action_description || '',
-      duration: duration || 5,
+      duration: duration || shot.duration_seconds || 5,
       ratio,
       resolution,
       subtitles,
@@ -374,9 +374,20 @@ export async function getVideoStatus(db: Database, userId: string, videoId: stri
       });
 
       if (taskResult.status === 'completed' && taskResult.videoUrl) {
+        const shot = ShotDAO.getById(db, video.shot_id);
+
+        // P0-3: 视频实际时长回写分镜理论时长。
+        // 适配器（如豆包 r2v）会把请求时长修正为模型支持的档位（7s→5s、8s→10s），
+        // 完成后用适配器返回的实际时长回写 shot.duration_seconds，
+        // 使 SRT 生成、segment 聚合、导出字幕全部按实际时长对齐，避免台词配音与画面错位。
+        const actualDuration = (taskResult as { durationSeconds?: number }).durationSeconds;
+        if (shot && typeof actualDuration === 'number' && actualDuration > 0 && shot.duration_seconds !== actualDuration) {
+          ShotDAO.update(db, shot.id, { duration_seconds: actualDuration });
+          console.log(`[VideoStatus] 镜头 ${shot.shot_number} 视频实际时长 ${actualDuration}s 回写分镜（原 ${shot.duration_seconds}s）`);
+        }
+
         // 下载视频到本地
         try {
-          const shot = ShotDAO.getById(db, video.shot_id);
           const episode = shot ? NovelEpisodeDAO.getById(db, shot.episode_id) : null;
           const projectId = episode?.project_id || '';
           const saveDir = path.resolve(projectStorage.getDataDir(projectId), 'videos');
@@ -571,7 +582,7 @@ export async function batchGenerateVideos(
         shot_id: shot.id,
         start_frame_id: firstFrame.id,
         end_frame_id: resolvedEndFrameId || undefined,
-        duration_seconds: duration || 5,
+        duration_seconds: duration || shot.duration_seconds || 5,
         motion_prompt: finalMotionPrompt,
         video_model_used: `${provider}/${modelName}`,
       });
@@ -583,7 +594,7 @@ export async function batchGenerateVideos(
         lastFrameImageUrl,
         referenceImages: shotReferenceImages.length > 0 ? shotReferenceImages : undefined,
         motion: finalMotionPrompt,
-        duration: duration || 5,
+        duration: duration || shot.duration_seconds || 5,
         ratio, resolution,
         subtitles: false, // 对齐文档：生视频阶段不要字幕
       });

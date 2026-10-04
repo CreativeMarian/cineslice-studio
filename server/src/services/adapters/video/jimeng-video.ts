@@ -44,6 +44,7 @@ export class JimengVideoAdapter implements VideoAdapter {
         body.image_urls = [params.firstFrameImageUrl, params.lastFrameImageUrl];
       }
     }
+    // TODO: 此模型API不支持图参考（image_urls 仅用于首尾帧，无独立角色参考图字段），角色一致性仅靠提示词
 
     try {
       const data = await httpRequest<any>(`${this.baseUrl}/videos/generations`, {

@@ -1,7 +1,7 @@
-﻿import { useEffect, useMemo, useState, useRef } from 'react';
+import { useEffect, useMemo, useState, useRef } from 'react';
 import { Cpu, Type, Image, Video, Volume2, ArrowLeft, Server, CheckCircle2, ExternalLink, Zap, Loader2, Search, X, ChevronDown, ChevronRight, ChevronsDownUp, ChevronsUpDown, Plus, Eye } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import { Tabs, LoadingState, EmptyState, Badge, Card, Input } from '../ui';
+import { Tabs, LoadingState, EmptyState, Badge, Card, Input, Button } from '../ui';
 import { ModelCard } from './ModelCard';
 import { CustomModelModal, type CustomModelData } from './CustomModelModal';
 import { useModelStore } from '../../stores/useModelStore';
@@ -212,7 +212,7 @@ export function ModelConfigPage() {
             <ArrowLeft className="w-5 h-5" />
           </button>
           <div className="flex items-center gap-3">
-            <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-[var(--accent)] to-[var(--accent-2)] flex items-center justify-center shadow-[0_4px_16px_rgba(43, 116, 245, 0.25)]">
+            <div className="w-11 h-11 rounded-xl bg-[var(--accent)] flex items-center justify-center">
               <Cpu className="w-5 h-5 text-[var(--on-accent)]" />
             </div>
             <div>
@@ -223,12 +223,12 @@ export function ModelConfigPage() {
           <div className="ml-auto flex items-center gap-3 flex-1 max-w-md">
             <div className="relative flex-1">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--ink-3)]" />
-              <input
+              <Input
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 placeholder="搜索模型、厂商、场景..."
-                className="w-full pl-9 pr-8 py-2 rounded-lg bg-[var(--panel-2)] border border-[var(--border)] text-sm text-[var(--ink-1)] placeholder:text-[var(--ink-3)] focus:outline-none focus:border-[var(--accent)] transition-colors"
+                className="w-full pl-9 pr-8"
               />
               {searchQuery && (
                 <button onClick={() => setSearchQuery('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-[var(--ink-3)] hover:text-[var(--ink-1)]">
@@ -270,13 +270,15 @@ export function ModelConfigPage() {
                 </div>
               )}
             </div>
-            <button
+            <Button
+              variant="secondary"
+              size="md"
+              leftIcon={<Plus className="w-4 h-4" />}
               onClick={() => setShowCustomModal(true)}
-              className="flex items-center gap-2 px-4 py-2 rounded-lg bg-gradient-to-r from-[var(--accent)] to-[var(--accent-2)] text-[var(--on-accent)] text-sm font-medium hover:brightness-110 active:brightness-95 transition-all shadow-[0_2px_8px_rgba(43, 116, 245, 0.25)] hover:shadow-[0_4px_16px_rgba(43, 116, 245, 0.35)] hover:-translate-y-0.5 flex-shrink-0"
+              className="flex-shrink-0"
             >
-              <Plus className="w-4 h-4" />
               自定义
-            </button>
+            </Button>
             <Badge variant="accent" className="text-sm px-3 py-1 flex-shrink-0">
               <CheckCircle2 className="w-3.5 h-3.5" />
               已配置 {totalConfigured}
@@ -336,7 +338,7 @@ export function ModelConfigPage() {
                     </div>
                     <div className="w-32 h-2 rounded-full bg-[var(--panel-2)] overflow-hidden">
                       <div
-                        className="h-full bg-gradient-to-r from-[var(--accent)] to-[var(--accent-2)] rounded-full transition-all duration-500"
+                        className="h-full bg-[var(--accent)] rounded-full transition-all duration-500"
                         style={{ width: `${allModels.length ? (configuredCount / allModels.length) * 100 : 0}%` }}
                       />
                     </div>
@@ -373,10 +375,10 @@ export function ModelConfigPage() {
                                 {group.models.length} 个模型
                               </span>
                               {groupConfiguredCount > 0 && (
-                                <span className="text-xs text-green-600 dark:text-green-400 bg-green-50 dark:bg-green-900/20 px-2 py-0.5 rounded-full flex items-center gap-1">
+                                <Badge variant="success" className="flex items-center gap-1">
                                   <CheckCircle2 className="w-3 h-3" />
                                   已配置 {groupConfiguredCount}
-                                </span>
+                                </Badge>
                               )}
                             </div>
                             <div className="flex items-center gap-3">
@@ -428,17 +430,19 @@ export function ModelConfigPage() {
                                       className="w-48"
                                     />
                                   )}
-                                  <button
+                                  <Button
+                                    size="sm"
+                                    variant="primary"
                                     onClick={() => handleApplyToProvider(group, key)}
                                     disabled={applyingProvider === group.provider || !providerKeys[`${group.provider}-${key}`]?.apiKey.trim()}
-                                    className="px-4 py-2 rounded-lg bg-[var(--accent)] text-[var(--on-accent)] text-xs font-medium hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed transition-opacity flex items-center gap-1.5 flex-shrink-0"
+                                    className="flex-shrink-0"
                                   >
                                     {applyingProvider === group.provider ? (
                                       <><Loader2 className="w-3.5 h-3.5 animate-spin" /> 应用中...</>
                                     ) : (
                                       <>应用到全部</>
                                     )}
-                                  </button>
+                                  </Button>
                                 </div>
                               </div>
 

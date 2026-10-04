@@ -160,7 +160,19 @@ router.post('/episodes/:id/characters/extract', validateBody(extractSchema), asy
       if (sc.name) sceneNameToId[sc.name] = sc.id;
     }
 
-    return ScriptCharacterDAO.batchCreate(db, characters.map((c: any) => {
+    // P1-3: 角色入库前 name trim + 同名合并去重（大小写不敏感），
+    // 避免 " 林墨 " / "林墨" / "林墨" 重复入库造成角色资产分裂
+    const seenNames = new Set<string>();
+    const dedupedCharacters = characters.filter((c: any) => {
+      const rawName = String(c.name || c.characterName || c.character_name || c.角色名 || c.姓名 || '未命名').trim();
+      if (!rawName) return false;
+      const key = rawName.toLowerCase();
+      if (seenNames.has(key)) return false;
+      seenNames.add(key);
+      return true;
+    });
+
+    return ScriptCharacterDAO.batchCreate(db, dedupedCharacters.map((c: any) => {
       const characterProfile = c.character_profile || c.characterProfile || c.人物画像 || c.description || c.desc || c.描述 || c.简介 || c.characterDescription || '';
       const visualPrompt = c.visual_prompt || c.visualPrompt || c.形象提示词 || c.visual_description || c.visualDescription || c.visual || c.appearance || c.外貌描述 || c.形象描述 || c.visualDesc || '';
       const voicePrompt = c.voice_prompt || c.voicePrompt || c.音色提示词 || c.voice_description || c.voiceDescription || '';
@@ -171,7 +183,7 @@ router.post('/episodes/:id/characters/extract', validateBody(extractSchema), asy
       return {
         user_id: req.user.id,
         episode_id: episode.id,
-        name: c.name || c.characterName || c.character_name || c.角色名 || c.姓名 || '未命名',
+        name: String(c.name || c.characterName || c.character_name || c.角色名 || c.姓名 || '未命名').trim() || '未命名',
         gender: c.gender || c.sex || c.性别 || 'other',
         role_type: c.roleType || c.role || c.role_type || c.角色类型 || c.类型 || 'supporting',
         // 兼容旧字段：description 用 character_profile 填充

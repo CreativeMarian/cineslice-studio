@@ -6,30 +6,30 @@ function ToastCard({ toast }: { toast: ToastItem }) {
   const { hideToast } = useUIStore();
 
   const icons = {
-    success: <CheckCircle2 className="w-5 h-5 text-green-500 flex-shrink-0" />,
-    error: <XCircle className="w-5 h-5 text-red-500 flex-shrink-0" />,
-    warning: <AlertTriangle className="w-5 h-5 text-orange-500 flex-shrink-0" />,
-    info: <Info className="w-5 h-5 text-blue-500 flex-shrink-0" />,
+    success: <CheckCircle2 className="w-5 h-5 text-[var(--success)] flex-shrink-0" />,
+    error: <XCircle className="w-5 h-5 text-[var(--danger)] flex-shrink-0" />,
+    warning: <AlertTriangle className="w-5 h-5 text-[var(--warning)] flex-shrink-0" />,
+    info: <Info className="w-5 h-5 text-[var(--info)] flex-shrink-0" />,
   };
 
   const borderColor = toast.severity === 'critical'
-    ? 'border-red-500/50'
+    ? 'border-[var(--danger)]/50'
     : toast.type === 'error'
-    ? 'border-red-500/30'
+    ? 'border-[var(--danger)]/40'
     : toast.type === 'warning'
-    ? 'border-orange-500/30'
+    ? 'border-[var(--warning)]/40'
     : toast.type === 'success'
-    ? 'border-green-500/30'
-    : 'border-blue-500/30';
+    ? 'border-[var(--success)]/40'
+    : 'border-[var(--info)]/40';
 
   const bgColor = toast.severity === 'critical'
-    ? 'bg-red-500/10'
+    ? 'bg-[var(--danger)]/10'
     : 'bg-[var(--bg)]';
 
   return (
     <div
       className={cn(
-        'flex items-start gap-3 px-4 py-3 rounded-[var(--radius-control)] shadow-[var(--shadow-float)] border backdrop-blur-xl',
+        'flex items-start gap-3 px-4 py-3 rounded-[var(--radius-control)] shadow-[var(--shadow-float)] border',
         'min-w-[280px] max-w-md animate-slide-up',
         borderColor,
         bgColor

@@ -6,6 +6,12 @@ import type { VideoAdapter, VideoGenerateParams, VideoGenerateResult } from '../
 import { AIError, httpRequest } from '../base';
 import { registerVideoFactory } from '../registry';
 
+// P0-3: r2v 模式生成时适配器会把 duration 修正为模型支持的档位（如 7s→5s、8s→10s）。
+// 任务查询（getTask）与生成（generate）是分离的两次调用，工厂每次新建实例，
+// 因此用 taskId→实际时长 的进程内映射把修正结果带给 getTask，
+// 供 videoGenerator.getVideoStatus 完成时回写 shot.duration_seconds（对齐 SRT/segment 聚合/导出字幕）。
+const taskActualDurationMap = new Map<string, number>();
+
 export class DoubaoVideoAdapter implements VideoAdapter {
   readonly provider = 'doubao';
   readonly modelName: string;
@@ -101,6 +107,9 @@ export class DoubaoVideoAdapter implements VideoAdapter {
         throw new AIError('AI_CALL_FAILED', '视频生成任务创建失败：未返回任务 ID');
       }
 
+      // 记录修正后的实际时长（r2v 档位修正，如 7s→5s），供 getTask 返回给上游回写分镜
+      taskActualDurationMap.set(taskId, duration);
+
       return {
         taskId,
         status: 'pending',
@@ -135,11 +144,19 @@ export class DoubaoVideoAdapter implements VideoAdapter {
 
       const videoUrl = data.content?.video_url || data.content?.url || data.video_url || data.output?.video_url || '';
 
+      // P0-3: 解析实际时长——优先取 API 响应中的时长字段（部分版本 content.duration 返回生成视频实际秒数），
+      // 缺失时回退到 generate 阶段修正后的档位时长（r2v 模式 5/10/15 或 5/10/11）
+      const apiDuration = data?.content?.duration ?? data?.content?.video_duration ?? data?.duration;
+      const actualDuration = typeof apiDuration === 'number' && apiDuration > 0
+        ? apiDuration
+        : taskActualDurationMap.get(taskId);
+
       return {
         taskId,
         status: mappedStatus,
         videoUrl: videoUrl || undefined,
-      };
+        durationSeconds: actualDuration,
+      } as VideoGenerateResult;
     } catch (err) {
       if (err instanceof AIError) throw err;
       throw new AIError('AI_CALL_FAILED', `视频任务查询失败: ${(err as Error).message}`);

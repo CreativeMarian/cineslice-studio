@@ -16,15 +16,16 @@ export function CharacterCard({ character, onSelect, onImageClick, onDelete }: C
 
   const roleConfig: Record<string, string> = {
     protagonist: 'bg-[rgba(43, 116, 245, 0.10)] text-[var(--accent)]',
-    supporting: 'bg-[rgba(94,140,255,0.12)] text-[var(--color-info)]',
-    antagonist: 'bg-[rgba(255,107,90,0.12)] text-[var(--color-danger)]',
+    supporting: 'bg-[rgba(94,140,255,0.12)] text-[var(--info)]',
+    antagonist: 'bg-[rgba(255,107,90,0.12)] text-[var(--term-red)]',
     extra: 'bg-[var(--panel-2)] text-[var(--ink-3)]',
   };
 
   return (
+    <div className="transition-transform duration-150 hover:-translate-y-0.5">
     <Card hover className="overflow-hidden group" onClick={() => onSelect(character)}>
       {/* 头像区 */}
-      <div className="aspect-[3/4] bg-[var(--panel-2)] relative overflow-hidden">
+      <div className="aspect-[4/3] bg-[var(--panel-2)] relative overflow-hidden">
         {hasImage ? (
           <img
             src={selectedImage.url}
@@ -36,7 +37,7 @@ export function CharacterCard({ character, onSelect, onImageClick, onDelete }: C
             }}
           />
         ) : (
-          <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-[var(--panel-2)] to-[var(--panel-3)]">
+          <div className="w-full h-full flex items-center justify-center bg-[var(--panel-3)]">
             <User className="w-14 h-14 text-[var(--ink-3)]" />
           </div>
         )}
@@ -70,7 +71,7 @@ export function CharacterCard({ character, onSelect, onImageClick, onDelete }: C
             </button>
             {onDelete && (
               <button
-                className="px-3 py-2 rounded-lg bg-[var(--color-danger)]/90 text-white text-xs font-medium flex items-center justify-center gap-1 hover:bg-[var(--color-danger)] transition-all"
+                className="px-3 py-2 rounded-lg bg-[var(--term-red)]/90 text-white text-xs font-medium flex items-center justify-center gap-1 hover:bg-[var(--term-red)] transition-all"
                 onClick={(e) => { e.stopPropagation(); onDelete(character); }}
                 title="删除角色"
               >
@@ -93,5 +94,6 @@ export function CharacterCard({ character, onSelect, onImageClick, onDelete }: C
         </div>
       </div>
     </Card>
+    </div>
   );
 }

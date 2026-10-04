@@ -15,22 +15,22 @@ export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
 
 const variantStyles: Record<Variant, string> = {
   primary:
-    'bg-[var(--accent)] text-[var(--on-accent)] hover:brightness-110 active:brightness-95 shadow-[0_2px_8px_var(--accent-glow)] hover:shadow-[0_4px_16px_var(--accent-glow)] hover:-translate-y-0.5 transition-all duration-200 flow-border',
+    'bg-[var(--accent)] text-[var(--on-accent)] hover:bg-[var(--accent-2)]',
   secondary:
-    'bg-[var(--panel-2)] text-[var(--ink-1)] hover:bg-[var(--panel-3)] border border-[var(--border)] hover:border-[var(--border-hover)]',
+    'bg-[var(--panel-2)] text-[var(--ink-1)] border border-[var(--border)] hover:bg-[var(--panel-3)] hover:border-[var(--border-hover)]',
   ghost:
     'text-[var(--ink-2)] hover:text-[var(--ink-1)] hover:bg-[var(--panel-2)]',
   danger:
-    'bg-red-50 text-red-600 hover:bg-red-100 active:bg-red-200 border border-red-200 transition-all duration-200',
+    'bg-[var(--danger)] text-white hover:brightness-110',
   outline:
     'border border-[var(--border)] text-[var(--ink-1)] hover:bg-[var(--panel-2)] hover:border-[var(--border-hover)] bg-transparent',
 };
 
 const sizeStyles: Record<Size, string> = {
-  sm: 'h-8 px-3 text-xs gap-1.5 rounded-[var(--radius-control)]',
-  md: 'h-10 px-4 text-sm gap-2 rounded-[var(--radius-control)]',
-  lg: 'h-12 px-6 text-base gap-2 rounded-[var(--radius-control)]',
-  icon: 'h-9 w-9 p-0 rounded-[var(--radius-control)]',
+  sm: 'h-7 px-2.5 text-xs gap-1.5 rounded-[var(--radius-control)]',
+  md: 'h-8 px-3.5 text-sm gap-2 rounded-[var(--radius-control)]',
+  lg: 'h-9 px-5 text-sm gap-2 rounded-[var(--radius-control)]',
+  icon: 'h-8 w-8 p-0 rounded-[var(--radius-control)]',
 };
 
 export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
@@ -52,10 +52,10 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
       <button
         ref={ref}
         className={cn(
-          'inline-flex items-center justify-center font-medium transition-all duration-200 whitespace-nowrap',
+          'inline-flex items-center justify-center font-medium transition-all duration-150 ease-out whitespace-nowrap',
           'focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--page)]',
           'disabled:opacity-40 disabled:cursor-not-allowed disabled:pointer-events-none',
-          'active:scale-[0.98]',
+          'active:brightness-90',
           variantStyles[variant],
           sizeStyles[size],
           className

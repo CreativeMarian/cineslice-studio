@@ -129,7 +129,7 @@ describe('buildIdentityLockBlock', () => {
     expect(buildIdentityLockBlock(char)).toBe('');
   });
 
-  it('compact=true 只保留核心特征（age/face_shape/hairstyle/distinctive_features），省略发色/体型/禁忌', () => {
+  it('compact=true 压缩：先删 body_type 再删 hair_color，保留 prohibitions（P1-6）', () => {
     const char = makeCharacter({
       identity_lock: JSON.stringify({
         age: '25岁',
@@ -142,10 +142,11 @@ describe('buildIdentityLockBlock', () => {
       }),
     });
     const compact = buildIdentityLockBlock(char, true);
-    expect(compact).toContain('【身份锁定】林晚：25岁，鹅蛋脸，黑色长发，左眼下方泪痣');
+    expect(compact).toContain('【身份锁定】林晚：25岁，鹅蛋脸，黑色长发');
     expect(compact).not.toContain('，黑色，'); // 发色单独段已省略（发型段中的"黑色长发"保留）
-    expect(compact).not.toContain('中等身材偏瘦');
-    expect(compact).not.toContain('禁忌');
+    expect(compact).not.toContain('中等身材偏瘦'); // P1-6: body_type 最先被删
+    expect(compact).toContain('标志特征：左眼下方泪痣'); // P1-6: distinctive_features 保留
+    expect(compact).toContain('禁忌：不戴眼镜');       // P1-6: prohibitions（禁忌特征）必须保留
   });
 
   it('compact=true 与 compact=false 内容不同（compact 更短）', () => {
@@ -165,6 +166,28 @@ describe('buildIdentityLockBlock', () => {
     expect(compact.length).toBeLessThan(full.length);
     expect(full).toContain('标志特征：左眼下方泪痣');
     expect(full).toContain('禁忌：不戴眼镜');
+  });
+
+  it('多角色超限触发 compact 时 prohibitions 仍保留（P1-6）', () => {
+    // 8 个角色完整身份锁 → reservedHead 远超 VIDEO_PROMPT_MAX_LENGTH → 必然自动压缩
+    const manyChars = Array.from({ length: 8 }, (_, i) => makeCharacter({
+      name: `角色${i}`,
+      identity_lock: JSON.stringify({
+        age: '25岁', face_shape: '鹅蛋脸', hairstyle: '黑色长发', hair_color: '黑色',
+        body_type: '中等身材偏瘦', distinctive_features: `标志特征${i}`, prohibitions: `禁忌${i}`,
+      }),
+    }));
+    const prompt = buildFullVideoPrompt(makeShot({ action_description: '她走进房间' }), manyChars, null, null);
+    // 压缩确实发生：完整版（不压缩）身份锁拼接长度大于压缩后输出
+    const uncompressedLen = manyChars.map(c => buildIdentityLockBlock(c, false)).join('\n').length
+      + 1 + SERIES_PROHIBITION_LINE.length;
+    expect(prompt.length).toBeLessThan(uncompressedLen);
+    // 压缩后：body_type 被删；每个角色的 prohibitions（禁忌特征）与 distinctive_features 仍存在
+    expect(prompt).not.toContain('中等身材偏瘦');
+    for (let i = 0; i < manyChars.length; i++) {
+      expect(prompt).toContain(`禁忌${i}`);
+      expect(prompt).toContain(`标志特征${i}`);
+    }
   });
 });
 

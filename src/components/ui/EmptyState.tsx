@@ -18,13 +18,13 @@ export function EmptyState({ icon, title, description, action, className }: Empt
       )}
     >
       {icon && (
-        <div className="w-16 h-16 rounded-[var(--radius-card)] bg-[var(--panel-2)] border border-[var(--border)] flex items-center justify-center mb-5 text-[var(--ink-3)]">
+        <div className="w-14 h-14 rounded-[var(--radius-card)] bg-[var(--panel-2)] border border-[var(--border)] flex items-center justify-center mb-5 text-[var(--ink-3)]">
           {icon}
         </div>
       )}
-      <h3 className="text-base font-semibold text-[var(--ink-1)] mb-2 font-[var(--font-display)]">{title}</h3>
+      <h3 className="text-sm font-semibold text-[var(--ink-2)] mb-2 font-[var(--font-display)]">{title}</h3>
       {description && (
-        <p className="text-sm text-[var(--ink-2)] max-w-sm mb-6 leading-relaxed">{description}</p>
+        <p className="text-[13px] text-[var(--ink-3)] max-w-sm mb-6 leading-relaxed">{description}</p>
       )}
       {action && <div className="flex gap-3">{action}</div>}
     </div>

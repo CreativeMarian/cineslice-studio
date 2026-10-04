@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { X, Plus, CheckCircle2, Loader2, Zap } from 'lucide-react';
+import { X, Plus, CheckCircle2, Loader2, Zap, Eye, EyeOff } from 'lucide-react';
 import { Button } from '../ui/Button';
 import { Input } from '../ui/Input';
 import { cn } from '../../utils';
@@ -41,6 +41,7 @@ export function CustomModelModal({ isOpen, onClose, onSave, defaultType = 'text'
   const [description, setDescription] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState('');
+  const [showKey, setShowKey] = useState(false);
   const [testStatus, setTestStatus] = useState<TestStatus>('idle');
   const [testMessage, setTestMessage] = useState('');
 
@@ -325,7 +326,7 @@ export function CustomModelModal({ isOpen, onClose, onSave, defaultType = 'text'
         {/* 头部 */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-[var(--border)]">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-[var(--accent)] to-[var(--accent-2)] flex items-center justify-center shadow-[0_4px_12px_rgba(43, 116, 245, 0.25)]">
+            <div className="w-10 h-10 rounded-xl bg-[var(--accent)] flex items-center justify-center">
               <Plus className="w-5 h-5 text-[var(--on-accent)]" />
             </div>
             <div>
@@ -391,13 +392,24 @@ export function CustomModelModal({ isOpen, onClose, onSave, defaultType = 'text'
           />
 
           {/* API Key */}
-          <Input
-            label="API Key *"
-            type="password"
-            placeholder="sk-..."
-            value={apiKey}
-            onChange={(e) => setApiKey(e.target.value)}
-          />
+          <div className="relative">
+            <Input
+              label="API Key *"
+              type={showKey ? 'text' : 'password'}
+              placeholder="sk-..."
+              value={apiKey}
+              onChange={(e) => setApiKey(e.target.value)}
+              className="pr-10"
+            />
+            <button
+              type="button"
+              onClick={() => setShowKey(!showKey)}
+              className="absolute right-3 top-[38px] text-[var(--ink-3)] hover:text-[var(--ink-1)] transition-colors"
+              title={showKey ? '隐藏 API Key' : '显示 API Key'}
+            >
+              {showKey ? <EyeOff size={16} /> : <Eye size={16} />}
+            </button>
+          </div>
 
           {/* 端点 URL */}
           <Input
@@ -435,7 +447,7 @@ export function CustomModelModal({ isOpen, onClose, onSave, defaultType = 'text'
                 </>
               ) : testStatus === 'success' ? (
                 <>
-                  <CheckCircle2 className="w-4 h-4 text-green-500" />
+                  <CheckCircle2 className="w-4 h-4 text-[var(--success)]" />
                   测试通过
                 </>
               ) : (
@@ -446,13 +458,13 @@ export function CustomModelModal({ isOpen, onClose, onSave, defaultType = 'text'
               )}
             </Button>
             {testStatus === 'success' && (
-              <span className="text-xs text-green-600 dark:text-green-400 flex items-center gap-1">
+              <span className="text-xs text-[var(--success)] flex items-center gap-1">
                 <CheckCircle2 className="w-3 h-3" />
                 {testMessage}
               </span>
             )}
             {testStatus === 'error' && (
-              <span className="text-xs text-red-500 flex items-center gap-1">
+              <span className="text-xs text-[var(--term-red)] flex items-center gap-1">
                 <X className="w-3 h-3" />
                 {testMessage}
               </span>
@@ -556,7 +568,7 @@ export function CustomModelModal({ isOpen, onClose, onSave, defaultType = 'text'
           {/* 错误提示 */}
           {error && (
             <div className="p-3 rounded-[var(--radius-control)] bg-[rgba(239,68,68,0.1)] border border-[rgba(239,68,68,0.2)]">
-              <p className="text-sm text-[var(--color-danger)]">{error}</p>
+              <p className="text-sm text-[var(--term-red)]">{error}</p>
             </div>
           )}
 

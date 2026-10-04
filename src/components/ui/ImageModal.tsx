@@ -37,7 +37,7 @@ export function ImageModal({ open, onClose, imageUrl, title, description }: Imag
         {/* 关闭按钮 */}
         <button
           onClick={onClose}
-          className="absolute -top-3 -right-3 z-10 w-9 h-9 rounded-full bg-[var(--bg)] border border-[var(--border)] flex items-center justify-center text-[var(--ink-2)] hover:text-[var(--ink-1)] hover:bg-[var(--panel-2)] transition-all shadow-lg"
+          className="absolute -top-3 -right-3 z-10 w-9 h-9 rounded-full bg-[var(--bg)] border border-[var(--border)] flex items-center justify-center text-[var(--ink-2)] hover:text-[var(--ink-1)] hover:bg-[var(--panel-2)] transition-colors shadow-[var(--shadow-float)]"
         >
           <X className="w-5 h-5" />
         </button>
@@ -72,7 +72,7 @@ export function ImageModal({ open, onClose, imageUrl, title, description }: Imag
           download
           target="_blank"
           rel="noopener noreferrer"
-          className="absolute bottom-4 right-4 px-3 py-2 bg-[var(--accent)] text-[var(--on-accent)] rounded-lg text-sm font-medium flex items-center gap-2 hover:brightness-110 transition-all shadow-lg"
+          className="absolute bottom-4 right-4 px-3 py-2 bg-[var(--accent)] text-[var(--on-accent)] rounded-[var(--radius-control)] text-sm font-medium flex items-center gap-2 hover:bg-[var(--accent-2)] transition-colors"
         >
           <Download className="w-4 h-4" /> 下载原图
         </a>

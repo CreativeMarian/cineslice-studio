@@ -97,11 +97,13 @@ export function buildIdentityLockBlock(character: ScriptCharacter, compact = fal
   if (!character || !character.name) return '';
   const lock = parseIdentityLock(character);
   if (lock) {
+    // P1-6: 压缩优先级——先删 body_type，再删 hair_color，
+    //       最后保留 age/face_shape/hairstyle/distinctive_features/prohibitions（禁忌特征必须保留）
     const core = compact
-      ? [lock.age, lock.face_shape, lock.hairstyle, lock.distinctive_features].filter(Boolean).join('，')
+      ? [lock.age, lock.face_shape, lock.hairstyle].filter(Boolean).join('，')
       : [lock.age, lock.face_shape, lock.hairstyle, lock.hair_color, lock.body_type].filter(Boolean).join('，');
-    const distinctive = !compact && lock.distinctive_features ? `，标志特征：${lock.distinctive_features}` : '';
-    const prohibitions = !compact && lock.prohibitions ? `。禁忌：${lock.prohibitions}` : '';
+    const distinctive = lock.distinctive_features ? `，标志特征：${lock.distinctive_features}` : '';
+    const prohibitions = lock.prohibitions ? `。禁忌：${lock.prohibitions}` : '';
     return `【身份锁定】${character.name}：${core}${distinctive}${prohibitions}`;
   }
   // 回退：无 identity_lock 时用 visual_prompt（其次 visual_description / description）
@@ -327,17 +329,22 @@ export function buildFullKeyframePrompt(
 
 /**
  * 构建完整视频提示词（类似首帧但更简洁，控制在 VIDEO_PROMPT_MAX_LENGTH 字内）
- * 保留：项目风格 + 身份锁定块（每个角色）+ 场景块 + 调度块 + 动作 + 禁令行（不含服装块，控制长度）
+ * 保留：项目风格 + 身份锁定块（每个角色）+ 记忆注入 + 场景块 + 调度块 + 动作 + 禁令行（不含服装块，控制长度）
  * P1-4 截断策略"保头尾"：
- *   1. 必须保留块 = 项目风格 + 所有角色身份锁块 + 禁令行（完整保留）
+ *   1. 必须保留块 = 项目风格 + 所有角色身份锁块 + 记忆注入 + 禁令行（完整保留）
  *   2. 剩余可用长度 = VIDEO_PROMPT_MAX_LENGTH - reservedLen（剩余 < 50 时只保留必须块）
- *   3. 动作(含记忆注入) / blocking块 / 场景块 按剩余长度从末尾截断
- *   4. 最终拼接顺序：风格 → 身份锁(每角色) → 动作(截断) → blocking(截断) → 场景(截断) → 禁令行
- * P0-6: middleText 顺序为 [动作, blocking, 场景]，从末尾截断时动作最晚被切（动作+记忆优先保留）
+ *   3. 动作 / blocking块 / 场景块 按剩余长度从末尾截断
+ *   4. 最终拼接顺序：风格 → 身份锁(每角色) → 记忆注入 → 动作(截断) → blocking(截断) → 场景(截断) → 禁令行
+ * P0-4: memoryText（角色圣经/世界观/视觉记忆）放入保留块（身份锁之后、禁令行之前），
+ *       不再拼到动作描述前面——middleText 头部始终是 [动作, blocking, 场景]，动作描述不会被记忆挤掉
+ * P1-10: extraContext（如 prevShotContext 前一镜上下文）与记忆文本一同放保留块（禁令行之前）
+ * P0-6: middleText 顺序为 [动作, blocking, 场景]，从末尾截断时动作最晚被切（动作优先保留）
  * @param shot 镜头实体（action_description 为动作描述，可能被截断）
  * @param characters 出场角色列表（身份锁块完整保留，不可截断）
  * @param scene 场景实体（可空；场景块属于可截断部分）
  * @param project 项目实体（可空；风格块完整保留）
+ * @param memoryText 记忆注入文本（可选；角色圣经/世界观/视觉记忆，放身份锁之后、禁令行之前）
+ * @param extraContext 额外上下文（可选；如前一镜上下文 prevShotContext，放记忆文本之后、禁令行之前）
  * @returns 完整视频提示词；禁令行始终位于末尾
  * @sideEffects 输出一条构建日志（console.log）
  */
@@ -346,8 +353,10 @@ export function buildFullVideoPrompt(
   characters: ScriptCharacter[],
   scene: ScriptScene | null,
   project: Project | null,
+  memoryText?: string,
+  extraContext?: string,
 ): string {
-  // 必须保留块：风格 + 身份锁 + 禁令行
+  // 必须保留块：风格 + 身份锁 + 记忆注入 + 额外上下文 + 禁令行
   const style = buildProjectStyleBlock(project);
   const prohibition = buildSeriesProhibitionBlock();
 
@@ -369,13 +378,20 @@ export function buildFullVideoPrompt(
     identityBlocks = buildIdentityBlocks(true);
     reservedHead = [style, ...identityBlocks].filter(Boolean).join('\n');
   }
+  // P0-4: 记忆注入放入保留块——身份锁之后、禁令行之前。
+  //       与身份锁同级别受保护，不会挤占动作/blocking/场景的可截断空间。
+  // P1-10: extraContext（如前一镜上下文 prevShotContext）与记忆文本一同放保留块（禁令行之前）
+  const memory = (memoryText || '').trim();
+  const extra = (extraContext || '').trim();
   const reservedLen = (reservedHead.length > 0 ? reservedHead.length + 1 : 0)
+    + (memory ? memory.length + 1 : 0)
+    + (extra ? extra.length + 1 : 0)
     + (prohibition ? prohibition.length : 0);
   // 预算计入 join('\n') 分隔符开销：middleText 与首/尾块相邻处各需一个换行（首/尾为空时相应减少）
-  const sepOverhead = (reservedHead ? 1 : 0) + (prohibition ? 1 : 0);
+  const sepOverhead = (reservedHead ? 1 : 0) + (memory ? 1 : 0) + (extra ? 1 : 0) + (prohibition ? 1 : 0);
   const available = VIDEO_PROMPT_MAX_LENGTH - reservedLen - sepOverhead;
 
-  // P0-6/P1-1: 可截断块顺序 = 动作 → blocking → 场景（从末尾截断时动作最晚被切，动作+记忆优先保留）
+  // P0-6/P1-1: 可截断块顺序 = 动作 → blocking → 场景（从末尾截断时动作最晚被切，动作优先保留）
   const sceneBlock = scene ? buildSceneBlock(scene) : '';
   const blocking = buildBlockingBlock(shot, characters || []);
   const action = shot.action_description && shot.action_description.trim() ? shot.action_description.trim() : '';
@@ -388,7 +404,7 @@ export function buildFullVideoPrompt(
     middleText = middleText.slice(0, available);
   }
 
-  const prompt = [reservedHead, middleText, prohibition].filter(Boolean).join('\n');
+  const prompt = [reservedHead, memory, extra, middleText, prohibition].filter(Boolean).join('\n');
   console.log(`[${new Date().toISOString()}] [PromptBuilder] 构建视频提示词，长度=${prompt.length}（上限=${VIDEO_PROMPT_MAX_LENGTH}）`);
   return prompt;
 }

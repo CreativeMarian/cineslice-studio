@@ -24,11 +24,50 @@ import {
 // 角色视觉锚点标准化
 // ═══════════════════════════════════════════════════════════════
 
+// P1-2: identity_lock 的解析形状（与 promptBuilder 身份锁字段一致）
+interface IdentityLockLike {
+  age?: string;
+  face_shape?: string;
+  hairstyle?: string;
+  hair_color?: string;
+  body_type?: string;
+  distinctive_features?: string;
+  prohibitions?: string;
+}
+
+/** 解析角色 identity_lock（JSON 字符串，兼容单对象/数组） */
+function parseIdentityLockFromCharacter(character: ScriptCharacter): IdentityLockLike | null {
+  if (!character.identity_lock) return null;
+  try {
+    const parsed = JSON.parse(character.identity_lock);
+    const lock = Array.isArray(parsed) ? parsed[0] : parsed;
+    if (!lock || typeof lock !== 'object') return null;
+    return lock as IdentityLockLike;
+  } catch {
+    return null;
+  }
+}
+
 /**
- * 从角色的 visual_description 和结构化字段生成100字内标准化锚点
- * 锚点格式：性别年龄+脸型+瞳色+发型发色+服装+配饰+体型+标志性特征
+ * 从角色的 identity_lock（结构化身份锁，提示词侧唯一权威视觉锚点）生成100字内标准化锚点；
+ * identity_lock 为空时回退到旧 anchor_* 字段 / visual_description。
+ * 锚点格式：性别年龄+脸型+发型发色+体型+标志性特征
  */
 export function standardizeCharacterAnchor(character: ScriptCharacter): string {
+  // P1-2: 优先从 identity_lock 生成锚点（age/face_shape/hairstyle/hair_color/body_type/distinctive_features）
+  const lock = parseIdentityLockFromCharacter(character);
+  if (lock) {
+    const lockParts: string[] = [];
+    const gender = character.gender === 'male' ? '男性' : character.gender === 'female' ? '女性' : '';
+    if (lock.age || gender) lockParts.push(`${lock.age || ''}${gender}`.trim());
+    if (lock.face_shape) lockParts.push(lock.face_shape);
+    if (lock.hair_color || lock.hairstyle) lockParts.push([lock.hair_color, lock.hairstyle].filter(Boolean).join(''));
+    if (lock.body_type) lockParts.push(lock.body_type);
+    if (lock.distinctive_features) lockParts.push(lock.distinctive_features);
+    const lockAnchor = lockParts.join('，');
+    if (lockAnchor) return lockAnchor.length > 100 ? lockAnchor.slice(0, 100) + '...' : lockAnchor;
+  }
+
   const parts: string[] = [];
 
   // 性别年龄

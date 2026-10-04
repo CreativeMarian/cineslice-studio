@@ -313,7 +313,6 @@ export function BatchToolbar({ onExportPackage }: BatchToolbarProps) {
             onClick={handleOneClickGenerate}
             isLoading={isOneClickGenerating}
             disabled={isBatchGeneratingKeyframes || isBatchGeneratingVideos}
-            className="bg-gradient-to-r from-[var(--accent)] to-[var(--accent-2)] text-[var(--on-accent)] hover:brightness-110 shadow-[0_2px_8px_rgba(249,115,22,0.3)]"
           >
             {isOneClickGenerating
               ? oneClickStage === 'keyframes'

@@ -32,21 +32,21 @@ export function Modal({
   return (
     <DialogPrimitive.Root open={open} onOpenChange={onOpenChange}>
       <DialogPrimitive.Portal>
-        <DialogPrimitive.Overlay className="fixed inset-0 z-40 bg-black/70 animate-fade-in" />
+        <DialogPrimitive.Overlay className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm animate-fade-in" />
         <DialogPrimitive.Content
           style={{ pointerEvents: 'auto' }}
           className={cn(
             'fixed left-1/2 top-1/2 z-50 -translate-x-1/2 -translate-y-1/2',
             'w-full mx-4 rounded-[var(--radius-shell)] border border-[var(--border)]',
-            'bg-[var(--bg)] shadow-[var(--shadow-float)] animate-slide-up',
+            'bg-[var(--bg)] shadow-[var(--shadow-modal)] animate-slide-up',
             'overflow-hidden',
             sizeStyles[size]
           )}
         >
           {(title || description) && (
-            <div className="px-6 py-5 border-b border-[var(--border)] bg-[var(--panel-2)]/50">
+            <div className="px-6 py-4 border-b border-[var(--border)]">
               {title && (
-                <DialogPrimitive.Title className="text-lg font-semibold text-[var(--ink-1)] font-[var(--font-display)]">
+                <DialogPrimitive.Title className="text-base font-semibold text-[var(--ink-1)] font-[var(--font-display)]">
                   {title}
                 </DialogPrimitive.Title>
               )}
@@ -59,7 +59,7 @@ export function Modal({
           )}
           <div className="px-6 py-5 max-h-[65vh] overflow-y-auto">{children}</div>
           {footer && (
-            <div className="px-6 py-4 border-t border-[var(--border)] bg-[var(--panel-2)]/30 flex justify-end gap-3">
+            <div className="px-6 py-4 border-t border-[var(--border)] flex justify-end gap-3">
               {footer}
             </div>
           )}

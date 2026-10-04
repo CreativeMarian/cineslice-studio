@@ -284,7 +284,7 @@ export function ProjectWizard({ open, onOpenChange, initialMode }: ProjectWizard
                       onClick={() => setVisualStyle(s)}
                       className={`px-2.5 py-2 rounded-xl border-2 text-sm font-medium transition-all text-left flex items-center justify-between gap-1 ${
                         selected
-                          ? 'border-[var(--accent)] bg-[var(--accent-soft)]/60 text-[var(--accent)] shadow-[0_0_0_1px_var(--accent-glow)]'
+                          ? 'border-[var(--accent)] bg-[var(--accent-soft)]/60 text-[var(--accent)]'
                           : 'border-[var(--border)] text-[var(--ink-2)] hover:border-[var(--accent)]/50 hover:bg-[var(--panel-2)]/60'
                       }`}
                     >
@@ -310,7 +310,7 @@ export function ProjectWizard({ open, onOpenChange, initialMode }: ProjectWizard
                       onClick={() => setAspectRatio(r)}
                       className={`px-2.5 py-2 rounded-xl border-2 text-sm font-medium transition-all text-left flex items-center justify-between gap-1 ${
                         selected
-                          ? 'border-[var(--accent)] bg-[var(--accent-soft)]/60 text-[var(--accent)] shadow-[0_0_0_1px_var(--accent-glow)]'
+                          ? 'border-[var(--accent)] bg-[var(--accent-soft)]/60 text-[var(--accent)]'
                           : 'border-[var(--border)] text-[var(--ink-2)] hover:border-[var(--accent)]/50 hover:bg-[var(--panel-2)]/60'
                       }`}
                     >

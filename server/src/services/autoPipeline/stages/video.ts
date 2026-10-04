@@ -189,26 +189,48 @@ export async function stageVideo(db: Database, task: AutoPipelineTask): Promise<
       })();
       // ═══════════════════════════════════════════════════════════════
       // P0-1: 项目级长期记忆注入（角色圣经/世界观/剧情摘要）
-      // P1-4: 不再在 buildFullVideoPrompt 返回后追加（会挤掉禁令行/超 300 字），
-      //       改为把记忆文本拼到动作描述前面再进 buildFullVideoPrompt，
-      //       由内部"保头尾"截断统一控制总长，禁令行始终完整保留在末尾。
+      // P0-4: 记忆注入不再拼到动作描述前面（超长截断会挤掉动作/blocking/场景），
+      //       改为作为 memoryText 传入 buildFullVideoPrompt，放入保留块
+      //       （身份锁之后、禁令行之前），middleText 头部始终是 [动作, blocking, 场景]，
+      //       动作描述在超长截断时优先保留、不被记忆文本挤掉。
       // ═══════════════════════════════════════════════════════════════
       const memoryInjection = projectMemoryService.buildMemoryInjection(db, task.projectId);
-      let actionDescForPrompt = shot.action_description || '';
+      const memoryBlocks: string[] = [];
       if (memoryInjection.characterBible) {
-        actionDescForPrompt = '【角色视觉一致性·强制锚点】\n' + memoryInjection.characterBible + '\n' + actionDescForPrompt;
+        memoryBlocks.push('【角色视觉一致性·强制锚点】\n' + memoryInjection.characterBible);
       }
       if (memoryInjection.worldSetting) {
-        actionDescForPrompt = '【世界观一致性·强制参考】\n' + memoryInjection.worldSetting + '\n' + actionDescForPrompt;
+        memoryBlocks.push('【世界观一致性·强制参考】\n' + memoryInjection.worldSetting);
       }
       // P0-2: 视觉记忆上下文（历史帧参考说明）
       if (visualMemoryContext) {
-        actionDescForPrompt = '【视觉记忆·历史帧参考】\n' + visualMemoryContext + '\n' + actionDescForPrompt;
+        memoryBlocks.push('【视觉记忆·历史帧参考】\n' + visualMemoryContext);
       }
-      const promptShot = (actionDescForPrompt !== (shot.action_description || ''))
-        ? { ...shot, action_description: actionDescForPrompt }
+      const memoryText = memoryBlocks.join('\n');
+      // P1-12: 加料产出的 video_prompt（h3Prompt 按镜头切分）优先作为动作描述（替代原始 action_description），
+      //        视频生成时直接消费加料镜头描述，避免被普通分镜描述覆盖
+      const actionBase = shot.video_prompt && shot.video_prompt.trim()
+        ? shot.video_prompt.trim()
+        : (shot.action_description || '');
+      const promptShot = actionBase !== (shot.action_description || '')
+        ? { ...shot, action_description: actionBase }
         : shot;
-      const videoMotionPrompt = buildFullVideoPrompt(promptShot, shotCharacters, shotScene, project);
+      // P1-10: 上下文衔接——获取前一镜动作描述，作为 extraContext 注入视频提示词保留块（禁令行之前），
+      //        与 buildFullKeyframePrompt 的 prevShotContext 行为一致
+      let prevShotContext = '';
+      try {
+        const allShotsForCtx = ShotDAO.listByEpisode(db, shot.episode_id);
+        const currentIdx = allShotsForCtx.findIndex(s => s.id === shot.id);
+        if (currentIdx > 0) {
+          const prevShotForCtx = allShotsForCtx[currentIdx - 1];
+          if (prevShotForCtx?.action_description) {
+            prevShotContext = `【上下文衔接 — 上一镜画面】\n上一镜：${prevShotForCtx.action_description.substring(0, 200)}\n本镜必须与上一镜在同一个场景中，角色位置、朝向、状态必须与上一镜结束时连贯衔接。`;
+          }
+        }
+      } catch (ctxErr) {
+        console.warn(`[AutoPipeline] video shot=${shot.shot_number} 上下文衔接获取失败:`, (ctxErr as Error).message);
+      }
+      const videoMotionPrompt = buildFullVideoPrompt(promptShot, shotCharacters, shotScene, project, memoryText || undefined, prevShotContext || undefined);
       console.log(`[AutoPipeline] video shot=${shot.shot_number} 提示词生成完成`);
 
       // ═══════════════════════════════════════════════════════════

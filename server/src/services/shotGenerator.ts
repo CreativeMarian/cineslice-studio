@@ -8,6 +8,7 @@ import {
   ScriptCharacterDAO,
   ScriptSceneDAO,
   ScriptPropDAO,
+  SegmentDAO,
 } from '../models';
 import { createError } from '../middleware/errorHandler';
 import { ErrorCodes } from '../errors';
@@ -188,6 +189,8 @@ export async function generateShotsForEpisode(
     const assetAssociations = buildShotAssetAssociations(db, userId, episode.id, assetInput);
 
     return db.transaction(() => {
+      // P0-6: 分镜重建时在同一事务内先级联删除旧 segments（避免孤儿段，与自动管线 stages/shots.ts 一致）
+      SegmentDAO.deleteByEpisode(db, episode.id);
       const old = ShotDAO.listByEpisode(db, episode.id);
       for (const s of old) ShotDAO.delete(db, s.id);
       const seen = new Set<number>();
@@ -294,6 +297,8 @@ export async function generateShotsForEpisode(
   // 删除旧镜头 + 创建新镜头须在同一事务内：分镜子表（关键帧/视频区间）是
   // ON DELETE CASCADE，插入中途失败（如镜头号重复触发唯一索引）会丢失全部旧分镜
   return db.transaction(() => {
+    // P0-6: 分镜重建时在同一事务内先级联删除旧 segments（避免孤儿段，与自动管线 stages/shots.ts 一致）
+    SegmentDAO.deleteByEpisode(db, episode.id);
     const old = ShotDAO.listByEpisode(db, episode.id);
     for (const s of old) ShotDAO.delete(db, s.id);
 
@@ -319,8 +324,14 @@ export async function generateShotsForEpisode(
 
     // P0-5/P1-10: 资产关联（场景/角色/调度/服装）统一走 buildShotAssetAssociations——
     // 与加料分镜路径共用同一逻辑；blocking 未匹配角色 ID 时保留 character_name（不再丢弃）
+    // P1-7/P1-5: 普通路径与加料路径场景匹配统一——sceneName 都用 matchSceneNameFromText
+    // 匹配已有场景（AI 直出的虚构场景名不再进入 buildShotSceneMap，杜绝垃圾场景创建）
+    const existingScenesForMatch = ScriptSceneDAO.listByEpisode(db, episode.id);
     const assetAssociations = buildShotAssetAssociations(db, userId, episode.id, finalShots.map((s: any) => ({
-      sceneName: s.sceneName || null,
+      sceneName: matchSceneNameFromText(
+        [String(s.sceneName || ''), String(s.actionDescription || ''), String(s.dialogue || '')].filter(Boolean).join(' '),
+        existingScenesForMatch
+      ),
       actionDescription: s.actionDescription || '',
       charactersInShot: Array.isArray(s.charactersInShot) ? s.charactersInShot : null,
       blocking: Array.isArray(s.blocking) ? s.blocking : null,

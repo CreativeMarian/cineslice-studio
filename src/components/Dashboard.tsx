@@ -1,16 +1,20 @@
-﻿import { useState, useEffect } from 'react';
+// 仪表盘：我的项目 —— 统计卡片 + 项目卡片网格（设计系统重构版）
+// 功能保持不变：进行中/回收站、搜索、新建/上传小说/配置模型、重命名/归档/恢复/彻底删除、近7天活跃趋势
+import { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
-  Plus, Film, MoreVertical, Pencil, Trash2, FolderOpen, Search, Clock, Sun, Moon, HelpCircle, Radio,
-  BookOpen, ChevronRight, Zap, Settings, Archive, ArchiveRestore,
-  AlertTriangle, Server, RefreshCw, Activity, Boxes, GitBranch,
+  Plus, Film, MoreVertical, Pencil, Trash2, FolderOpen, Search, Sun, Moon, HelpCircle,
+  BookOpen, ChevronRight, Archive, ArchiveRestore,
+  AlertTriangle, RefreshCw, Boxes, TrendingUp, Video, Clapperboard, Zap, Radio,
 } from 'lucide-react';
 import { Button, Card, EmptyState, Modal, Input, Badge } from './ui';
 import { ProjectWizard } from './ProjectWizard';
 import { projectService } from '../services/projectService';
 import { modelConfigService } from '../services/modelConfigService';
-import { useProjectStore } from '../stores/useProjectStore';
+import { pipelineService } from '../services/pipelineService';
+import { costService } from '../services/costService';
 import { useUIStore } from '../stores/useUIStore';
+import { useProjectStore } from '../stores/useProjectStore';
 import { TaskCenter } from './ui/TaskCenter';
 import { showApiError } from '../utils/error';
 import { PROJECT_NAME_MAX_LENGTH } from '../constants';
@@ -18,6 +22,17 @@ import type { Project } from '../types';
 import { formatRelativeTime } from '../utils';
 
 type DashboardTab = 'active' | 'archived';
+
+/** 每个项目聚合统计（真实数据，来自 pipeline progress） */
+interface ProjectAggStats {
+  episodes: number;
+  shots: number;
+  videos: number;
+}
+
+const navItems = [
+  { label: '仪表盘', active: true },
+];
 
 export function Dashboard() {
   const [projects, setProjects] = useState<Project[]>([]);
@@ -33,6 +48,8 @@ export function Dashboard() {
   const [renameTarget, setRenameTarget] = useState<Project | null>(null);
   const [renameTitle, setRenameTitle] = useState('');
   const [permanentTarget, setPermanentTarget] = useState<Project | null>(null);
+  const [aggStats, setAggStats] = useState<Record<string, ProjectAggStats>>({});
+  const [aiCalls, setAiCalls] = useState(0);
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const { showToast, theme, toggleTheme } = useUIStore();
@@ -54,6 +71,39 @@ export function Dashboard() {
     }
   };
 
+  /** 聚合统计：并行拉取各进行中项目的镜头/视频/剧集数（静默失败归零） */
+  const loadAggStats = async (list: Project[]) => {
+    const entries = await Promise.all(
+      list.map(async (p) => {
+        try {
+          const res = await pipelineService.getProgress(p.id);
+          const st = res.data?.stages;
+          return [
+            p.id,
+            {
+              episodes: st?.episodes?.count ?? 0,
+              shots: st?.shots?.count ?? 0,
+              videos: st?.video?.count ?? 0,
+            },
+          ] as const;
+        } catch {
+          return [p.id, { episodes: 0, shots: 0, videos: 0 }] as const;
+        }
+      })
+    );
+    setAggStats(Object.fromEntries(entries));
+  };
+
+  /** AI 调用次数（成本统计，days=0 表示全部） */
+  const loadAiCalls = async () => {
+    try {
+      const res = await costService.summary(0);
+      setAiCalls(res.data?.call_count ?? 0);
+    } catch {
+      setAiCalls(0);
+    }
+  };
+
   const loadProjects = async (status: DashboardTab = tab) => {
     setIsLoading(true);
     try {
@@ -61,11 +111,17 @@ export function Dashboard() {
       if (res.success && res.data) {
         const items = res.data.items || [];
         if (status === 'archived') setArchivedProjects(items);
-        else setProjects(items);
+        else {
+          setProjects(items);
+          loadAggStats(items);
+        }
       }
     } catch {
       if (status === 'archived') setArchivedProjects([]);
-      else setProjects([]);
+      else {
+        setProjects([]);
+        setAggStats({});
+      }
     } finally {
       setIsLoading(false);
     }
@@ -75,6 +131,7 @@ export function Dashboard() {
     loadProjects('active');
     loadProjects('archived');
     loadModelCount();
+    loadAiCalls();
     if (searchParams.get('action') === 'new') {
       setCreateModalOpen(true);
       setSearchParams({}, { replace: true });
@@ -84,7 +141,7 @@ export function Dashboard() {
 
   const handleRefresh = () => {
     setRefreshing(true);
-    Promise.all([loadProjects('active'), loadProjects('archived'), loadModelCount()]).finally(() => {
+    Promise.all([loadProjects('active'), loadProjects('archived'), loadModelCount(), loadAiCalls()]).finally(() => {
       setTimeout(() => setRefreshing(false), 400);
     });
   };
@@ -183,6 +240,11 @@ export function Dashboard() {
     return labels[step || 'novel'] || '准备中';
   };
 
+  /** 项目风格标签（视觉风格 > 类型 > 兜底） */
+  const getStyleLabel = (project: Project): string => {
+    return project.visual_style || project.genre || '创作中';
+  };
+
   // 近 7 天活跃趋势（按项目 updated_at 统计，真实数据）
   const trendData = (() => {
     const days: { label: string; count: number }[] = [];
@@ -205,39 +267,50 @@ export function Dashboard() {
     p.title.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
-  const navItems = [
-    { label: '仪表盘', active: true },
-    { label: '模型库', onClick: () => navigate('/models') },
-  ];
+  // 统计卡片（真实数据聚合）
+  const totalShots = projects.reduce((sum, p) => sum + (aggStats[p.id]?.shots || 0), 0);
+  const totalVideos = projects.reduce((sum, p) => sum + (aggStats[p.id]?.videos || 0), 0);
+  const totalProjects = projects.length + archivedProjects.length;
 
-  const quickActions = [
-    { label: '新建项目', desc: '从灵感开始创作', icon: Plus, onClick: () => openCreateWizard() },
-    { label: '上传小说', desc: '从小说改编剧本', icon: BookOpen, onClick: handleStartFromNovel },
-    { label: '配置模型', desc: '接入 AI 服务', icon: Settings, onClick: () => navigate('/models') },
+  const statCards = [
+    {
+      label: '项目数',
+      value: totalProjects,
+      note: `进行中 ${projects.length} · 回收站 ${archivedProjects.length}`,
+      icon: Boxes,
+      accent: 'text-[var(--accent)] bg-[var(--accent-soft)]',
+    },
+    {
+      label: '总镜头数',
+      value: totalShots,
+      note: '全部项目累计分镜',
+      icon: Clapperboard,
+      accent: 'text-[var(--info)] bg-[var(--accent-soft)]',
+    },
+    {
+      label: '已完成视频',
+      value: totalVideos,
+      note: '可进入导演台查看',
+      icon: Video,
+      accent: 'text-[var(--success)] bg-[rgba(16,185,129,0.12)]',
+    },
+    {
+      label: 'AI 调用次数',
+      value: aiCalls,
+      note: `${modelCount} 个已配置模型`,
+      icon: Zap,
+      accent: 'text-[var(--warning)] bg-[rgba(245,158,11,0.12)]',
+    },
   ];
 
   return (
     <div className="min-h-screen bg-[var(--page)]">
-      {/* 顶部终端状态条 */}
-      <div className="border-b border-[var(--border)] bg-[var(--card-bg)] backdrop-blur-md">
-        <div className="max-w-[1560px] mx-auto px-8 py-1.5 flex items-center justify-between">
-          <div className="term-line">
-            <span className="text-[var(--ink-3)]">cineslice@local</span>
-            <span className="text-[var(--ink-2)]">~ $</span>
-            <span className="text-[var(--ink-1)]">cineslice dev --pipeline=auto</span>
-          </div>
-          <span className="status-dot status-dot--running">
-            PIPELINE <span className="pulse-dot">●</span> RUNNING
-          </span>
-        </div>
-      </div>
-
       {/* 导航栏 */}
-      <header className="border-b border-[var(--border)] bg-[var(--card-bg)] sticky top-0 z-40 backdrop-blur-md">
+      <header className="border-b border-[var(--border)] bg-[var(--card-bg)] sticky top-0 z-40">
         <div className="max-w-[1560px] mx-auto px-8 py-3 flex items-center justify-between">
           <div className="flex items-center gap-8">
             <button className="flex items-center gap-3 text-left" onClick={() => navigate('/')}>
-              <div className="w-9 h-9 rounded-lg bg-[var(--accent)] flex items-center justify-center shadow-[0_0_16px_rgba(18,196,143,0.4)]">
+              <div className="w-9 h-9 rounded-lg bg-[var(--accent)] flex items-center justify-center">
                 <Film className="w-5 h-5 text-[var(--on-accent)]" />
               </div>
               <div>
@@ -249,7 +322,7 @@ export function Dashboard() {
               {navItems.map((item) => (
                 <button
                   key={item.label}
-                  onClick={item.onClick}
+                  onClick={() => navigate('/')}
                   className={`px-3 py-1.5 rounded-md text-sm transition-colors ${
                     item.active
                       ? 'text-[var(--accent)] bg-[var(--accent-soft)] font-medium'
@@ -274,119 +347,99 @@ export function Dashboard() {
       </header>
 
       <main className="max-w-[1560px] mx-auto px-8 py-6">
-        {/* Hero 区（uupm 玻璃面板） */}
-        <div className="glass-panel glass-hover rounded-[var(--radius-shell)] p-5 md:p-6 mb-6 flex items-center justify-between">
-          <div>
-            <div className="flex items-center gap-2">
-              <span className="inline-flex items-center gap-1.5 rounded-full border border-blue-500/30 bg-blue-500/10 px-3 py-1 text-[10px] font-semibold tracking-wider text-blue-500">
-                <Radio className="h-3 w-3" />
-                LIVE TELEMETRY
-              </span>
-            </div>
-            <h2 className="mt-3 text-2xl font-bold tracking-tight md:text-3xl">
-              <span className="gradient-text-animated">创作流水线仪表盘</span>
-            </h2>
-            <p className="mt-2 font-mono text-xs text-[var(--ink-2)] md:text-sm">
-              cineslice@local ~ $ tail -f <span className="text-[var(--accent)]">/pipeline</span> --live
-            </p>
+        {/* 页面标题行：我的项目 + 操作按钮 */}
+        <div className="flex items-center justify-between gap-3 mb-6">
+          <h1 className="text-[20px] font-semibold text-[var(--ink-1)] tracking-tight">我的项目</h1>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="md"
+              leftIcon={<BookOpen className="w-4 h-4" />}
+              onClick={handleStartFromNovel}
+            >
+              上传小说
+            </Button>
+            <Button
+              variant="outline"
+              size="md"
+              leftIcon={<Radio className="w-4 h-4" />}
+              onClick={() => navigate('/models')}
+            >
+              配置模型
+            </Button>
+            <Button
+              variant="ghost"
+              size="md"
+              leftIcon={<RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />}
+              onClick={handleRefresh}
+              disabled={refreshing}
+            >
+              刷新
+            </Button>
+            <Button
+              size="md"
+              leftIcon={<Plus className="w-4 h-4" />}
+              onClick={() => openCreateWizard()}
+            >
+              新建项目
+            </Button>
           </div>
-          <Button variant="ghost" size="sm" onClick={handleRefresh} disabled={refreshing} className="shrink-0">
-            <RefreshCw className={`w-4 h-4 mr-1 ${refreshing ? 'animate-spin' : ''}`} />
-            刷新
-          </Button>
         </div>
 
-        {/* 指标卡 */}
+        {/* 统计卡片行 */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-          <div className="glass-panel glass-hover rounded-[var(--radius-card)] p-5 marquee-border">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-xs font-medium text-[var(--ink-2)]">总项目数</p>
-                <p className="mt-2 text-3xl font-bold tracking-tight gradient-text">{projects.length + archivedProjects.length}</p>
-                <p className="mt-2 text-xs text-[var(--term-green)]">进行中 <span className="font-mono font-semibold">{projects.length}</span> · 回收站 <span className="font-mono font-semibold">{archivedProjects.length}</span></p>
+          {statCards.map((card) => (
+            <Card key={card.label} className="p-5">
+              <div className="flex items-start justify-between">
+                <div className="min-w-0">
+                  <p className="text-[12px] text-[var(--ink-3)]">{card.label}</p>
+                  <p className="mt-1.5 text-[28px] font-semibold leading-none text-[var(--ink-1)] tabular-nums">
+                    {card.value.toLocaleString()}
+                  </p>
+                  <p className="mt-2 text-[11px] text-[var(--ink-3)] truncate">{card.note}</p>
+                </div>
+                <div className={`w-10 h-10 rounded-[var(--radius-control)] flex items-center justify-center flex-shrink-0 ${card.accent}`}>
+                  <card.icon className="w-5 h-5" />
+                </div>
               </div>
-              <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br from-blue-500/25 to-cyan-500/25 glow-blue">
-                <Activity className="h-6 w-6 text-blue-500 drop-shadow-[0_0_8px_rgba(59,130,246,0.7)]" />
+              <div className="mt-3 flex items-center gap-1 text-[11px] text-[var(--ink-3)]">
+                <TrendingUp className="w-3 h-3 text-[var(--accent-2)]" />
+                实时统计
               </div>
-            </div>
-          </div>
-          <div className="glass-panel glass-hover rounded-[var(--radius-card)] p-5 marquee-border">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-xs font-medium text-[var(--ink-2)]">流水线阶段</p>
-                <p className="mt-2 text-3xl font-bold tracking-tight gradient-text">5</p>
-                <p className="mt-2 text-xs text-[var(--accent)]">小说 → 剧集 → 剧本 → 分镜 → 视频</p>
-              </div>
-              <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br from-purple-500/25 to-blue-500/25 glow-purple">
-                <GitBranch className="h-6 w-6 text-purple-500 drop-shadow-[0_0_8px_rgba(139,92,246,0.7)]" />
-              </div>
-            </div>
-          </div>
-          <div className="glass-panel glass-hover rounded-[var(--radius-card)] p-5 marquee-border">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-xs font-medium text-[var(--ink-2)]">AI 模型</p>
-                <p className="mt-2 text-3xl font-bold tracking-tight gradient-text">{modelCount}</p>
-                <p className="mt-2 text-xs text-[var(--term-purple)]">已配置 · 多服务商</p>
-              </div>
-              <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br from-orange-500/25 to-cyan-500/25">
-                <Boxes className="h-6 w-6 text-orange-500 drop-shadow-[0_0_8px_rgba(249,115,22,0.6)]" />
-              </div>
-            </div>
-          </div>
-          <div className="glass-panel glass-hover rounded-[var(--radius-card)] p-5 marquee-border">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-xs font-medium text-[var(--ink-2)]">运行模式</p>
-                <p className="mt-2 text-3xl font-bold tracking-tight gradient-text">local</p>
-                <p className="mt-2 text-xs text-[var(--term-green)]">本地部署 · SQLite</p>
-              </div>
-              <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br from-green-500/25 to-cyan-500/25 glow-green">
-                <Server className="h-6 w-6 text-green-500 drop-shadow-[0_0_8px_rgba(16,185,129,0.6)]" />
-              </div>
-            </div>
-          </div>
+            </Card>
+          ))}
         </div>
 
-        {/* 双栏：项目状态 + 快捷操作 */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6">
-          {/* 左：项目状态列表 */}
-          <div className="lg:col-span-2 glass-panel rounded-[var(--radius-card)] p-5 marquee-border">
-            <div className="flex items-center justify-between mb-4">
-              <div>
-                <div className="term-label mb-1">PROJECT STATUS</div>
-                <h2 className="text-base font-bold text-[var(--ink-1)]">项目状态</h2>
-              </div>
-              <div className="flex items-center gap-1">
-                <button
-                  type="button"
-                  onClick={() => switchTab('active')}
-                  className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
-                    tab === 'active'
-                      ? 'bg-[var(--accent-soft)] text-[var(--accent)]'
-                      : 'text-[var(--ink-3)] hover:text-[var(--ink-1)]'
-                  }`}
-                >
-                  进行中
-                </button>
-                <button
-                  type="button"
-                  onClick={() => switchTab('archived')}
-                  className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors flex items-center gap-1.5 ${
-                    tab === 'archived'
-                      ? 'bg-[var(--accent-soft)] text-[var(--accent)]'
-                      : 'text-[var(--ink-3)] hover:text-[var(--ink-1)]'
-                  }`}
-                >
-                  <Archive className="w-3.5 h-3.5" />
-                  回收站
-                </button>
-                <Badge variant="default" className="ml-1">{filteredProjects.length}</Badge>
-              </div>
+        {/* 项目区：Tabs + 搜索 + 卡片网格 */}
+        <div className="mb-6">
+          <div className="flex items-center justify-between gap-3 mb-4 flex-wrap">
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                onClick={() => switchTab('active')}
+                className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
+                  tab === 'active'
+                    ? 'bg-[var(--accent-soft)] text-[var(--accent)]'
+                    : 'text-[var(--ink-3)] hover:text-[var(--ink-1)]'
+                }`}
+              >
+                进行中
+              </button>
+              <button
+                type="button"
+                onClick={() => switchTab('archived')}
+                className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors flex items-center gap-1.5 ${
+                  tab === 'archived'
+                    ? 'bg-[var(--accent-soft)] text-[var(--accent)]'
+                    : 'text-[var(--ink-3)] hover:text-[var(--ink-1)]'
+                }`}
+              >
+                <Archive className="w-3.5 h-3.5" />
+                回收站
+              </button>
+              <Badge variant="default" className="ml-1">{filteredProjects.length}</Badge>
             </div>
-
-            {/* 搜索 */}
-            <div className="relative mb-4">
+            <div className="relative">
               <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-[var(--ink-3)]" />
               <Input
                 placeholder="搜索项目..."
@@ -395,90 +448,67 @@ export function Dashboard() {
                 className="pl-9 w-72"
               />
             </div>
+          </div>
 
-            {isLoading ? (
-              <div className="space-y-3">
-                {[1, 2, 3].map((i) => (
-                  <div key={i} className="h-16 skeleton rounded-lg" />
-                ))}
-              </div>
-            ) : filteredProjects.length === 0 ? (
-              <Card className="bg-transparent border-none shadow-none">
-                <EmptyState
-                  icon={tab === 'archived' ? <Archive className="w-10 h-10" /> : <FolderOpen className="w-10 h-10" />}
-                  title={tab === 'archived' ? '回收站是空的' : searchQuery ? '没有找到匹配的项目' : '还没有项目'}
-                  description={
-                    tab === 'archived'
-                      ? '删除的项目会保留在这里，可随时恢复'
-                      : searchQuery
-                        ? '试试其他关键词'
-                        : '点击右侧快捷操作开始创作你的第一个 AI 短剧'
-                  }
-                />
-              </Card>
-            ) : (
-              <div className="space-y-2.5 relative">
-                {menuOpenId && (
-                  <div className="fixed inset-0 z-30" onClick={() => setMenuOpenId(null)} />
-                )}
+          {isLoading ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+              {[1, 2, 3].map((i) => (
+                <div key={i} className="h-44 skeleton rounded-[var(--radius-card)]" />
+              ))}
+            </div>
+          ) : filteredProjects.length === 0 ? (
+            <Card>
+              <EmptyState
+                icon={tab === 'archived' ? <Archive className="w-10 h-10" /> : <FolderOpen className="w-10 h-10" />}
+                title={tab === 'archived' ? '回收站是空的' : searchQuery ? '没有找到匹配的项目' : '还没有项目'}
+                description={
+                  tab === 'archived'
+                    ? '删除的项目会保留在这里，可随时恢复'
+                    : searchQuery
+                      ? '试试其他关键词'
+                      : '点击右上角「新建项目」开始创作你的第一个 AI 短剧'
+                }
+              />
+            </Card>
+          ) : (
+            <div className="relative">
+              {menuOpenId && (
+                <div className="fixed inset-0 z-30" onClick={() => setMenuOpenId(null)} />
+              )}
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-4">
                 {filteredProjects.map((project) => {
                   const progress = getProjectProgress(project);
                   const isArchived = tab === 'archived';
+                  const stats = aggStats[project.id];
                   return (
                     <div
                       key={project.id}
                       onClick={isArchived ? undefined : () => navigate(`/project/${project.id}`)}
-                      className={`group glass-hover rounded-[var(--radius-control)] border border-[var(--border)] bg-[var(--card-bg)]/40 px-4 py-3 flex items-center gap-4 backdrop-blur transition-all duration-200 hover:border-[var(--border-hover)] hover:bg-[var(--card-bg)]/70 marquee-border ${
+                      className={`group rounded-[var(--radius-card)] border border-[var(--border)] bg-[var(--card-bg)] px-4 py-4 transition-colors duration-150 hover:border-[var(--border-hover)] hover:bg-[var(--panel-2)] ${
                         isArchived ? 'opacity-80' : 'cursor-pointer'
                       } ${menuOpenId === project.id ? 'z-40' : ''}`}
                     >
-                      {/* 图标 */}
-                      <div className={`w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 ${
-                        isArchived ? 'bg-[var(--panel-3)] text-[var(--ink-3)]' : 'bg-[var(--accent-soft)] text-[var(--accent)]'
-                      }`}>
-                        <Film className="w-5 h-5" />
-                      </div>
-
-                      {/* 信息 */}
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 mb-1">
-                          <h3 className="font-semibold text-[var(--ink-1)] truncate">{project.title}</h3>
-                          {isArchived ? (
-                            <Badge variant="default"><Archive className="w-3 h-3 mr-1 inline" />已归档</Badge>
-                          ) : (
-                            <Badge variant="accent">{getStepLabel(project.pipeline_step)}</Badge>
-                          )}
+                      {/* 顶部：图标 + 标题 + 菜单 */}
+                      <div className="flex items-center gap-3 mb-3">
+                        <div className={`w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 ${
+                          isArchived ? 'bg-[var(--panel-3)] text-[var(--ink-3)]' : 'bg-[var(--accent-soft)] text-[var(--accent)]'
+                        }`}>
+                          <Film className="w-5 h-5" />
                         </div>
-                        <div className="flex items-center gap-4 text-xs text-[var(--ink-3)] font-mono">
-                          <span className="flex items-center gap-1.5">
-                            <Clock className="w-3.5 h-3.5" />
-                            {formatRelativeTime(project.updated_at)}
-                          </span>
-                          {project.style_description && (
-                            <span className="truncate max-w-[220px]" title={project.style_description}>
-                              {project.style_description}
-                            </span>
-                          )}
-                          {!isArchived && (
-                            <span className="flex items-center gap-1.5">
-                              <span className="text-[var(--term-green)]">{progress}%</span>
-                              <span className="w-24 h-1 bg-[var(--panel-3)] rounded-full overflow-hidden inline-block align-middle">
-                                <span className="block h-full bg-[var(--accent)] rounded-full" style={{ width: `${progress}%` }} />
-                              </span>
-                            </span>
-                          )}
+                        <div className="flex-1 min-w-0">
+                          <h3 className="font-semibold text-[14px] text-[var(--ink-1)] truncate leading-snug">{project.title}</h3>
+                          <div className="flex items-center gap-1.5 mt-0.5">
+                            {isArchived ? (
+                              <Badge variant="default" className="text-[11px] px-1.5 py-px"><Archive className="w-3 h-3 mr-0.5" />已归档</Badge>
+                            ) : (
+                              <Badge variant="accent" className="text-[11px] px-1.5 py-px">{getStepLabel(project.pipeline_step)}</Badge>
+                            )}
+                            <Badge variant="default" className="text-[11px] px-1.5 py-px max-w-[140px] truncate">
+                              {getStyleLabel(project)}
+                            </Badge>
+                          </div>
                         </div>
-                      </div>
-
-                      {/* 右侧操作 */}
-                      <div className="flex items-center gap-2 flex-shrink-0">
-                        {!isArchived && (
-                          <span className="hidden md:flex items-center gap-1 text-sm text-[var(--accent)] opacity-0 group-hover:opacity-100 transition-opacity">
-                            继续制作
-                            <ChevronRight className="w-4 h-4" />
-                          </span>
-                        )}
-                        <div className="relative">
+                        <div className="relative flex-shrink-0">
                           <button
                             type="button"
                             className={`w-8 h-8 rounded-md flex items-center justify-center text-[var(--ink-3)] hover:text-[var(--ink-1)] hover:bg-[var(--panel-3)] ${isArchived ? '' : 'opacity-45 hover:opacity-100'} transition-opacity`}
@@ -526,60 +556,62 @@ export function Dashboard() {
                           )}
                         </div>
                       </div>
+
+                      {/* 进度条（4px） */}
+                      {!isArchived && (
+                        <div className="flex items-center gap-2 mb-3">
+                          <div className="flex-1 h-1 bg-[var(--panel-3)] rounded-full overflow-hidden">
+                            <div className="h-full bg-[var(--accent)] rounded-full" style={{ width: `${progress}%` }} />
+                          </div>
+                          <span className="text-[11px] text-[var(--term-green)] tabular-nums flex-shrink-0">{progress}%</span>
+                        </div>
+                      )}
+
+                      {/* 底部信息 */}
+                      <div className="flex items-center gap-3 text-[12px] text-[var(--ink-3)]">
+                        <span className="flex items-center gap-1.5">
+                          <Clapperboard className="w-3.5 h-3.5" />
+                          {isArchived ? '—' : stats ? `${stats.episodes} 集 · ${stats.shots} 镜` : '统计中...'}
+                        </span>
+                        {!isArchived && (
+                          <span className="flex items-center gap-1.5">
+                            <Video className="w-3.5 h-3.5" />
+                            {stats ? `${stats.videos} 视频` : '—'}
+                          </span>
+                        )}
+                        <span className="ml-auto flex items-center gap-1 flex-shrink-0">
+                          {formatRelativeTime(project.updated_at)}
+                        </span>
+                      </div>
+
+                      {!isArchived && (
+                        <div className="mt-3 flex items-center gap-1 text-sm text-[var(--accent)] opacity-0 group-hover:opacity-100 transition-opacity">
+                          继续制作
+                          <ChevronRight className="w-4 h-4" />
+                        </div>
+                      )}
                     </div>
                   );
                 })}
               </div>
-            )}
-          </div>
-
-          {/* 右：快捷操作 */}
-          <div className="glass-panel rounded-[var(--radius-card)] p-5 marquee-border">
-            <div className="term-label mb-1">QUICK ACTIONS</div>
-            <h2 className="text-base font-bold text-[var(--ink-1)] mb-4">快捷操作</h2>
-            <div className="space-y-2 mb-6">
-              {quickActions.map((action) => (
-                <button
-                  key={action.label}
-                  onClick={action.onClick}
-                  className="w-full flex items-center gap-3 px-3 py-2.5 rounded-[var(--radius-control)] border border-[var(--border)] bg-[var(--card-bg)]/40 hover:border-[var(--border-hover)] hover:bg-[var(--accent-soft)] transition-all group glass-hover marquee-border"
-                >
-                  <div className="w-8 h-8 rounded-md bg-[var(--accent-soft)] text-[var(--accent)] flex items-center justify-center group-hover:scale-110 transition-transform">
-                    <action.icon className="w-4 h-4" />
-                  </div>
-                  <div className="text-left">
-                    <div className="text-sm font-medium text-[var(--ink-1)]">{action.label}</div>
-                    <div className="text-xs text-[var(--ink-3)]">{action.desc}</div>
-                  </div>
-                </button>
-              ))}
             </div>
-
-            {/* 端点信息 */}
-            <div className="term-box rounded-xl p-3">
-              <p className="flex items-center gap-1.5 text-xs font-medium text-cyan-400">
-                <Zap className="h-3 w-3" />PIPELINE_ENDPOINT
-              </p>
-              <p className="term-prompt mt-1 font-mono text-xs text-[var(--ink-1)]/90">http://127.0.0.1:3000/api</p>
-            </div>
-          </div>
+          )}
         </div>
 
         {/* 近 7 天活跃趋势 */}
-        <div className="glass-panel rounded-[var(--radius-card)] p-5 mb-8 marquee-border">
+        <Card className="p-5 mb-8">
           <div className="flex items-center justify-between mb-4">
             <div>
-              <div className="term-label mb-1">ACTIVITY</div>
-              <h2 className="text-base font-bold text-[var(--ink-1)]">近 7 天项目活跃</h2>
+              <h2 className="text-sm font-semibold text-[var(--ink-1)]">近 7 天项目活跃</h2>
+              <p className="text-[11px] text-[var(--ink-3)] mt-0.5">按项目更新时间统计</p>
             </div>
-            <div className="term-line term-line--dim"><span className="text-[var(--ink-3)]">按项目更新时间统计</span></div>
           </div>
-          <div className="flex h-48 items-stretch justify-between gap-2">
+          <div className="flex h-40 items-stretch justify-between gap-2">
             {trendData.map((d) => (
               <div key={d.label} className="flex flex-1 flex-col items-center gap-2">
                 <span className="text-xs font-mono text-[var(--ink-2)]">{d.count || ''}</span>
                 <div
-                  className="w-full max-w-[48px] rounded-t-lg bg-gradient-to-t from-blue-500/60 to-purple-500 glow-purple transition-all duration-500 hover:from-purple-500/60 hover:to-cyan-500"
+                  className="w-full max-w-[48px] rounded-t-md bg-[var(--accent)] transition-colors duration-500"
                   style={{ height: `${Math.max(8, (d.count / maxTrend) * 100)}%`, opacity: d.count > 0 ? 1 : 0.15 }}
                 >
                   <span className="flex h-full items-start justify-center pt-1 text-[10px] font-bold text-white">{d.count > 0 ? d.count : ''}</span>
@@ -588,7 +620,7 @@ export function Dashboard() {
               </div>
             ))}
           </div>
-        </div>
+        </Card>
       </main>
 
       {/* 创建项目三步向导 */}

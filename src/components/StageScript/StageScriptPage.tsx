@@ -10,6 +10,7 @@ import {
   RefreshCw,
   Clock,
   Mic2,
+  Users,
 } from 'lucide-react';
 import { Tabs, Button, Card, EmptyState, Badge, Textarea } from '../ui';
 import { SectionHeader, EpisodeSelector } from '../common';
@@ -330,8 +331,8 @@ export function StageScriptPage() {
   const renderDialogueRow = (beat: DialogueBeat) => {
     const isEditing = editingLine === beat.lineIndex;
     return (
-      <div key={beat.lineIndex} className="flex items-start gap-2 text-sm">
-        <span className={`flex-shrink-0 px-2 py-0.5 rounded-md text-xs font-medium ${colorForName(beat.name)}`}>
+      <div key={beat.lineIndex} className="flex items-start gap-2 text-[13px]">
+        <span className={`flex-shrink-0 px-2 py-0.5 rounded-md text-[13px] font-semibold leading-relaxed ${colorForName(beat.name)}`}>
           {beat.name}
         </span>
         {isEditing ? (
@@ -351,7 +352,7 @@ export function StageScriptPage() {
           </div>
         ) : (
           <span
-            className="text-[var(--ink-1)] leading-relaxed cursor-text hover:bg-[var(--panel-2)] rounded px-1.5 py-0.5 transition-colors"
+            className="text-[var(--ink-1)] leading-[1.6] cursor-text hover:bg-[var(--panel-2)] rounded px-1.5 py-0.5 transition-colors"
             onClick={() => startEdit(beat.lineIndex, beat.name, beat.text)}
             title="点击编辑台词"
           >
@@ -392,6 +393,15 @@ export function StageScriptPage() {
         description="场次节拍流与台词本，台词直接对接TTS"
         actions={
           <>
+            <EpisodeSelector />
+            <Button
+              size="md"
+              variant="outline"
+              leftIcon={<Users className="w-4 h-4" />}
+              onClick={() => navigate(`/project/${id}/characters`)}
+            >
+              提取角色
+            </Button>
             <Button
               size="md"
               variant="outline"
@@ -413,20 +423,17 @@ export function StageScriptPage() {
         }
       />
 
-      <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
-        <EpisodeSelector />
-        <div className="flex items-center gap-2">
-          <Badge variant="accent">
-            {currentEpisode.status === 'edited' ? '已编辑' : '已生成'}
-          </Badge>
-          <Badge variant="default">
-            <Clock className="w-3 h-3 mr-1" />
-            {currentEpisode.word_count || 0} 字
-          </Badge>
-          {currentEpisode.chapter_range && (
-            <Badge variant="default">{currentEpisode.chapter_range}</Badge>
-          )}
-        </div>
+      <div className="flex items-center gap-2 mb-4 flex-wrap">
+        <Badge variant="accent">
+          {currentEpisode.status === 'edited' ? '已编辑' : '已生成'}
+        </Badge>
+        <Badge variant="default">
+          <Clock className="w-3 h-3 mr-1" />
+          {currentEpisode.word_count || 0} 字
+        </Badge>
+        {currentEpisode.chapter_range && (
+          <Badge variant="default">{currentEpisode.chapter_range}</Badge>
+        )}
       </div>
 
       <Tabs value={view} onValueChange={(v) => setView(v as 'flow' | 'book')} defaultValue="flow">
@@ -509,10 +516,10 @@ export function StageScriptPage() {
                           beat.type === 'action' ? (
                             <div
                               key={beat.lineIndex}
-                              className="flex items-start gap-2 text-sm bg-[var(--panel-2)] rounded-lg px-3 py-2 text-[var(--ink-2)] leading-relaxed"
+                              className="flex items-start gap-2.5 bg-[var(--panel-2)] rounded-lg px-3.5 py-2.5 text-[13px] leading-[1.6] text-[var(--ink-2)]"
                             >
-                              <span className="flex-shrink-0">🎬</span>
-                              <span>{beat.text}</span>
+                              <Film className="w-3.5 h-3.5 text-[var(--ink-3)] flex-shrink-0 mt-0.5" />
+                              <span className="flex-1">{beat.text}</span>
                             </div>
                           ) : (
                             renderDialogueRow(beat)
@@ -574,7 +581,7 @@ export function StageScriptPage() {
                 return (
                   <Card key={group.name} className="overflow-hidden">
                     <div className="px-5 py-3.5 border-b border-[var(--border)] flex items-center gap-3 flex-wrap">
-                      <span className={`px-2.5 py-1 rounded-md text-sm font-medium ${colorForName(group.name)}`}>
+                      <span className={`px-2.5 py-1 rounded-md text-[13px] font-semibold ${colorForName(group.name)}`}>
                         {group.name}
                       </span>
                       <Badge variant="default">{group.lines.length} 句</Badge>
@@ -612,7 +619,7 @@ export function StageScriptPage() {
                               </div>
                             ) : (
                               <span
-                                className="flex-1 text-[var(--ink-1)] leading-relaxed cursor-text hover:bg-[var(--panel-2)] rounded px-1.5 py-0.5 transition-colors"
+                                className="flex-1 text-[13px] text-[var(--ink-1)] leading-[1.6] cursor-text hover:bg-[var(--panel-2)] rounded px-1.5 py-0.5 transition-colors"
                                 onClick={() => startEdit(line.lineIndex, group.name, line.text)}
                                 title="点击编辑台词"
                               >

@@ -122,7 +122,7 @@ export function TaskCenter() {
       {open && (
         <div className="fixed inset-0 z-[60]">
           <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setOpen(false)} />
-          <div className="absolute right-0 top-0 h-full w-full max-w-md bg-[var(--bg)] border-l border-[var(--border)] shadow-2xl flex flex-col animate-slide-in-right">
+          <div className="absolute right-0 top-0 h-full w-full max-w-md bg-[var(--bg)] border-l border-[var(--border)] shadow-[var(--shadow-modal)] flex flex-col animate-slide-in-right">
             {/* 头部 */}
             <div className="px-5 py-4 border-b border-[var(--border)] flex items-center gap-2">
               <Bell className="w-5 h-5 text-[var(--accent)]" />
@@ -160,7 +160,7 @@ export function TaskCenter() {
                   return (
                     <div
                       key={task.id}
-                      className="rounded-xl border border-[var(--border)] bg-[var(--panel-2)]/40 p-3.5"
+                      className="rounded-[var(--radius-card)] border border-[var(--border)] bg-[var(--card-bg)] p-3.5"
                     >
                       <div className="flex items-center gap-2 mb-1.5">
                         <span className={cn('flex-shrink-0', sv.className)}>{sv.icon}</span>
@@ -170,9 +170,9 @@ export function TaskCenter() {
                         <span className={cn('text-xs ml-auto flex-shrink-0', sv.className)}>{sv.label}</span>
                       </div>
                       {isActive && (
-                        <div className="h-1.5 bg-[var(--bg)] rounded-full overflow-hidden mb-2">
+                        <div className="h-1.5 bg-[var(--border)] rounded-full overflow-hidden mb-2">
                           <div
-                            className="h-full bg-gradient-to-r from-[var(--accent)] to-[var(--accent-2)] rounded-full transition-all"
+                            className="h-full bg-[var(--accent)] rounded-full transition-all"
                             style={{ width: `${Math.max(5, Math.min(95, task.progress || 0))}%` }}
                           />
                         </div>

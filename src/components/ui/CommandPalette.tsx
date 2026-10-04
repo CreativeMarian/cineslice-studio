@@ -228,7 +228,7 @@ export function CommandPalette() {
     return (
       <div className="fixed inset-0 z-[70] flex items-start justify-center pt-[12vh] px-4">
         <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={close} />
-        <div className="relative w-full max-w-md bg-[var(--bg)] border border-[var(--border)] rounded-2xl shadow-[var(--shadow-float)] overflow-hidden animate-slide-up">
+        <div className="relative w-full max-w-md bg-[var(--bg)] border border-[var(--border)] rounded-[var(--radius-shell)] shadow-[var(--shadow-modal)] overflow-hidden animate-slide-up">
           <div className="px-5 py-4 border-b border-[var(--border)] flex items-center gap-2">
             <KeyboardIcon className="w-5 h-5 text-[var(--accent)]" />
             <h3 className="font-semibold text-[var(--ink-1)]">快捷键</h3>
@@ -257,7 +257,7 @@ export function CommandPalette() {
   return (
     <div className="fixed inset-0 z-[70] flex items-start justify-center pt-[12vh] px-4">
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={close} />
-      <div className="relative w-full max-w-xl bg-[var(--bg)] border border-[var(--border)] rounded-2xl shadow-[var(--shadow-float)] overflow-hidden animate-slide-up">
+      <div className="relative w-full max-w-xl bg-[var(--bg)] border border-[var(--border)] rounded-[var(--radius-shell)] shadow-[var(--shadow-modal)] overflow-hidden animate-slide-up">
         {/* 搜索输入 */}
         <div className="flex items-center gap-3 px-4 py-3.5 border-b border-[var(--border)]">
           <Search className="w-5 h-5 text-[var(--ink-3)] flex-shrink-0" />

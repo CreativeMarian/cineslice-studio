@@ -335,7 +335,7 @@ export function ExportPackageModal({ open, onOpenChange }: ExportPackageModalPro
         <div className="p-4 rounded-xl border border-[var(--accent)]/30 bg-[var(--accent-soft)]/20">
           <div className="flex items-center justify-between flex-wrap gap-3">
             <div className="flex items-start gap-3 min-w-0">
-              <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-[var(--accent)] to-[var(--accent-2)] flex items-center justify-center flex-shrink-0">
+              <div className="w-10 h-10 rounded-lg bg-[var(--accent)] flex items-center justify-center flex-shrink-0">
                 <Package className="w-5 h-5 text-[var(--on-accent)]" />
               </div>
               <div className="min-w-0">
@@ -447,7 +447,7 @@ export function ExportPackageModal({ open, onOpenChange }: ExportPackageModalPro
                 </div>
                 <div className="w-full h-2 bg-[var(--panel-3)] rounded-full overflow-hidden">
                   <div
-                    className="h-full bg-gradient-to-r from-[var(--accent)] to-[var(--accent-2)] transition-all duration-500"
+                    className="h-full bg-[var(--accent)] transition-all duration-500"
                     style={{ width: `${composeResult.progress || 0}%` }}
                   />
                 </div>

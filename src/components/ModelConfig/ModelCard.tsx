@@ -228,8 +228,8 @@ export function ModelCard({ meta, config, defaultExpanded = false }: ModelCardPr
 
           {/* 配置提示 */}
           {meta.configHint && (
-            <div className="mt-3 p-2 bg-blue-50 dark:bg-blue-900/20 rounded-md border border-blue-200 dark:border-blue-800">
-              <div className="text-xs text-blue-700 dark:text-blue-300">💡 {meta.configHint}</div>
+            <div className="mt-3 p-2 bg-[var(--accent-soft)] rounded-md border border-[var(--accent)]/20">
+              <div className="text-xs text-[var(--accent-2)]">💡 {meta.configHint}</div>
             </div>
           )}
 
@@ -328,7 +328,7 @@ export function ModelCard({ meta, config, defaultExpanded = false }: ModelCardPr
                     rows={4}
                     className="w-full px-3 py-2 text-sm border border-[var(--border)] rounded-md bg-[var(--bg)] text-[var(--ink)] font-mono focus:outline-none focus:ring-1 focus:ring-[var(--accent)]"
                   />
-                  {configError && <p className="text-xs text-red-500 mt-1">{configError}</p>}
+                  {configError && <p className="text-xs text-[var(--term-red)] mt-1">{configError}</p>}
                   <p className="text-xs text-[var(--ink-3)] mt-1">
                     {requiresEndpointId && endpointId ? (
                       <>
@@ -356,14 +356,14 @@ export function ModelCard({ meta, config, defaultExpanded = false }: ModelCardPr
             <Button onClick={handleTest} size="sm" variant="outline" disabled={isTesting || !isConfigured}>
               {isTesting ? '测试中...' : '测试连接'}
             </Button>
-            {testResult === 'success' && <span className="text-green-500 text-sm">✓</span>}
-            {testResult === 'error' && <span className="text-red-500 text-sm">✗</span>}
+            {testResult === 'success' && <span className="text-[var(--success)] text-sm">✓</span>}
+            {testResult === 'error' && <span className="text-[var(--term-red)] text-sm">✗</span>}
             {isConfigured && (
               <>
                 <Button onClick={handleSetDefault} size="sm" variant="ghost" disabled={config?.is_default}>
                   <Star size={14} className="mr-1" /> 设为默认
                 </Button>
-                <Button onClick={handleDelete} size="sm" variant="ghost" className="text-red-500 hover:text-red-600 dark:text-red-400">
+                <Button onClick={handleDelete} size="sm" variant="ghost" className="text-[var(--term-red)] hover:text-[var(--term-red)]">
                   <Trash2 size={14} className="mr-1" /> 删除
                 </Button>
               </>
@@ -386,7 +386,7 @@ export function ModelCard({ meta, config, defaultExpanded = false }: ModelCardPr
     >
       {meta.modelType === 'video' ? (
         <div className="space-y-3 text-sm text-[var(--ink-2)]">
-          <div className="flex items-start gap-2 p-3 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 text-amber-700 dark:text-amber-300">
+          <div className="flex items-start gap-2 p-3 rounded-lg bg-[rgba(245,158,11,0.12)] border border-[rgba(245,158,11,0.3)] text-[var(--warning)]">
             <AlertTriangle className="w-4 h-4 mt-0.5 flex-shrink-0" />
             <span>切换视频模型会影响后续出片质量与一致性，请确认以下风险：</span>
           </div>

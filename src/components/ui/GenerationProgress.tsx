@@ -71,28 +71,28 @@ export function GenerationProgress({
   if (!isGenerating && !error && !success) return null;
 
   const statusColor = isError
-    ? 'border-red-500/30 bg-red-500/10'
+    ? 'border-[var(--danger)]/40 bg-[var(--danger)]/10'
     : isSuccess
-    ? 'border-green-500/30 bg-green-500/10'
-    : 'border-[var(--accent)]/30 bg-[var(--accent-soft)]/30';
+    ? 'border-[var(--success)]/40 bg-[var(--success)]/10'
+    : 'border-[var(--border)]';
 
   const iconColor = isError
-    ? 'text-red-500'
+    ? 'text-[var(--danger)]'
     : isSuccess
-    ? 'text-green-500'
+    ? 'text-[var(--success)]'
     : 'text-[var(--accent)]';
 
   const barColor = isError
-    ? 'bg-red-500'
+    ? 'bg-[var(--danger)]'
     : isSuccess
-    ? 'bg-green-500'
+    ? 'bg-[var(--success)]'
     : 'bg-[var(--accent)]';
 
   const displayStage = isError ? `生成失败: ${error}` : isSuccess ? success : stage;
 
   if (compact) {
     return (
-      <div className={cn('p-2 rounded-lg border', statusColor, className)}>
+      <div className={cn('p-2 rounded-lg border bg-[var(--panel-2)]', statusColor, className)}>
         <div className="flex items-center gap-2 mb-1.5">
           <div className={cn('flex-shrink-0', iconColor)}>
             {isError ? (
@@ -105,17 +105,17 @@ export function GenerationProgress({
               <Sparkles className={cn('w-4 h-4', isGenerating && 'animate-pulse')} />
             )}
           </div>
-          <p className={cn('text-xs font-medium flex-1 truncate', isError ? 'text-red-600 dark:text-red-400' : isSuccess ? 'text-green-600 dark:text-green-400' : 'text-[var(--ink-1)]')}>
+          <p className={cn('text-xs font-medium flex-1 truncate', isError ? 'text-[var(--danger)]' : isSuccess ? 'text-[var(--success)]' : 'text-[var(--ink-1)]')}>
             {displayStage}
           </p>
           {!isError && !isSuccess && !isIndeterminate && (
-            <span className="text-[10px] text-[var(--ink-3)] flex-shrink-0">
+            <span className="text-[10px] text-[var(--ink-2)] flex-shrink-0">
               {Math.round(progress)}%
             </span>
           )}
         </div>
         {!isError && !isSuccess && (
-          <div className="w-full h-1 bg-[var(--panel-2)] rounded-full overflow-hidden relative">
+          <div className="w-full h-1 bg-[var(--border)] rounded-full overflow-hidden relative">
             {isIndeterminate ? (
               <div className={cn('h-full rounded-full progress-indeterminate', barColor)} />
             ) : (
@@ -133,7 +133,7 @@ export function GenerationProgress({
   return (
     <Card className={cn('p-4', statusColor, className)}>
       <div className="flex items-center gap-3 mb-3">
-        <div className={cn('w-10 h-10 rounded-xl bg-[var(--accent-soft)] flex items-center justify-center flex-shrink-0', isError && 'bg-red-500/10', isSuccess && 'bg-green-500/10')}>
+        <div className={cn('w-10 h-10 rounded-lg bg-[var(--accent-soft)] flex items-center justify-center flex-shrink-0', isError && 'bg-[var(--danger)]/10', isSuccess && 'bg-[var(--success)]/10')}>
           {isError ? (
             <AlertCircle className={cn('w-5 h-5', iconColor)} />
           ) : isSuccess ? (
@@ -145,7 +145,7 @@ export function GenerationProgress({
           )}
         </div>
         <div className="flex-1 min-w-0">
-          <p className={cn('text-sm font-semibold truncate', isError ? 'text-red-600 dark:text-red-400' : isSuccess ? 'text-green-600 dark:text-green-400' : 'text-[var(--ink-1)]')}>
+          <p className={cn('text-sm font-semibold truncate', isError ? 'text-[var(--danger)]' : isSuccess ? 'text-[var(--success)]' : 'text-[var(--ink-1)]')}>
             {displayStage}
           </p>
           <p className="text-xs text-[var(--ink-3)] flex items-center gap-2 mt-0.5">
@@ -170,7 +170,7 @@ export function GenerationProgress({
         )}
       </div>
       {!isError && !isSuccess && (
-        <div className="w-full h-2 bg-[var(--panel-2)] rounded-full overflow-hidden relative">
+        <div className="w-full h-1 bg-[var(--border)] rounded-full overflow-hidden relative">
           {isIndeterminate ? (
             <div className={cn('h-full rounded-full progress-indeterminate', barColor)} />
           ) : (

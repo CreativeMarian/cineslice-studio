@@ -12,11 +12,11 @@ import {
   Settings,
   Cpu,
   Home,
+  CheckCircle2,
 } from 'lucide-react';
 import { cn, getPipelineStageFromPath, isPipelineStageDone } from '../utils';
 import { useUIStore } from '../stores/useUIStore';
 import { pipelineService, type ProjectProgressData } from '../services/pipelineService';
-import { CheckCircle2 } from 'lucide-react';
 
 // 五段管线导航（shuohao-skills 对齐）
 const STAGE_NAV = [
@@ -26,6 +26,12 @@ const STAGE_NAV = [
   { key: 'script', label: '剧本', path: 'script', icon: FileText, description: '场次流 · 台词本' },
   { key: 'director', label: '导演台', path: 'director', icon: Clapperboard, description: '分镜 · 视频 · 导出' },
 ];
+
+const ITEM_BASE =
+  'flex items-center gap-3 h-8 rounded-md text-[13px] font-medium transition-colors duration-150 ease-out';
+const ITEM_IDLE = 'text-[var(--ink-2)] hover:bg-[var(--panel-2)] hover:text-[var(--ink-1)]';
+const ITEM_ACTIVE =
+  'bg-[var(--panel-2)] text-[var(--ink-1)] shadow-[inset_2px_0_0_var(--accent)]';
 
 export function Sidebar() {
   const { id } = useParams();
@@ -48,25 +54,26 @@ export function Sidebar() {
   return (
     <aside
       className={cn(
-        'flex flex-col border-r border-[var(--border)] glass-panel transition-all duration-300 marquee-border marquee-border--pause',
-        sidebarCollapsed ? 'w-[68px]' : 'w-[220px]'
+        'flex flex-col border-r border-[var(--border)] bg-[var(--bg)] transition-[width] duration-200 ease-out flex-shrink-0',
+        sidebarCollapsed ? 'w-[64px]' : 'w-[240px]'
       )}
     >
       {/* Logo 区 */}
-      <div className="h-16 flex items-center justify-between px-4 border-b border-[var(--border)]">
-        <NavLink to="/" className="flex items-center gap-2.5">
-          <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-[var(--accent)] to-[var(--accent-2)] flex items-center justify-center shadow-[0_4px_12px_var(--accent-glow)] flex-shrink-0">
+      <div className="h-12 flex items-center justify-between px-4 border-b border-[var(--border)] flex-shrink-0">
+        <NavLink to="/" className="flex items-center gap-2.5 min-w-0">
+          <div className="w-8 h-8 rounded-lg bg-[var(--accent)] flex items-center justify-center flex-shrink-0">
             <Film className="w-4 h-4 text-[var(--on-accent)]" />
           </div>
           {!sidebarCollapsed && (
-            <span className="font-bold text-[var(--ink-1)] text-base font-[var(--font-display)] tracking-tight">
+            <span className="font-semibold text-[var(--ink-1)] text-sm font-[var(--font-display)] tracking-tight truncate">
               CineSlice
             </span>
           )}
         </NavLink>
         <button
           onClick={toggleSidebar}
-          className="p-1.5 rounded-lg hover:bg-[var(--panel-2)] text-[var(--ink-3)] hover:text-[var(--ink-1)] transition-colors flex-shrink-0"
+          className="p-1.5 rounded-md hover:bg-[var(--panel-2)] text-[var(--ink-3)] hover:text-[var(--ink-1)] transition-colors flex-shrink-0"
+          title={sidebarCollapsed ? '展开侧边栏' : '折叠侧边栏'}
         >
           {sidebarCollapsed ? (
             <ChevronRight className="w-4 h-4" />
@@ -77,9 +84,9 @@ export function Sidebar() {
       </div>
 
       {/* 五段管线导航 */}
-      <nav className="flex-1 p-3 space-y-1 overflow-y-auto">
+      <nav className="flex-1 p-2.5 space-y-0.5 overflow-y-auto">
         {!sidebarCollapsed && (
-          <p className="text-[10px] font-semibold text-[var(--ink-3)] uppercase tracking-wider px-3 mb-2 mt-2">
+          <p className="text-[10px] font-semibold text-[var(--ink-3)] uppercase tracking-wider px-3 mb-1.5 mt-1">
             创作管线
           </p>
         )}
@@ -91,26 +98,21 @@ export function Sidebar() {
               key={item.key}
               to={item.path ? `/project/${id}/${item.path}` : `/project/${id}`}
               className={cn(
-                'flex items-center gap-3 px-3 py-2.5 rounded-[var(--radius-control)] text-sm font-medium transition-all duration-200 group',
-                active
-                  ? 'bg-[var(--accent-soft)] text-[var(--accent)] shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]'
-                  : 'text-[var(--ink-2)] hover:bg-[var(--panel-2)] hover:text-[var(--ink-1)]',
+                ITEM_BASE,
+                active ? ITEM_ACTIVE : ITEM_IDLE,
                 sidebarCollapsed && 'justify-center px-0'
               )}
-              title={sidebarCollapsed ? item.label : undefined}
+              title={sidebarCollapsed ? item.label : item.description}
             >
               <item.icon className={cn(
-                'w-5 h-5 flex-shrink-0 transition-transform group-hover:scale-110',
+                'w-4 h-4 flex-shrink-0',
                 active && 'text-[var(--accent)]'
               )} />
               {!sidebarCollapsed && (
-                <div className="flex flex-col min-w-0">
-                  <span className="leading-tight">{item.label}</span>
-                  <span className="text-[10px] text-[var(--ink-3)] leading-tight mt-0.5">{item.description}</span>
-                </div>
+                <span className="flex-1 truncate">{item.label}</span>
               )}
               {!sidebarCollapsed && done && (
-                <CheckCircle2 className="w-4 h-4 text-green-500 ml-auto flex-shrink-0" />
+                <CheckCircle2 className="w-3.5 h-3.5 text-[var(--success)] ml-auto flex-shrink-0" />
               )}
             </Link>
           );
@@ -118,9 +120,9 @@ export function Sidebar() {
       </nav>
 
       {/* 系统链接 */}
-      <div className="p-3 border-t border-[var(--border)] space-y-1">
+      <div className="p-2.5 border-t border-[var(--border)] space-y-0.5 flex-shrink-0">
         {!sidebarCollapsed && (
-          <p className="text-[10px] font-semibold text-[var(--ink-3)] uppercase tracking-wider px-3 mb-2">
+          <p className="text-[10px] font-semibold text-[var(--ink-3)] uppercase tracking-wider px-3 mb-1.5">
             系统
           </p>
         )}
@@ -128,44 +130,40 @@ export function Sidebar() {
           to="/models"
           className={({ isActive }) =>
             cn(
-              'flex items-center gap-3 px-3 py-2.5 rounded-[var(--radius-control)] text-sm font-medium transition-all duration-200',
-              isActive
-                ? 'bg-[var(--panel-2)] text-[var(--ink-1)]'
-                : 'text-[var(--ink-2)] hover:bg-[var(--panel-2)] hover:text-[var(--ink-1)]',
+              ITEM_BASE,
+              isActive ? ITEM_ACTIVE : ITEM_IDLE,
               sidebarCollapsed && 'justify-center px-0'
             )
           }
           title={sidebarCollapsed ? '模型配置' : undefined}
         >
-          <Cpu className="w-5 h-5 flex-shrink-0" />
+          <Cpu className="w-4 h-4 flex-shrink-0" />
           {!sidebarCollapsed && <span>模型配置</span>}
         </NavLink>
         <NavLink
           to={`/project/${id}/settings`}
           className={({ isActive }) =>
             cn(
-              'flex items-center gap-3 px-3 py-2.5 rounded-[var(--radius-control)] text-sm font-medium transition-all duration-200',
-              isActive
-                ? 'bg-[var(--panel-2)] text-[var(--ink-1)]'
-                : 'text-[var(--ink-2)] hover:bg-[var(--panel-2)] hover:text-[var(--ink-1)]',
+              ITEM_BASE,
+              isActive ? ITEM_ACTIVE : ITEM_IDLE,
               sidebarCollapsed && 'justify-center px-0'
             )
           }
           title={sidebarCollapsed ? '项目设置' : undefined}
         >
-          <Settings className="w-5 h-5 flex-shrink-0" />
+          <Settings className="w-4 h-4 flex-shrink-0" />
           {!sidebarCollapsed && <span>项目设置</span>}
         </NavLink>
         <NavLink
           to="/"
           className={cn(
-            'flex items-center gap-3 px-3 py-2.5 rounded-[var(--radius-control)] text-sm font-medium transition-all duration-200',
-            'text-[var(--ink-2)] hover:bg-[var(--panel-2)] hover:text-[var(--ink-1)]',
+            ITEM_BASE,
+            ITEM_IDLE,
             sidebarCollapsed && 'justify-center px-0'
           )}
           title={sidebarCollapsed ? '返回首页' : undefined}
         >
-          <Home className="w-5 h-5 flex-shrink-0" />
+          <Home className="w-4 h-4 flex-shrink-0" />
           {!sidebarCollapsed && <span>返回首页</span>}
         </NavLink>
       </div>

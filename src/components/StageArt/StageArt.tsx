@@ -10,6 +10,7 @@ import {
   RefreshCw,
   Wand2,
   Trash2,
+  Users,
 } from 'lucide-react';
 import { Tabs, Button, Card, EmptyState, Badge, Modal, Input, Select, Textarea } from '../ui';
 import { SectionHeader, EpisodeSelector } from '../common';
@@ -49,8 +50,10 @@ export function StageArt() {
   const {
     scenes,
     setScenes,
+    characters,
     currentEpisodeId,
     episodes,
+    loadCharacters,
   } = useProjectStore();
   const { showToast } = useUIStore();
   const { getDefaultModel } = useDefaultModels();
@@ -81,9 +84,10 @@ export function StageArt() {
   useEffect(() => {
     if (currentEpisodeId) {
       useProjectStore.getState().loadScenes(currentEpisodeId);
+      loadCharacters(currentEpisodeId);
       loadProps(currentEpisodeId);
     }
-  }, [currentEpisodeId, loadProps]);
+  }, [currentEpisodeId, loadProps, loadCharacters]);
 
   const currentEpisode = episodes.find((e) => e.id === currentEpisodeId);
 
@@ -269,8 +273,24 @@ export function StageArt() {
         </span>
       </div>
 
-      <Tabs value={tab} onValueChange={(v) => setTab(v as 'scenes' | 'props')} defaultValue="scenes">
+      <Tabs
+        value={tab}
+        onValueChange={(v) => {
+          if (v === 'characters') {
+            navigate(`/project/${id}/characters`);
+            return;
+          }
+          setTab(v as 'scenes' | 'props');
+        }}
+        defaultValue="scenes"
+      >
         <Tabs.List>
+          <Tabs.Trigger value="characters">
+            <Users className="w-4 h-4 mr-2" /> 角色
+            <span className="ml-2 text-xs text-[var(--ink-3)] bg-[var(--panel-2)] px-1.5 py-0.5 rounded-full">
+              {characters.length}
+            </span>
+          </Tabs.Trigger>
           <Tabs.Trigger value="scenes">
             <MapPin className="w-4 h-4 mr-2" /> 场景
             <span className="ml-2 text-xs text-[var(--ink-3)] bg-[var(--panel-2)] px-1.5 py-0.5 rounded-full">
@@ -313,8 +333,8 @@ export function StageArt() {
                 const hasImage = !!selectedImg?.url;
                 const isGenerating = generatingSceneImages.has(scene.id);
                 return (
+                  <div key={scene.id} className="transition-transform duration-150 hover:-translate-y-0.5">
                   <Card
-                    key={scene.id}
                     hover
                     className="overflow-hidden"
                     onClick={() => navigate(`/project/${id}/art/scene/${scene.id}`)}
@@ -327,7 +347,7 @@ export function StageArt() {
                           className="w-full h-full object-cover"
                         />
                       ) : (
-                        <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-[var(--panel-2)] to-[var(--panel-3)]">
+                        <div className="w-full h-full flex items-center justify-center bg-[var(--panel-3)]">
                           <MapPin className="w-10 h-10 text-[var(--ink-3)]" />
                         </div>
                       )}
@@ -378,6 +398,7 @@ export function StageArt() {
                       )}
                     </div>
                   </Card>
+                  </div>
                 );
               })}
             </div>
@@ -410,8 +431,8 @@ export function StageArt() {
               {props.map((prop: Prop) => {
                 const thumb = (prop.concept_images ?? [])[0]?.url;
                 return (
+                  <div key={prop.id} className="transition-transform duration-150 hover:-translate-y-0.5">
                   <Card
-                    key={prop.id}
                     hover
                     className="p-4"
                     onClick={() => navigate(`/project/${id}/art/prop/${prop.id}`)}
@@ -445,6 +466,7 @@ export function StageArt() {
                       </div>
                     </div>
                   </Card>
+                  </div>
                 );
               })}
             </div>

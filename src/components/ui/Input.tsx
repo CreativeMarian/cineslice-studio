@@ -26,10 +26,10 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
           <input
             ref={ref}
             className={cn(
-              'w-full h-10 px-3 rounded-[var(--radius-control)] border bg-[var(--panel-2)]',
+              'w-full h-8 px-3 rounded-[var(--radius-control)] border bg-[var(--panel-2)]',
               'border-[var(--border)] text-[var(--ink-1)] placeholder-[var(--ink-3)]',
               'focus:outline-none focus:border-[var(--accent)] focus:ring-2 focus:ring-[var(--accent-soft)]',
-              'transition-all duration-200 text-sm',
+              'transition-all duration-150 ease-out text-sm',
               leftIcon && 'pl-10',
               rightIcon && 'pr-10',
               error && 'border-[var(--color-danger)] focus:border-[var(--color-danger)] focus:ring-[rgba(255,107,90,0.2)]',
@@ -68,10 +68,10 @@ export const Textarea = forwardRef<HTMLTextAreaElement, TextareaProps>(
         <textarea
           ref={ref}
           className={cn(
-            'w-full px-3 py-2.5 rounded-[var(--radius-control)] border bg-[var(--panel-2)]',
+            'w-full px-3 py-2 rounded-[var(--radius-control)] border bg-[var(--panel-2)]',
             'border-[var(--border)] text-[var(--ink-1)] placeholder-[var(--ink-3)]',
             'focus:outline-none focus:border-[var(--accent)] focus:ring-2 focus:ring-[var(--accent-soft)]',
-            'transition-all duration-200 resize-y min-h-[100px] text-sm leading-relaxed',
+            'transition-all duration-150 ease-out resize-y min-h-[80px] text-sm leading-relaxed',
             error && 'border-[var(--color-danger)] focus:border-[var(--color-danger)]',
             className
           )}

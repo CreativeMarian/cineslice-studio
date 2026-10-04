@@ -38,6 +38,35 @@ export function getVideoRatio(aspectRatio: string | null | undefined): VideoRati
   return ASPECT_RATIO_TO_VIDEO_RATIO[key] || '16:9';
 }
 
+/** aiProxy.generateImage 支持的 size 白名单 */
+export type KeyframeSize =
+  | '512x512'
+  | '1024x1024'
+  | '1024x1792'
+  | '1792x1024'
+  | '2048x2048'
+  | '2048x1152'
+  | '2560x1440'
+  | '1440x2560';
+
+/**
+ * P1-9: 关键帧尺寸（管线路径与手动路径统一入口）
+ * 按项目宽高比映射；目标尺寸不在 aiProxy.generateImage 白名单时取最接近的受支持尺寸：
+ * 9:16→1440x2560，1:1→2048x2048，4:3→1792x1024（目标 1920x1440 不在白名单，取最接近横版），
+ * 3:4→1024x1792（目标 1440x1920 不在白名单，取最接近竖版），
+ * 21:9→2560x1440（目标 2560x1080 不在白名单，取最接近横版），未知/空默认 2560x1440
+ */
+export function getKeyframeSize(aspectRatio: string | null | undefined): KeyframeSize {
+  switch (String(aspectRatio || '').trim()) {
+    case '9:16': return '1440x2560';
+    case '1:1': return '2048x2048';
+    case '4:3': return '1792x1024';
+    case '3:4': return '1024x1792';
+    case '21:9': return '2560x1440';
+    default: return '2560x1440';
+  }
+}
+
 /** 阶段名称（与分镜生成提示词保持一致；曾在 shotGenerator/videoComposer/autoPipeline 三处重复定义） */
 export const PHASE_NAMES = ['开场引入', '矛盾升级', '高潮爆发', '收束悬念'] as const;
 

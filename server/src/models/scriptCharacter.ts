@@ -19,6 +19,79 @@ function parseCharacter(row: any): ScriptCharacter {
   return result;
 }
 
+/**
+ * P1-4: 删除角色时级联清理该项目所有分镜 JSON 字段中的该角色引用：
+ * characters_in_shot（角色名/ID 数组）、blocking（调度条目）、character_outfits（{"角色名"/"角色ID":"造型名"}）
+ * 遍历角色所在项目的全部剧集分镜；JSON 解析失败时保留原样（不误伤其他数据）
+ */
+function cleanShotReferences(db: Database, character: ScriptCharacter): void {
+  const charId = character.id;
+  const charName = character.name || '';
+  if (!character.episode_id) return;
+  const ep = db.prepare('SELECT project_id FROM novel_episodes WHERE id = ?').get(character.episode_id) as { project_id?: string } | undefined;
+  if (!ep?.project_id) return;
+  const episodes = db.prepare('SELECT id FROM novel_episodes WHERE project_id = ?').all(ep.project_id) as Array<{ id: string }>;
+  if (episodes.length === 0) return;
+  const placeholders = episodes.map(() => '?').join(',');
+  const shotRows = db.prepare(
+    `SELECT id, characters_in_shot, blocking, character_outfits FROM shots WHERE episode_id IN (${placeholders})`
+  ).all(...episodes.map(e => e.id)) as any[];
+
+  for (const row of shotRows) {
+    const setClauses: string[] = [];
+    const params: unknown[] = [];
+
+    // characters_in_shot：移除角色 ID / 名称
+    if (row.characters_in_shot) {
+      try {
+        const arr = JSON.parse(row.characters_in_shot);
+        if (Array.isArray(arr)) {
+          const cleaned = arr.filter((x: any) => x !== charId && x !== charName);
+          if (cleaned.length !== arr.length) {
+            setClauses.push('characters_in_shot = ?');
+            params.push(JSON.stringify(cleaned));
+          }
+        }
+      } catch { /* 解析失败保留原样 */ }
+    }
+
+    // blocking：移除该角色调度条目（promptBuilder 对未匹配条目已有"角色"回退，不会输出 UUID）
+    if (row.blocking) {
+      try {
+        const arr = JSON.parse(row.blocking);
+        if (Array.isArray(arr)) {
+          const cleaned = arr.filter((b: any) => b?.character_id !== charId && b?.character_name !== charName);
+          if (cleaned.length !== arr.length) {
+            setClauses.push('blocking = ?');
+            params.push(JSON.stringify(cleaned));
+          }
+        }
+      } catch { /* 解析失败保留原样 */ }
+    }
+
+    // character_outfits：移除该角色键（兼容 {"角色名":"造型名"} 与 {"角色ID":"造型名"} 两种格式）
+    if (row.character_outfits) {
+      try {
+        const obj = JSON.parse(row.character_outfits);
+        if (obj && typeof obj === 'object' && !Array.isArray(obj)) {
+          const cleaned: Record<string, string> = { ...obj };
+          for (const key of Object.keys(cleaned)) {
+            if (key === charId || key === charName) delete cleaned[key];
+          }
+          if (Object.keys(cleaned).length !== Object.keys(obj).length) {
+            setClauses.push('character_outfits = ?');
+            params.push(JSON.stringify(cleaned));
+          }
+        }
+      } catch { /* 解析失败保留原样 */ }
+    }
+
+    if (setClauses.length > 0) {
+      db.prepare(`UPDATE shots SET ${setClauses.join(', ')} WHERE id = ?`).run(...params, row.id);
+    }
+  }
+}
+
 export const ScriptCharacterDAO = {
   create(db: Database, data: { user_id: string; episode_id: string; name: string; gender?: string; role_type?: string; description?: string; visual_description?: string; character_profile?: string; visual_prompt?: string; voice_prompt?: string; detail_images?: string; identity_lock?: string; wardrobe?: string }): ScriptCharacter {
     const id = generateId('char');
@@ -74,6 +147,9 @@ export const ScriptCharacterDAO = {
   delete(db: Database, id: string): void {
     // P1-25: 级联删除 character_outfits（角色删除后避免孤儿服装记录）
     db.prepare('DELETE FROM character_outfits WHERE character_id = ?').run(id);
+    // P1-4: 级联清理该项目所有分镜 JSON 字段中的该角色引用（characters_in_shot/blocking/character_outfits）
+    const character = this.getById(db, id);
+    if (character) cleanShotReferences(db, character);
     db.prepare('DELETE FROM script_characters WHERE id = ?').run(id);
   },
 

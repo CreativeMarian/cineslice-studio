@@ -16,7 +16,7 @@ export function ProjectSettingsPage() {
   return (
     <div className="p-6 max-w-[800px] mx-auto">
       <div className="flex items-center gap-3 mb-6">
-        <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-[var(--accent)] to-[var(--accent-2)] flex items-center justify-center shadow-[0_4px_12px_var(--accent-glow)]">
+        <div className="w-10 h-10 rounded-xl bg-[var(--accent)] flex items-center justify-center">
           <Clapperboard className="w-5 h-5 text-[var(--on-accent)]" />
         </div>
         <div>

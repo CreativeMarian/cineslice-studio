@@ -14,6 +14,7 @@ import { createError } from '../middleware/errorHandler';
 import { ErrorCodes } from '../errors';
 import { aiProxy } from './aiProxy';
 import { buildFullKeyframePrompt } from './promptBuilder';
+import { getKeyframeSize } from '../constants';
 import {
   collectShotReferenceImages,
   generateKeyframeCandidates,
@@ -66,11 +67,20 @@ export async function generateKeyframesForShot(
         const epChars = ScriptCharacterDAO.listByEpisode(db, shot.episode_id);
         c = epChars.find((x: any) => x.name === ref) || null;
       }
-      if (c) {
-        charactersInShot.push(c);
-        if (c.reference_image_url) referenceImages.push(c.reference_image_url);
-      }
+      if (c) charactersInShot.push(c);
     }
+  }
+  // P1-1: 角色参考图改用 collectShotReferenceImages（与视频生成一致，完整 fallback 链：
+  //       镜头造型定妆照 → 默认造型 → reference_image_url → concept_images → four_view）。
+  //       手动生成概念图后 assets 路由只写 concept_images 不写 reference_image_url，
+  //       旧逻辑只认 reference_image_url 会引用不到最新概念图——断链根因。
+  try {
+    const shotRefImages = collectShotReferenceImages(db, shot);
+    for (const imgUrl of shotRefImages) {
+      if (imgUrl && !referenceImages.includes(imgUrl)) referenceImages.push(imgUrl);
+    }
+  } catch (refErr) {
+    console.warn('[Keyframe] 角色参考图收集失败（回退无参考图）:', (refErr as Error).message);
   }
 
   // 获取参考场景：优先传入的 referenceSceneId，缺省自动用 shot.scene_id
@@ -106,19 +116,11 @@ export async function generateKeyframesForShot(
   const types = frameTypes || ['first', 'last'];
   const results = [];
 
-  // P1-6: 手动关键帧尺寸从项目宽高比读取。
-  // 注：aiProxy.generateImage 仅接受固定尺寸白名单，故 4:3/3:4/21:9 取最接近的受支持尺寸：
-  //     9:16→1440x2560，1:1→2048x2048，4:3→1792x1024（最接近横版），3:4→1024x1792（最接近竖版），21:9→2560x1440，默认2560x1440
+  // P1-9: 关键帧尺寸统一走 constants.getKeyframeSize（管线路径与手动路径同一映射）。
+  // 注：aiProxy.generateImage 仅接受固定尺寸白名单，4:3/3:4/21:9 目标尺寸不在白名单，
+  //     函数内取最接近的受支持尺寸（见 constants.ts 注释）
   const project = episode ? (ProjectDAO.getById(db, episode.project_id) || null) : null;
-  const KEYFRAME_SIZE_BY_RATIO: Record<string, '512x512' | '1024x1024' | '1024x1792' | '1792x1024' | '2048x2048' | '2048x1152' | '2560x1440' | '1440x2560'> = {
-    '9:16': '1440x2560',
-    '1:1': '2048x2048',
-    '4:3': '1792x1024',
-    '3:4': '1024x1792',
-    '21:9': '2560x1440',
-  };
-  const keyframeSize: '512x512' | '1024x1024' | '1024x1792' | '1792x1024' | '2048x2048' | '2048x1152' | '2560x1440' | '1440x2560'
-    = (project?.aspect_ratio && KEYFRAME_SIZE_BY_RATIO[project.aspect_ratio]) || '2560x1440';
+  const keyframeSize = getKeyframeSize(project?.aspect_ratio || null);
 
   for (const frameType of types) {
     try {

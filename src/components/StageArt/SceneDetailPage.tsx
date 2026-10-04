@@ -415,7 +415,7 @@ export function SceneDetailPage() {
                   className="absolute -translate-x-1/2 -translate-y-1/2 flex flex-col items-center"
                   style={{ left: `${item.x * 100}%`, top: `${item.y * 100}%` }}
                 >
-                  <span className="w-2.5 h-2.5 rounded-full bg-[var(--accent)] shadow-[0_0_6px_var(--accent-glow)]" />
+                  <span className="w-2.5 h-2.5 rounded-full bg-[var(--accent)]" />
                   <span className="text-[9px] text-[var(--ink-2)] bg-[var(--bg)]/80 px-1 rounded whitespace-nowrap">{item.name}</span>
                 </div>
               ))}

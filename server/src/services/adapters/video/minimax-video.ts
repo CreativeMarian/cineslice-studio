@@ -36,6 +36,18 @@ export class MiniMaxVideoAdapter implements VideoAdapter {
       text: prompt,
     });
 
+    // 一致性参考图（reference-to-video）：H3 V2 content 支持 role=reference_image，
+    // 官方文档允许与首尾帧任意组合，用于角色/场景/道具锚定防漂移；限制最多 2 张避免超限
+    if (params.referenceImages && params.referenceImages.length > 0) {
+      for (const refUrl of params.referenceImages.slice(0, 2)) {
+        content.push({
+          type: 'image_url',
+          image_url: { url: refUrl },
+          role: 'reference_image',
+        });
+      }
+    }
+
     // 图生视频：首帧图片
     const isImageToVideo = !!params.firstFrameImageUrl;
     if (params.firstFrameImageUrl) {

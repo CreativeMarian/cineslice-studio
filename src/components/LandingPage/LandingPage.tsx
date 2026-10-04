@@ -71,16 +71,14 @@ export function LandingPage() {
   return (
     <div className="min-h-screen bg-[var(--page)] text-[var(--ink-1)] overflow-x-hidden">
       <style>{`
-        @keyframes shimmer { 0%{background-position:200% 0} 100%{background-position:-200% 0} }
-        .gradient-text { background: linear-gradient(135deg,#2b74f5,#8ab4f8,#2b74f5); background-size:200% auto; -webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text; animation:shimmer 3s linear infinite; }
         .reveal { transition: all 0.8s cubic-bezier(0.16,1,0.3,1); }
       `}</style>
 
-      {/* 导航栏（轻玻璃） */}
-      <nav className="fixed top-0 left-0 right-0 z-50 bg-[var(--card-bg)] border-b border-[var(--border)] backdrop-blur-sm">
+      {/* 导航栏 */}
+      <nav className="fixed top-0 left-0 right-0 z-50 bg-[var(--card-bg)] border-b border-[var(--border)]">
         <div className="max-w-7xl mx-auto px-6 py-3.5 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-[var(--accent)] flex items-center justify-center font-bold text-white text-lg shadow-[0_4px_12px_rgba(43,116,245,0.25)]">M</div>
+            <div className="w-10 h-10 rounded-xl bg-[var(--accent)] flex items-center justify-center font-bold text-white text-lg">M</div>
             <span className="font-bold text-xl text-[var(--ink-1)]">CineSlice Studio</span>
           </div>
           <div className="hidden md:flex items-center gap-8">
@@ -92,7 +90,7 @@ export function LandingPage() {
           </div>
           <div className="flex items-center gap-4">
             <a href="/login" className="text-[var(--ink-2)] hover:text-[var(--accent)] transition-colors">登录</a>
-            <a href="/login" className="px-5 py-2.5 bg-[var(--accent)] text-white font-semibold rounded-xl hover:brightness-110 transition-all shadow-[0_2px_8px_rgba(43,116,245,0.25)]">
+            <a href="/login" className="px-5 py-2.5 bg-[var(--accent)] text-white font-semibold rounded-xl hover:brightness-110 transition-all">
               免费开始
             </a>
           </div>
@@ -109,14 +107,14 @@ export function LandingPage() {
           </div>
           <h1 className="font-bold text-5xl md:text-6xl lg:text-7xl text-[var(--ink-1)] mb-6 leading-tight">
             用 AI 把小说<br />
-            <span className="gradient-text">变成视频</span>
+            <span className="text-[var(--accent)]">变成视频</span>
           </h1>
           <p className="text-xl text-[var(--ink-2)] max-w-3xl mx-auto mb-12 leading-relaxed">
             上传一篇小说，AI 自动完成剧本改编、角色设计、场景绘制、分镜生成、关键帧、配音、视频合成，
             <span className="text-[var(--accent)] font-semibold"> 9 步全流程自动化</span>，你只需要点几下鼠标。
           </p>
           <div className="flex flex-col sm:flex-row items-center justify-center gap-4 mb-16">
-            <a href="/login" className="w-full sm:w-auto px-8 py-4 bg-[var(--accent)] text-white font-bold text-lg rounded-2xl hover:brightness-110 transition-all shadow-[0_4px_16px_rgba(43,116,245,0.3)]">
+            <a href="/login" className="w-full sm:w-auto px-8 py-4 bg-[var(--accent)] text-white font-bold text-lg rounded-2xl hover:brightness-110 transition-all">
               立即开始创作 →
             </a>
             <button onClick={() => scrollTo('workflow')} className="w-full sm:w-auto px-8 py-4 bg-[var(--card-bg)] border border-[var(--border)] text-[var(--ink-1)] font-semibold text-lg rounded-2xl hover:border-[var(--border-hover)] transition-all shadow-[var(--shadow-card)]">
@@ -178,7 +176,7 @@ export function LandingPage() {
             {workflow.map((w, i) => (
               <div key={i} className={`bg-[var(--card-bg)] border border-[var(--border)] rounded-2xl p-6 reveal opacity-0 translate-y-8 hover:-translate-y-1 transition-all duration-300 shadow-[var(--shadow-card)] ${w.featured ? 'border-[var(--accent)]/30' : ''}`} style={{ transitionDelay: `${i * 0.05}s` }}>
                 <div className="flex items-start gap-4">
-                  <div className={`w-12 h-12 rounded-xl bg-[var(--accent)] flex items-center justify-center font-bold text-white text-xl flex-shrink-0 shadow-[0_2px_8px_rgba(43,116,245,0.25)] ${w.featured ? 'animate-pulse' : ''}`}>{w.step}</div>
+                  <div className={`w-12 h-12 rounded-xl bg-[var(--accent)] flex items-center justify-center font-bold text-white text-xl flex-shrink-0 ${w.featured ? 'animate-pulse' : ''}`}>{w.step}</div>
                   <div>
                     <h4 className={`font-bold text-lg mb-2 ${w.featured ? 'text-[var(--accent)]' : 'text-[var(--ink-1)]'}`}>{w.title}</h4>
                     <p className="text-[var(--ink-2)] text-sm leading-relaxed">{w.desc}</p>
@@ -206,7 +204,7 @@ export function LandingPage() {
           <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
             {styles.map((s, i) => (
               <div key={i} className={`bg-[var(--card-bg)] border border-[var(--border)] rounded-3xl overflow-hidden reveal opacity-0 translate-y-8 hover:-translate-y-2 transition-all duration-300 shadow-[var(--shadow-card)] hover:shadow-[var(--shadow-float)] ${s.featured ? 'border-[var(--accent)]/40' : ''}`} style={{ transitionDelay: `${i * 0.05}s` }}>
-                <div className={`h-40 bg-gradient-to-br ${s.featured ? 'from-[var(--accent-soft)] to-[var(--panel-3)]' : 'from-[var(--panel-2)] to-[var(--panel-3)]'} flex items-center justify-center relative`}>
+                <div className="h-40 bg-[var(--panel-3)] flex items-center justify-center relative">
                   <span className="text-5xl">🎬</span>
                 </div>
                 <div className="p-6">
@@ -277,16 +275,15 @@ export function LandingPage() {
       <section className="py-24 relative">
         <div className="max-w-4xl mx-auto px-6 text-center">
           <div className="bg-[var(--card-bg)] border border-[var(--border)] rounded-3xl p-12 md:p-16 relative overflow-hidden reveal opacity-0 translate-y-8 shadow-[var(--shadow-float)]">
-            <div className="absolute inset-0 bg-gradient-to-br from-[var(--accent-soft)] via-transparent to-[var(--accent-soft)]"></div>
             <div className="relative z-10">
               <h2 className="font-bold text-4xl md:text-5xl text-[var(--ink-1)] mb-6">
-                现在就开始你的<br /><span className="gradient-text">AI 影视创作之旅</span>
+                现在就开始你的<br /><span className="text-[var(--accent)]">AI 影视创作之旅</span>
               </h2>
               <p className="text-xl text-[var(--ink-2)] mb-10">
                 上传你的第一篇小说，让 AI 帮你变成视频。
               </p>
               <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
-                <a href="/login" className="w-full sm:w-auto px-10 py-4 bg-[var(--accent)] text-white font-bold text-lg rounded-2xl hover:brightness-110 transition-all shadow-[0_4px_16px_rgba(43,116,245,0.3)]">
+                <a href="/login" className="w-full sm:w-auto px-10 py-4 bg-[var(--accent)] text-white font-bold text-lg rounded-2xl hover:brightness-110 transition-all">
                   免费开始创作 →
                 </a>
               </div>
@@ -300,7 +297,7 @@ export function LandingPage() {
         <div className="max-w-7xl mx-auto px-6">
           <div className="flex flex-col md:flex-row items-center justify-between gap-4">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-[var(--accent)] flex items-center justify-center font-bold text-white text-lg shadow-[0_4px_12px_rgba(43,116,245,0.25)]">M</div>
+              <div className="w-10 h-10 rounded-xl bg-[var(--accent)] flex items-center justify-center font-bold text-white text-lg">M</div>
               <span className="font-bold text-xl text-[var(--ink-1)]">CineSlice Studio</span>
             </div>
             <p className="text-[var(--ink-3)] text-sm">© 2026 CineSlice Studio. 用 AI 把小说变成视频。</p>

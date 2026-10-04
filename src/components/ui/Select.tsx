@@ -31,11 +31,11 @@ export function Select({
     >
       <SelectPrimitive.Trigger
         className={cn(
-          'flex items-center justify-between w-full h-10 px-3 rounded-[var(--radius-control)] border overflow-hidden',
+          'flex items-center justify-between w-full h-8 px-3 rounded-[var(--radius-control)] border overflow-hidden',
           'bg-[var(--panel-2)] border-[var(--border)]',
           'text-[var(--ink-1)] text-sm',
           'focus:outline-none focus:border-[var(--accent)] focus:ring-2 focus:ring-[var(--accent-soft)]',
-          'transition-all duration-200',
+          'transition-all duration-150 ease-out',
           'disabled:opacity-40 disabled:cursor-not-allowed',
           'hover:border-[var(--border-hover)]',
           className
@@ -70,9 +70,10 @@ Select.Item = function SelectItem({ value, children, className }: SelectItemProp
     <SelectPrimitive.Item
       value={value}
       className={cn(
-        'relative flex items-center w-full px-8 py-2 text-sm rounded-[8px]',
+        'relative flex items-center w-full px-8 py-2 text-sm rounded-[var(--radius-sm)]',
         'text-[var(--ink-1)] cursor-pointer',
         'hover:bg-[var(--panel-2)] focus:bg-[var(--panel-2)]',
+        'data-[state=checked]:bg-[var(--accent-soft)] data-[state=checked]:text-[var(--accent)]',
         'data-[highlighted]:outline-none transition-colors',
         className
       )}

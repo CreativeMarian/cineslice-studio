@@ -32,7 +32,7 @@ Tabs.List = function TabsList({ children, className }: TabsListProps) {
   return (
     <TabsPrimitive.List
       className={cn(
-        'inline-flex items-center gap-1 p-1 rounded-[var(--radius-control)] bg-[var(--panel-2)] border border-[var(--border)]',
+        'flex items-center gap-1 border-b border-[var(--border)]',
         className
       )}
     >
@@ -54,10 +54,11 @@ Tabs.Trigger = function TabsTrigger({ value, children, className, disabled }: Ta
       value={value}
       disabled={disabled}
       className={cn(
-        'inline-flex items-center justify-center px-4 py-2 text-sm font-medium rounded-[8px]',
-        'text-[var(--ink-2)] transition-all duration-200',
-        'hover:text-[var(--ink-1)]',
-        'data-[state=active]:bg-[var(--bg)] data-[state=active]:text-[var(--accent)] data-[state=active]:shadow-[0_1px_3px_rgba(0,0,0,0.3)]',
+        'relative -mb-px inline-flex items-center justify-center px-3 py-2 text-sm font-medium',
+        'border-b-2 border-transparent text-[var(--ink-2)]',
+        'transition-colors duration-150 ease-out',
+        'hover:text-[var(--ink-1)] hover:border-[var(--border-hover)]',
+        'data-[state=active]:text-[var(--ink-1)] data-[state=active]:border-[var(--accent)]',
         'disabled:opacity-40 disabled:cursor-not-allowed',
         className
       )}

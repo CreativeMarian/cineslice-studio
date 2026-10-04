@@ -27,8 +27,8 @@ export function Login() {
     <div className="min-h-screen flex bg-[var(--page)]">
       {/* 左侧视觉区 */}
       <div className="hidden lg:flex lg:w-1/2 relative overflow-hidden">
-        {/* 渐变背景 */}
-        <div className="absolute inset-0 bg-gradient-to-br from-[var(--accent-soft)] via-[var(--page)] to-[var(--panel-2)]" />
+        {/* 背景 */}
+        <div className="absolute inset-0 bg-[var(--card-bg)]" />
         <div className="absolute inset-0 opacity-30" style={{
           backgroundImage: 'radial-gradient(circle at 30% 20%, rgba(43,116,245,0.08) 0%, transparent 50%), radial-gradient(circle at 70% 80%, rgba(91,147,247,0.06) 0%, transparent 50%)'
         }} />
@@ -40,7 +40,7 @@ export function Login() {
         <div className="relative z-10 flex flex-col justify-center px-16 py-20">
           {/* Logo */}
           <div className="flex items-center gap-3 mb-12">
-            <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-[var(--accent)] to-[var(--accent-2)] flex items-center justify-center shadow-[0_8px_32px_rgba(43, 116, 245, 0.35)]">
+            <div className="w-12 h-12 rounded-xl bg-[var(--accent)] flex items-center justify-center">
               <Film className="w-6 h-6 text-[var(--on-accent)]" />
             </div>
             <span className="text-xl font-bold text-[var(--ink-1)] font-[var(--font-display)]">CineSlice Studio</span>
@@ -49,7 +49,7 @@ export function Login() {
           {/* 大标题 */}
           <h1 className="text-5xl font-bold text-[var(--ink-1)] leading-tight mb-6 font-[var(--font-display)] tracking-tight">
             从小说到成片<br />
-            <span className="text-gradient">AI 全流程创作</span>
+            <span className="text-[var(--accent)]">AI 全流程创作</span>
           </h1>
           <p className="text-lg text-[var(--ink-2)] mb-12 max-w-md leading-relaxed">
             上传小说，AI 自动解析章节、生成剧本、提取角色、生成分镜——让每一个故事都能被看见。
@@ -78,7 +78,7 @@ export function Login() {
         <div className="w-full max-w-sm">
           {/* 移动端 Logo */}
           <div className="lg:hidden flex items-center justify-center gap-3 mb-10">
-            <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-[var(--accent)] to-[var(--accent-2)] flex items-center justify-center">
+            <div className="w-12 h-12 rounded-xl bg-[var(--accent)] flex items-center justify-center">
               <Film className="w-6 h-6 text-[var(--on-accent)]" />
             </div>
             <span className="text-xl font-bold text-[var(--ink-1)] font-[var(--font-display)]">CineSlice Studio</span>

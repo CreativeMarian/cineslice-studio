@@ -12,10 +12,10 @@ export interface BadgeProps {
 
 const variantStyles: Record<Variant, string> = {
   default: 'bg-[var(--panel-2)] text-[var(--ink-2)] border border-[var(--border)]',
-  success: 'bg-[rgba(63,203,134,0.12)] text-[var(--color-success)]',
-  warning: 'bg-[rgba(232,163,61,0.12)] text-[var(--color-warning)]',
-  danger: 'bg-[rgba(255,107,90,0.12)] text-[var(--color-danger)]',
-  info: 'bg-[rgba(94,140,255,0.12)] text-[var(--color-info)]',
+  success: 'bg-[rgba(16,185,129,0.12)] text-[var(--success)]',
+  warning: 'bg-[rgba(245,158,11,0.12)] text-[var(--warning)]',
+  danger: 'bg-[rgba(239,68,68,0.12)] text-[var(--danger)]',
+  info: 'bg-[rgba(59,130,246,0.12)] text-[var(--info)]',
   accent: 'bg-[var(--accent-soft)] text-[var(--accent)]',
 };
 
@@ -23,7 +23,7 @@ export function Badge({ children, variant = 'default', className, dot = false }:
   return (
     <span
       className={cn(
-        'inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-[var(--radius-sm)] text-xs font-medium whitespace-nowrap max-w-full',
+        'inline-flex items-center gap-1.5 px-2 py-0.5 rounded-[var(--radius-sm)] text-xs font-medium whitespace-nowrap max-w-full',
         variantStyles[variant],
         className
       )}

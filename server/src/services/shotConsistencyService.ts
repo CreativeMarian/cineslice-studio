@@ -59,13 +59,16 @@ export function parseShotPropIds(shot: Shot): string[] {
 }
 
 /**
- * 分镜场景关联：sceneName → 已有场景精确/包含匹配，未匹配则创建
+ * 分镜场景关联：sceneName → 已有场景精确/包含匹配；未匹配**不创建新场景**
  * 返回 场景名 → scene_id 映射，供 ShotDAO.batchCreate 写入 scene_id
- * （此前分镜不关联场景，shots.scene_id 全空，场景参考图链路完全失效）
+ * P1-7/P1-5: 未匹配的场景名不再自动创建垃圾场景（打 warn 日志，scene_id 置空），
+ * 镜头场景回退为"通用场景描述"（promptBuilder 在 scene 为空时使用通用描述），
+ * 避免 AI 直出的虚构场景名污染 script_scenes 表。
+ * 如需显式创建新场景，由调用方走 ScriptSceneDAO.create 并自行标记"自动创建"。
  */
 export function buildShotSceneMap(
   db: Database,
-  userId: string,
+  _userId: string,
   episodeId: string,
   shots: Array<{ sceneName?: string | null; actionDescription?: string }>
 ): Map<string, string> {
@@ -94,13 +97,8 @@ export function buildShotSceneMap(
     if (matchedId) {
       sceneMap.set(name, matchedId);
     } else {
-      const created = ScriptSceneDAO.create(db, {
-        user_id: userId,
-        episode_id: episodeId,
-        name,
-        description: shots.find(x => String(x.sceneName || '').trim() === name)?.actionDescription || '',
-      });
-      sceneMap.set(name, created.id);
+      // P1-7/P1-5: 不再自动创建垃圾场景——打 warn 日志，scene_id 保持 null（通用场景描述兜底）
+      console.warn(`[ShotConsistency] 分镜场景 "${name}" 未匹配到已有场景，不再自动创建（scene_id 置空，使用通用场景描述）`);
     }
   }
   return sceneMap;
@@ -164,12 +162,22 @@ function matchOutfitNameByScene(character: ScriptCharacter, sceneId: string): st
   return wardrobe[0]?.name || null;
 }
 
-/** 从文本按角色名提取出场角色（镜头未显式标记时兜底） */
+/**
+ * 从文本按角色名提取出场角色（镜头未显式标记时兜底）
+ * P1-3: 精确匹配——按长度降序优先匹配长名，且命中后排除其前缀命中的短名
+ *       （避免"林墨"命中"林墨寒"中的前缀）；去掉 length>=2 限制，单字名（如"李"）也能匹配
+ */
 function extractCharacterNamesFromText(text: string, charNames: string[]): string[] {
   if (!text || charNames.length === 0) return [];
   const found: string[] = [];
-  for (const name of charNames) {
-    if (name && name.length >= 2 && text.includes(name) && !found.includes(name)) found.push(name);
+  const sorted = [...charNames]
+    .filter((n): n is string => !!n && n.trim().length > 0)
+    .sort((a, b) => b.length - a.length);
+  for (const name of sorted) {
+    // 已命中的更长名包含该名（前缀冲突）→ 跳过，防止"林墨"命中"林墨寒"
+    if (text.includes(name) && !found.some(f => f !== name && f.includes(name))) {
+      found.push(name);
+    }
   }
   return found;
 }
@@ -181,7 +189,7 @@ const BLOCKING_POSITION_KEYWORDS = [
 
 /**
  * 构建分镜资产关联（与普通分镜生成路径同一套逻辑，供加料分镜落库复用）：
- * 1. sceneName → buildShotSceneMap 关联/创建场景 → scene_id
+ * 1. sceneName → buildShotSceneMap 关联（P1-7/P1-5：未匹配不再创建垃圾场景）→ scene_id
  * 2. characters_in_shot：显式列表优先，否则从动作描述文本提取角色名
  * 3. blocking：resolveBlockingCharacterIds（显式 blocking 缺失时按已识别角色生成基础调度）
  * 4. character_outfits：按场景匹配服装
@@ -320,8 +328,9 @@ export function collectShotReferenceImages(db: Database, shot: Shot): string[] {
     let img: string | null = null;
 
     // 1. 优先按镜头指定的造型匹配定妆照（剧情驱动的服装一致性）
+    // P0-1: shot.character_outfits 兼容两种键格式——{"角色名":"造型名"} 与 {"角色ID":"造型名"}
     if (shotOutfits) {
-      const outfitName = shotOutfits[char.name];
+      const outfitName = shotOutfits[char.name] || shotOutfits[char.id];
       if (outfitName) {
         const allOutfits = CharacterOutfitDAO.listByCharacter(db, char.id);
         const matched = allOutfits.find(o =>
@@ -571,7 +580,9 @@ export function resolveLastFrameForShot(
     .sort((a, b) => a.shot_number - b.shot_number);
   const next = nextShots[0];
   if (next && shot.use_next_first_frame !== 0) {
-    const sameScene = !shot.scene_id || !next.scene_id || shot.scene_id === next.scene_id;
+    // P1-8: 连戏判定收紧——两镜都有 scene_id 且相等才判为同场景；
+    // 任一为 null 判为"未知"，不做尾帧 morph（避免跨场景误用下一镜首帧导致穿帮）
+    const sameScene = !!shot.scene_id && !!next.scene_id && shot.scene_id === next.scene_id;
     if (sameScene) {
       const nextKeyframes = ShotKeyframeDAO.listByShot(db, next.id);
       const nextFirst = nextKeyframes.find(k => k.frame_type === 'first' && k.image_url)

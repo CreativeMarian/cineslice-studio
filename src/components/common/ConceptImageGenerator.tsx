@@ -146,7 +146,7 @@ export function ConceptImageGenerator({
               </span>
             </button>
           ) : (
-            <div className="w-full h-full flex flex-col items-center justify-center gap-3 bg-gradient-to-br from-[var(--panel-2)] to-[var(--panel-3)]">
+            <div className="w-full h-full flex flex-col items-center justify-center gap-3 bg-[var(--panel-3)]">
               <ImageIcon className="w-10 h-10 text-[var(--ink-3)]" />
               <span className="text-xs text-[var(--ink-3)]">暂无图片</span>
               <Button size="sm" leftIcon={<Sparkles className="w-3.5 h-3.5" />} onClick={openModal} disabled={isGenerating}>

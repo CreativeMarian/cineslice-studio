@@ -10,6 +10,7 @@ import {
 } from '../../../models';
 import { aiProxy } from '../../aiProxy';
 import { buildFullKeyframePrompt } from '../../promptBuilder';
+import { getKeyframeSize } from '../../../constants';
 import { collectShotReferenceImages } from '../../shotConsistencyService';
 import { parseCharactersInShot } from '../../../models/shot';
 import type { AutoPipelineTask } from '../types';
@@ -82,9 +83,10 @@ export async function stageKeyframes(db: Database, task: AutoPipelineTask): Prom
       // 首帧/尾帧画面差异通过替换 shot.action_description 实现（优先 first/last_frame_description，回退动作弧分段）
       // 一致性靠参考图 + 身份锁文字双重约束
       // ═══════════════════════════════════════════════════════════
-      // P1-12: 关键帧尺寸跟随项目画面比例（aspect_ratio='9:16' 时竖屏 1440x2560，否则横屏 2560x1440）
+      // P1-9: 关键帧尺寸统一走 constants.getKeyframeSize（管线路径与手动路径同一映射，
+      // 按项目宽高比严格映射；目标尺寸不在 aiProxy 白名单时取最接近的受支持尺寸，见 constants.ts）
       const project = ProjectDAO.getById(db, first.project_id) || null;
-      const keyframeSize = project?.aspect_ratio === '9:16' ? '1440x2560' : '2560x1440';
+      const keyframeSize = getKeyframeSize(project?.aspect_ratio || null);
       const shotCharacters: ScriptCharacter[] = characterIds
         .map(cid => allCharacters.find((x: any) => x.id === cid) || allCharacters.find((x: any) => x.name === cid))
         .filter((c): c is ScriptCharacter => !!c);

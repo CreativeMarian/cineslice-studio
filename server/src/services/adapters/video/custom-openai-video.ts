@@ -45,6 +45,7 @@ export class CustomOpenAIVideoAdapter implements VideoAdapter {
     if (params.lastFrameImageUrl) {
       body.last_frame = params.lastFrameImageUrl;
     }
+    // TODO: 此模型API不支持图参考（仅 image/last_frame 首尾帧字段，无标准角色参考图字段），角色一致性仅靠提示词
 
     try {
       const data = await httpRequest<any>(`${this.baseUrl}/videos/generations`, {

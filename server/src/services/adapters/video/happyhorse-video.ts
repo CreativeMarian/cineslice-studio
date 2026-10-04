@@ -47,6 +47,7 @@ export class HappyHorseVideoAdapter implements VideoAdapter {
         });
       }
     }
+    // TODO: 此模型API不支持图参考（media 仅支持 first_frame/last_frame，无角色参考图类型），角色一致性仅靠提示词
 
     const body: Record<string, unknown> = {
       model: this.modelName,

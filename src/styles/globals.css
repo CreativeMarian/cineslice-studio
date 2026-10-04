@@ -1,42 +1,39 @@
 /* ============================================================
-   CineSlice Studio 设计系统 v6.0
-   风格：uupm.cc（NexusLLM 同款实现）
-   - 深空蓝黑深色 / 日光玻璃浅色 双主题
-   - 玻璃拟态（blur 22px saturate 180%）
-   - 三色 glow：蓝 #3b82f6 / 紫 #8b5cf6 / 青 #06b6d4
-   - flow-border 跑马灯：hover 时三色光带沿边框横扫
-   - 渐变文字、粒子背景、鼠标光斑、aurora-stream
-   - 终端命令行点缀、点击波纹特效、状态点脉冲
-   - 圆滑黑体 + 深浅主题字体颜色互转
+   CineSlice Studio 设计系统 v7.0
+   风格：克制专业工具风（Linear / Notion / Figma / Cursor / Raycast）
+   - 中性灰黑深色（无蓝调背景），高信息密度
+   - 三级灰度文字 + 单强调色（电光蓝），仅用于关键操作
+   - 统一圆角三档、克制阴影、微交互动效（150ms ease-out）
+   - 深色为默认（:root），浅色备用（.light）
    ============================================================ */
 
 @import "tailwindcss";
 
 @theme {
-  /* ---- 字体（圆滑黑体 + 终端等宽） ---- */
+  /* ---- 字体（Inter 优先 + 中文字体回退 + 终端等宽） ---- */
   --font-display: 'Inter', 'Microsoft YaHei', 'PingFang SC', 'HarmonyOS Sans SC', 'Noto Sans SC', system-ui, sans-serif;
   --font-sans: 'Inter', 'Microsoft YaHei', 'PingFang SC', 'HarmonyOS Sans SC', 'Noto Sans SC', system-ui, -apple-system, sans-serif;
   --font-mono: 'JetBrains Mono', 'Cascadia Code', 'Fira Code', 'SFMono-Regular', 'Microsoft YaHei', monospace;
 
-  /* ---- 品牌色（靛蓝系，兼容旧代码） ---- */
-  --color-accent-50: #eef2ff;
-  --color-accent-100: #e0e7ff;
-  --color-accent-200: #c7d2fe;
-  --color-accent-300: #a5b4fc;
-  --color-accent-400: #818cf8;
-  --color-accent-500: #6366f1;
-  --color-accent-600: #4f46e5;
-  --color-accent-700: #4338ca;
-  --color-accent-800: #3730a3;
-  --color-accent-900: #312e81;
+  /* ---- 强调色阶（电光蓝，兼容旧代码 var(--color-accent-*)） ---- */
+  --color-accent-50: #eff6ff;
+  --color-accent-100: #dbeafe;
+  --color-accent-200: #bfdbfe;
+  --color-accent-300: #93c5fd;
+  --color-accent-400: #60a5fa;
+  --color-accent-500: #3b82f6;
+  --color-accent-600: #2563eb;
+  --color-accent-700: #1d4ed8;
+  --color-accent-800: #1e40af;
+  --color-accent-900: #1e3a8a;
 
-  /* ---- 语义色 ---- */
+  /* ---- 语义色（兼容旧代码 var(--color-*)） ---- */
   --color-success: #10b981;
   --color-warning: #f59e0b;
   --color-danger: #ef4444;
-  --color-info: #0ea5e9;
+  --color-info: #3b82f6;
 
-  /* ---- uupm 三色品牌 ---- */
+  /* ---- 品牌色（兼容旧代码） ---- */
   --color-brand-blue: #3b82f6;
   --color-brand-purple: #8b5cf6;
   --color-brand-cyan: #06b6d4;
@@ -45,68 +42,85 @@
 }
 
 /* ============================================================
-   CSS 变量设计令牌（uupm HSL 体系 + CineSlice 兼容名）
+   CSS 变量设计令牌
+   深色为默认主题（:root），.dark 类无需额外定义；
+   .light 类覆盖为浅色备用主题
    ============================================================ */
 
 :root {
-  /* ===== 浅色主题（日光玻璃） ===== */
-  --page: #f0f1f5;
-  --bg: #ffffff;
-  --card-bg: rgba(255, 255, 255, 0.72);
-  --panel-2: #f4f5f9;
-  --panel-3: #e8ebf2;
-  --border: rgba(100, 116, 139, 0.16);
-  --border-light: rgba(100, 116, 139, 0.10);
-  --border-hover: rgba(124, 92, 240, 0.45);
+  /* ---- 背景层级（中性灰黑，不带蓝调） ---- */
+  --page: #0A0A0B;        /* 页面最底层 */
+  --bg: #111113;          /* 主背景 */
+  --card-bg: #161618;     /* 卡片背景 */
+  --panel-2: #1A1A1E;     /* 次级面板（输入框/hover） */
+  --panel-3: #222226;     /* 三级面板（active/pressed） */
 
-  --ink-1: #1a1f2e;
-  --ink-2: #5b6478;
-  --ink-3: #94a3b8;
+  /* ---- 边框 ---- */
+  --border: #27272A;      /* 默认边框 */
+  --border-light: #1F1F23; /* 轻边框（分隔线） */
+  --border-hover: #3F3F46; /* hover边框 */
 
-  /* 浅色主色：紫（uupm 浅色 primary 258 90% 62%） */
-  --accent: #7c5cf0;
-  --accent-2: #8b5cf6;
-  --accent-soft: rgba(124, 92, 240, 0.08);
-  --accent-glow: rgba(124, 92, 240, 0.25);
-  --on-accent: #ffffff;
+  /* ---- 文字三级灰度 ---- */
+  --ink-1: #F4F4F5;       /* 主文字 */
+  --ink-2: #A1A1AA;       /* 次文字 */
+  --ink-3: #71717A;       /* 辅助文字 */
 
-  /* uupm 三色 glow */
-  --glow-1: #3b82f6;  /* 蓝 */
-  --glow-2: #8b5cf6;  /* 紫 */
-  --glow-3: #06b6d4;  /* 青 */
+  /* ---- 强调色：电光蓝，只用于关键操作 ---- */
+  --accent: #3B82F6;
+  --accent-2: #60A5FA;    /* hover亮 */
+  --accent-soft: rgba(59, 130, 246, 0.1);
+  --accent-glow: rgba(59, 130, 246, 0.2);
+  --on-accent: #FFFFFF;
 
-  /* 终端辅助色 */
-  --term-green: #059669;
-  --term-cyan: #0284c7;
-  --term-yellow: #b45309;
-  --term-red: #dc2626;
-  --term-purple: #7c3aed;
+  /* ---- 语义色 ---- */
+  --success: #10B981;
+  --warning: #F59E0B;
+  --danger: #EF4444;
+  --info: #3B82F6;
 
-  /* 玻璃令牌 */
-  --glass-bg: rgba(255, 255, 255, 0.65);
-  --glass-border: rgba(100, 116, 139, 0.12);
+  /* ---- 终端辅助色（兼容旧代码） ---- */
+  --term-green: #10b981;
+  --term-cyan: #22d3ee;
+  --term-yellow: #f59e0b;
+  --term-red: #ef4444;
+  --term-purple: #a78bfa;
 
-  /* 圆角 */
-  --radius-shell: 16px;
-  --radius-card: 14px;
-  --radius-control: 10px;
-  --radius-sm: 8px;
+  /* ---- 圆角三档 ---- */
+  --radius-sm: 4px;       /* 小元素/badge */
+  --radius-control: 8px;  /* 卡片/按钮/输入框 */
+  --radius-card: 8px;     /* 卡片 */
+  --radius-shell: 12px;   /* 弹窗/大卡片 */
   --radius-pill: 999px;
 
-  /* 阴影 */
-  --shadow-card:
-    0 1px 2px rgba(15, 23, 42, 0.04),
-    0 4px 16px rgba(15, 23, 42, 0.06);
-  --shadow-float:
-    0 2px 6px rgba(15, 23, 42, 0.06),
-    0 12px 32px rgba(15, 23, 42, 0.10);
-  --shadow-glow:
-    0 0 0 1px var(--accent-soft),
-    0 4px 18px -4px var(--accent-glow);
-  --shadow-inset:
-    inset 0 1px 0 rgba(255, 255, 255, 0.9);
+  /* ---- 阴影（克制） ---- */
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.2);
+  --shadow-float: 0 4px 12px rgba(0, 0, 0, 0.3);
+  --shadow-modal: 0 8px 30px rgba(0, 0, 0, 0.5);
+  --shadow-glow: 0 0 0 1px var(--accent-soft), 0 0 12px -2px var(--accent-glow);
 
-  /* 字阶 */
+  /* ---- 字阶（12px辅助 / 13px正文 / 14px小标题 / 16px标题 / 20px大标题 / 28px页面标题） ---- */
+  --text-step-1: 12px;
+  --text-step-2: 13px;
+  --text-step-3: 14px;
+  --text-step-4: 16px;
+  --text-step-5: 20px;
+  --text-step-6: 28px;
+
+  /* ---- 间距（4px 基准） ---- */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-12: 48px;
+
+  /* ---- 动效 ---- */
+  --duration-base: 150ms;
+  --ease-out: ease-out;
+
+  /* ---- 字阶（兼容旧代码） ---- */
   --text-xs: 0.75rem;
   --text-sm: 0.875rem;
   --text-base: 1rem;
@@ -118,77 +132,36 @@
   --text-display: 2.75rem;
 }
 
-/* ===== 深色主题（深空蓝黑，uupm 默认） ===== */
-.dark {
-  --page: #0a0d1a;
-  --bg: #0d1120;
-  --card-bg: rgba(13, 17, 32, 0.72);
-  --panel-2: #121830;
-  --panel-3: #1a2240;
-  --border: rgba(129, 140, 248, 0.16);
-  --border-light: rgba(129, 140, 248, 0.08);
-  --border-hover: rgba(77, 148, 255, 0.5);
-
-  --ink-1: #e6edf7;
-  --ink-2: #94a3c8;
-  --ink-3: #5c6c96;
-
-  /* 深色主色：蓝（uupm 深色 primary 217 91% 60%） */
-  --accent: #4d94ff;
-  --accent-2: #60a5fa;
-  --accent-soft: rgba(77, 148, 255, 0.14);
-  --accent-glow: rgba(77, 148, 255, 0.3);
-  --on-accent: #0a0d1a;
-
-  --glow-1: #3b82f6;
-  --glow-2: #8b5cf6;
-  --glow-3: #06b6d4;
-
-  --term-green: #34d399;
-  --term-cyan: #38bdf8;
-  --term-yellow: #fbbf24;
-  --term-red: #f87171;
-  --term-purple: #c084fc;
-
-  --glass-bg: rgba(13, 17, 32, 0.6);
-  --glass-border: rgba(147, 197, 253, 0.12);
-
-  --shadow-card:
-    0 0 0 1px rgba(129, 140, 248, 0.06),
-    0 4px 20px rgba(0, 0, 0, 0.4);
-  --shadow-float:
-    0 0 0 1px rgba(129, 140, 248, 0.10),
-    0 12px 36px rgba(0, 0, 0, 0.5);
-  --shadow-glow:
-    0 0 0 1px var(--accent-soft),
-    0 0 28px -6px var(--accent-glow);
-  --shadow-inset:
-    inset 0 1px 0 rgba(255, 255, 255, 0.05);
-}
-
-/* 兼容 .light 类 */
+/* ===== 浅色主题（备用） ===== */
 .light {
-  --page: #f0f1f5;
-  --bg: #ffffff;
-  --card-bg: rgba(255, 255, 255, 0.72);
-  --panel-2: #f4f5f9;
-  --panel-3: #e8ebf2;
-  --border: rgba(100, 116, 139, 0.16);
-  --border-light: rgba(100, 116, 139, 0.10);
-  --border-hover: rgba(124, 92, 240, 0.45);
-  --ink-1: #1a1f2e;
-  --ink-2: #5b6478;
-  --ink-3: #94a3b8;
-  --accent: #7c5cf0;
-  --accent-2: #8b5cf6;
-  --accent-soft: rgba(124, 92, 240, 0.08);
-  --accent-glow: rgba(124, 92, 240, 0.25);
-  --on-accent: #ffffff;
-  --glow-1: #3b82f6;
-  --glow-2: #8b5cf6;
-  --glow-3: #06b6d4;
-  --glass-bg: rgba(255, 255, 255, 0.65);
-  --glass-border: rgba(100, 116, 139, 0.12);
+  --page: #F7F7F8;
+  --bg: #FFFFFF;
+  --card-bg: #FFFFFF;
+  --panel-2: #F4F4F5;
+  --panel-3: #E4E4E7;
+  --border: #E4E4E7;
+  --border-light: #F4F4F5;
+  --border-hover: #D4D4D8;
+  --ink-1: #18181B;
+  --ink-2: #71717A;
+  --ink-3: #A1A1AA;
+  --accent: #2563EB;
+  --accent-2: #3B82F6;
+  --accent-soft: rgba(37, 99, 235, 0.08);
+  --accent-glow: rgba(37, 99, 235, 0.15);
+  --on-accent: #FFFFFF;
+  --success: #10B981;
+  --warning: #F59E0B;
+  --danger: #EF4444;
+  --info: #2563EB;
+  --term-green: #059669;
+  --term-cyan: #0891b2;
+  --term-yellow: #d97706;
+  --term-red: #dc2626;
+  --term-purple: #7c3aed;
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.06);
+  --shadow-float: 0 4px 12px rgba(0, 0, 0, 0.08);
+  --shadow-modal: 0 8px 30px rgba(0, 0, 0, 0.12);
 }
 
 /* ============================================================
@@ -213,22 +186,10 @@ body {
   color: var(--ink-1);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  font-size: 15px;
-  line-height: 1.6;
+  font-size: 14px;
+  line-height: 1.5;
   text-rendering: optimizeLegibility;
   overflow-x: hidden;
-}
-
-/* 深色点阵背景 */
-.dark body {
-  background-image: radial-gradient(rgba(129, 140, 248, 0.10) 0.7px, transparent 0.7px);
-  background-size: 24px 24px;
-}
-
-/* 浅色点阵背景 */
-body {
-  background-image: radial-gradient(rgba(100, 116, 139, 0.10) 0.6px, transparent 0.6px);
-  background-size: 24px 24px;
 }
 
 h1, h2, h3, h4, h5, h6 {
@@ -238,26 +199,23 @@ h1, h2, h3, h4, h5, h6 {
   color: var(--ink-1);
 }
 
-/* ===== 滚动条（8px，修复拖拽条问题） ===== */
+/* ===== 自定义滚动条（6px，克制） ===== */
 ::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 6px;
+  height: 6px;
 }
 ::-webkit-scrollbar-track {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: rgba(100, 116, 139, 0.28);
-  border-radius: 8px;
+  background: var(--border);
+  border-radius: 3px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--accent);
+  background: var(--border-hover);
 }
-.dark ::-webkit-scrollbar-thumb {
-  background: rgba(148, 163, 200, 0.25);
-}
-.dark ::-webkit-scrollbar-thumb:hover {
-  background: var(--accent);
+::-webkit-scrollbar-corner {
+  background: transparent;
 }
 
 ::selection {
@@ -275,246 +233,17 @@ input, textarea, select, [contenteditable="true"] { cursor: text; }
 .card, .card-container, [data-cursor="default"] { cursor: default; }
 
 /* ============================================================
-   玻璃拟态（uupm 毛玻璃核心）
-   ============================================================ */
-
-.glass,
-.glass-panel {
-  background: var(--glass-bg);
-  backdrop-filter: blur(22px) saturate(180%);
-  -webkit-backdrop-filter: blur(22px) saturate(180%);
-  border: 1px solid var(--glass-border);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.06),
-    var(--shadow-card);
-}
-
-.glass-strong {
-  background: var(--card-bg);
-  backdrop-filter: blur(30px) saturate(200%);
-  -webkit-backdrop-filter: blur(30px) saturate(200%);
-  border: 1px solid var(--glass-border);
-  box-shadow: var(--shadow-float);
-}
-
-.glass-nav {
-  background: var(--glass-bg);
-  backdrop-filter: blur(28px) saturate(200%);
-  -webkit-backdrop-filter: blur(28px) saturate(200%);
-  border-bottom: 1px solid var(--glass-border);
-}
-
-/* 卡片 hover 强化 */
-.glass-hover {
-  transition: transform 0.25s ease, box-shadow 0.25s ease, border-color 0.25s ease, background 0.25s ease;
-}
-.glass-hover:hover {
-  transform: translateY(-2px);
-  border-color: var(--border-hover);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.08),
-    var(--shadow-float),
-    0 0 32px var(--accent-soft);
-}
-
-/* ============================================================
-   渐变文字（uupm 蓝紫青）
-   ============================================================ */
-
-.gradient-text {
-  background: linear-gradient(135deg, var(--glow-1), var(--glow-2), var(--glow-3));
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
-}
-
-.gradient-text-animated {
-  background: linear-gradient(90deg, var(--glow-1), var(--glow-2), var(--glow-3), var(--glow-1));
-  background-size: 300% 100%;
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-  animation: gradient-shift 8s ease infinite;
-}
-
-.text-gradient {
-  background: linear-gradient(135deg, var(--accent) 0%, var(--accent-2) 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
-}
-
-/* ============================================================
-   霓虹发光
-   ============================================================ */
-
-.glow-blue   { box-shadow: 0 0 24px rgba(59, 130, 246, 0.35); }
-.glow-purple { box-shadow: 0 0 24px rgba(139, 92, 246, 0.35); }
-.glow-cyan   { box-shadow: 0 0 24px rgba(6, 182, 212, 0.35); }
-.glow-green  { box-shadow: 0 0 20px rgba(16, 185, 129, 0.35); }
-.glow-text   { text-shadow: 0 0 20px rgba(59, 130, 246, 0.5); }
-
-/* 霓虹描边卡片（静态渐变边框，hover 显示） */
-.neon-border {
-  position: relative;
-}
-.neon-border::before {
-  content: '';
-  position: absolute;
-  inset: -1px;
-  border-radius: inherit;
-  padding: 1px;
-  background: linear-gradient(135deg, rgba(59,130,246,0.6), rgba(139,92,246,0.6), rgba(6,182,212,0.6));
-  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
-  -webkit-mask-composite: xor;
-  mask-composite: exclude;
-  opacity: 0;
-  transition: opacity 0.3s ease;
-  pointer-events: none;
-}
-.neon-border:hover::before {
-  opacity: 1;
-}
-
-/* ============================================================
-   ★ 跑马灯流光描边（flow-border，uupm/NexusLLM 原版）
-   hover 时三色光带沿边框横扫，像跑马灯
-   ============================================================ */
-
-.flow-border {
-  position: relative;
-}
-.flow-border::after {
-  content: '';
-  position: absolute;
-  inset: -1px;
-  border-radius: inherit;
-  padding: 1px;
-  background: linear-gradient(115deg,
-    rgba(59, 130, 246, 0) 20%,
-    rgba(59, 130, 246, 0.7) 40%,
-    rgba(139, 92, 246, 0.7) 55%,
-    rgba(6, 182, 212, 0.7) 70%,
-    rgba(59, 130, 246, 0) 90%);
-  background-size: 250% 100%;
-  background-position: 100% 0;
-  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
-  -webkit-mask-composite: xor;
-  mask-composite: exclude;
-  opacity: 0;
-  transition: opacity 0.35s ease;
-  pointer-events: none;
-  z-index: 1;
-}
-.flow-border:hover::after {
-  opacity: 1;
-  animation: flow-sweep 1.8s linear infinite;
-}
-
-/* marquee-border 别名（兼容现有代码）= flow-border */
-.marquee-border {
-  position: relative;
-}
-.marquee-border::before {
-  content: '';
-  position: absolute;
-  inset: -1px;
-  border-radius: inherit;
-  padding: 1px;
-  background: linear-gradient(115deg,
-    rgba(59, 130, 246, 0) 20%,
-    rgba(59, 130, 246, 0.7) 40%,
-    rgba(139, 92, 246, 0.7) 55%,
-    rgba(6, 182, 212, 0.7) 70%,
-    rgba(59, 130, 246, 0) 90%);
-  background-size: 250% 100%;
-  background-position: 100% 0;
-  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
-  -webkit-mask-composite: xor;
-  mask-composite: exclude;
-  opacity: 0;
-  transition: opacity 0.35s ease;
-  pointer-events: none;
-  z-index: 1;
-}
-.marquee-border:hover::before,
-.marquee-border--always::before {
-  opacity: 1;
-  animation: flow-sweep 1.8s linear infinite;
-}
-.marquee-border--always::before {
-  opacity: 0.85;
-}
-
-/* ============================================================
-   沉浸式光感 · 鼠标光斑
-   ============================================================ */
-
-.cursor-glow {
-  position: fixed;
-  top: 0;
-  left: 0;
-  width: 100vw;
-  height: 100vh;
-  z-index: 1;
-  pointer-events: none;
-  background: radial-gradient(560px circle at var(--cx, 50%) var(--cy, 50%),
-    rgba(59, 130, 246, 0.08), transparent 65%);
-  opacity: 0;
-  transition: opacity 0.6s ease;
-}
-.cursor-glow.on {
-  opacity: 1;
-}
-
-/* aurora-stream：缓慢旋转的锥形渐变背景光 */
-.aurora-stream {
-  position: absolute;
-  width: 160vw;
-  height: 160vw;
-  left: 50%;
-  top: 50%;
-  transform: translate(-50%, -50%);
-  pointer-events: none;
-  opacity: 0.12;
-  background: conic-gradient(from 0deg,
-    transparent 0deg,
-    transparent 40deg,
-    rgba(59, 130, 246, 0.22) 60deg,
-    rgba(139, 92, 246, 0.18) 100deg,
-    rgba(6, 182, 212, 0.16) 150deg,
-    transparent 210deg,
-    transparent 360deg);
-  filter: blur(70px);
-  animation: stream-rotate 60s linear infinite;
-}
-
-/* 背景光晕 blob */
-.aurora-blob {
-  position: absolute;
-  border-radius: 9999px;
-  filter: blur(100px);
-  opacity: 0.25;
-  pointer-events: none;
-  animation: blob-drift 22s ease-in-out infinite alternate;
-}
-
-/* ============================================================
-   终端风格（uupm 命令行美学）
+   终端风格（保留轻量装饰，无发光）——兼容旧页面
    ============================================================ */
 
 .term-box {
-  background: rgba(2, 6, 23, 0.85);
-  border: 1px solid var(--glass-border);
-  box-shadow: inset 0 1px 0 rgba(255,255,255,0.05), 0 8px 32px rgba(0,0,0,0.4);
+  background: var(--panel-2);
+  border: 1px solid var(--border);
   border-radius: var(--radius-control);
-}
-.dark .term-box {
-  background: rgba(2, 6, 23, 0.7);
 }
 .term-prompt::before {
   content: '$';
-  color: var(--term-cyan);
+  color: var(--accent);
   margin-right: 0.5rem;
   font-weight: 700;
 }
@@ -530,11 +259,10 @@ input, textarea, select, [contenteditable="true"] { cursor: text; }
 }
 .status-dot::before {
   content: '';
-  width: 8px;
-  height: 8px;
+  width: 6px;
+  height: 6px;
   border-radius: 50%;
   background: currentColor;
-  box-shadow: 0 0 8px currentColor;
 }
 .status-dot--running { color: var(--term-green); }
 .status-dot--stopped { color: var(--ink-3); }
@@ -543,7 +271,7 @@ input, textarea, select, [contenteditable="true"] { cursor: text; }
 
 .term-line {
   font-family: var(--font-mono);
-  font-size: 12.5px;
+  font-size: 12px;
   color: var(--ink-2);
   display: flex;
   align-items: center;
@@ -582,45 +310,17 @@ input, textarea, select, [contenteditable="true"] { cursor: text; }
 }
 
 /* ============================================================
-   状态点脉冲
+   状态点脉冲（轻量）
    ============================================================ */
-
-.dot-ping {
-  position: relative;
-}
-.dot-ping::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  border-radius: 9999px;
-  background: currentColor;
-  animation: dot-ping 1.6s cubic-bezier(0, 0, 0.2, 1) infinite;
-}
 
 .pulse-dot { animation: pulseDot 2s ease-in-out infinite; }
-
-/* ============================================================
-   呼吸光晕（引导高亮 / 关键按钮）
-   ============================================================ */
-
-.pulse-glow {
-  animation: pulse-glow 2.4s ease-in-out infinite;
-}
-
-/* 呼吸：柔和起伏 */
-@keyframes breathing {
-  0%, 100% { opacity: 0.72; transform: scale(0.985); }
-  50% { opacity: 1; transform: scale(1); }
-}
-.breathing { animation: breathing 3.2s ease-in-out infinite; }
-.breathing-slow { animation: breathing 4.5s ease-in-out infinite; }
 
 /* ============================================================
    入场动画
    ============================================================ */
 
 .fade-up {
-  animation: fade-up 0.55s cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation: fade-up 0.4s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 .fade-up-1 { animation-delay: 0.06s; }
 .fade-up-2 { animation-delay: 0.12s; }
@@ -628,106 +328,17 @@ input, textarea, select, [contenteditable="true"] { cursor: text; }
 .fade-up-4 { animation-delay: 0.24s; }
 .fade-up-5 { animation-delay: 0.3s; }
 
-.animate-fade-in { animation: fadeIn 0.3s ease-out; }
-.animate-slide-up { animation: slideUp 0.4s cubic-bezier(0.16, 1, 0.3, 1); }
-.animate-slide-in-right { animation: slideInRight 0.3s ease-out; }
+.animate-fade-in { animation: fadeIn 0.2s ease-out; }
+.animate-slide-up { animation: slideUp 0.25s cubic-bezier(0.16, 1, 0.3, 1); }
+.animate-slide-in-right { animation: slideInRight 0.25s ease-out; }
 
 /* ============================================================
-   点击特效（波纹 + 火花 + 核心）
+   骨架屏（呼吸式，无渐变）
    ============================================================ */
 
-.click-burst {
-  position: fixed;
-  z-index: 9999;
-  pointer-events: none;
-}
-.click-burst .ripple-ring {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  border-radius: 9999px;
-  transform: translate(-50%, -50%);
-  animation: click-ripple 0.6s ease-out forwards;
-}
-.click-burst .spark {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  border-radius: 9999px;
-  animation: spark-fly 0.7s ease-out forwards;
-}
-.click-burst .core {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  border-radius: 9999px;
-  transform: translate(-50%, -50%);
-  animation: core-pulse 0.4s ease-out forwards;
-}
-
-/* ============================================================
-   卡片悬浮 & 按钮交互
-   ============================================================ */
-
-.card-hover {
-  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
-}
-.card-hover:hover {
-  transform: translateY(-2px);
-  box-shadow: var(--shadow-float);
-  border-color: var(--border-hover);
-}
-
-.btn-interactive {
-  position: relative;
-  overflow: hidden;
-  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
-}
-.btn-interactive:hover {
-  transform: translateY(-1px);
-  box-shadow: var(--shadow-float);
-}
-.btn-interactive:active {
-  transform: translateY(0) scale(0.98);
-  transition: all 0.08s ease;
-}
-
-.btn-ripple {
-  position: relative;
-  overflow: hidden;
-}
-.btn-ripple::before {
-  content: '';
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  width: 0;
-  height: 0;
-  border-radius: 50%;
-  background: rgba(255, 255, 255, 0.2);
-  transform: translate(-50%, -50%);
-  transition: width 0.6s ease, height 0.6s ease, opacity 0.6s ease;
-  opacity: 0;
-}
-.btn-ripple:active::before {
-  width: 300px;
-  height: 300px;
-  opacity: 1;
-  transition: width 0s, height 0s, opacity 0s;
-}
-
-/* 进度条渐变 */
-.progress-gradient {
-  background: linear-gradient(90deg, var(--glow-1), var(--glow-2), var(--glow-3), var(--glow-1));
-  background-size: 200% 100%;
-  animation: progressShimmer 2s linear infinite;
-}
-
-/* 骨架屏 */
 .skeleton {
-  background: linear-gradient(90deg, var(--panel-2) 25%, var(--panel-3) 50%, var(--panel-2) 75%);
-  background-size: 200% 100%;
-  animation: shimmer 1.8s ease-in-out infinite;
+  background: var(--panel-2);
+  animation: pulseDot 1.8s ease-in-out infinite;
 }
 
 .divider {
@@ -763,28 +374,21 @@ input, textarea, select, [contenteditable="true"] { cursor: text; }
 .no-scrollbar::-webkit-scrollbar { display: none; }
 .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
 
+/* 不确定进度条（无真实进度时使用，不模拟百分比） */
+.progress-indeterminate {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 40%;
+  animation: progress-indeterminate 1.4s ease-in-out infinite;
+}
+
 /* ============================================================
    所有 Keyframes
    ============================================================ */
 
-@keyframes gradient-shift {
-  0%, 100% { background-position: 0% 50%; }
-  50% { background-position: 100% 50%; }
-}
-
-/* ★ 跑马灯扫光：光带从右向左横扫边框 */
-@keyframes flow-sweep {
-  from { background-position: 120% 0; }
-  to { background-position: -30% 0; }
-}
-
-@keyframes stream-rotate {
-  from { transform: translate(-50%, -50%) rotate(0deg); }
-  to { transform: translate(-50%, -50%) rotate(360deg); }
-}
-
 @keyframes fade-up {
-  from { opacity: 0; transform: translateY(14px); }
+  from { opacity: 0; transform: translateY(8px); }
   to { opacity: 1; transform: translateY(0); }
 }
 
@@ -794,7 +398,7 @@ input, textarea, select, [contenteditable="true"] { cursor: text; }
 }
 
 @keyframes slideUp {
-  from { opacity: 0; transform: translateY(12px); }
+  from { opacity: 0; transform: translateY(8px); }
   to { opacity: 1; transform: translateY(0); }
 }
 
@@ -803,66 +407,16 @@ input, textarea, select, [contenteditable="true"] { cursor: text; }
   to { opacity: 1; transform: translateX(0); }
 }
 
-@keyframes shimmer {
-  0% { background-position: 200% 0; }
-  100% { background-position: -200% 0; }
-}
-
 @keyframes pulseDot {
   0%, 100% { opacity: 1; }
-  50% { opacity: 0.4; }
+  50% { opacity: 0.5; }
 }
 
-@keyframes dot-ping {
-  0% { transform: scale(1); opacity: 0.6; }
-  75%, 100% { transform: scale(2.4); opacity: 0; }
-}
-
-@keyframes pulse-glow {
-  0%, 100% { box-shadow: 0 0 18px rgba(59, 130, 246, 0.18); }
-  50% { box-shadow: 0 0 34px rgba(59, 130, 246, 0.42); }
-}
-
-@keyframes blob-drift {
-  0% { transform: translate(0, 0) scale(1); }
-  50% { transform: translate(50px, -40px) scale(1.1); }
-  100% { transform: translate(-40px, 30px) scale(0.94); }
-}
-
-@keyframes click-ripple {
-  0% { width: 0; height: 0; opacity: 0.8; border: 2px solid rgba(96,165,250,0.9); }
-  100% { width: 90px; height: 90px; opacity: 0; border: 2px solid rgba(96,165,250,0); }
-}
-
-@keyframes spark-fly {
-  0% { transform: translate(-50%, -50%) scale(1); opacity: 1; }
-  100% { transform: translate(var(--tx), var(--ty)) scale(0); opacity: 0; }
-}
-
-@keyframes core-pulse {
-  0% { width: 10px; height: 10px; opacity: 1; background: radial-gradient(circle, rgba(255,255,255,0.95), rgba(96,165,250,0.6)); }
-  100% { width: 2px; height: 2px; opacity: 0; background: radial-gradient(circle, rgba(255,255,255,0.5), rgba(96,165,250,0.2)); }
-}
-
-@keyframes progressShimmer {
-  0% { background-position: 200% 0; }
-  100% { background-position: -200% 0; }
+@keyframes progress-indeterminate {
+  0% { left: -40%; }
+  100% { left: 100%; }
 }
 
 @keyframes spin {
   to { transform: rotate(360deg); }
-}
-
-
-/* 不确定进度条（无真实进度时使用，不模拟百分比） */
-.progress-indeterminate {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 40%;
-  animation: progress-indeterminate 1.4s ease-in-out infinite;
-}
-@keyframes progress-indeterminate {
-  0% { left: -40%; }
-  100% { left: 100%; }
 }

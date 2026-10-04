@@ -41,7 +41,7 @@ export function Topbar() {
 
   return (
     <>
-      <header className="h-16 border-b border-[var(--border)] glass-nav flex items-center justify-between px-5 flex-shrink-0">
+      <header className="h-12 border-b border-[var(--border-light)] bg-[var(--bg)] flex items-center justify-between px-5 flex-shrink-0">
         <div className="flex items-center gap-4 min-w-0">
           <button
             onClick={() => navigate('/')}
@@ -96,7 +96,7 @@ export function Topbar() {
           {nextStage && (
             <button
               onClick={handleNextClick}
-              className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[var(--accent-soft)] text-[var(--accent)] text-xs font-medium hover:bg-[var(--accent-soft)]/80 transition-all"
+              className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[var(--accent-soft)] text-[var(--accent)] text-xs font-medium hover:bg-[var(--panel-3)] transition-colors"
               title={`前往${nextStage.label}阶段`}
             >
               <Sparkles className="w-3.5 h-3.5" />
@@ -120,7 +120,7 @@ export function Topbar() {
             onClick={() => setProfileOpen(true)}
             className="flex items-center gap-2.5 pl-1.5 pr-3 py-1.5 rounded-lg hover:bg-[var(--panel-2)] transition-colors"
           >
-            <div className="w-8 h-8 rounded-full bg-gradient-to-br from-[var(--accent)] to-[var(--accent-2)] flex items-center justify-center flex-shrink-0">
+            <div className="w-8 h-8 rounded-full bg-[var(--accent)] flex items-center justify-center flex-shrink-0">
               {user?.avatar_url ? (
                 <img src={user.avatar_url} alt="" className="w-full h-full rounded-full object-cover" />
               ) : (
